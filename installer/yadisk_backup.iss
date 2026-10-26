@@ -9,7 +9,7 @@
 ; ReportKey попадает в собранный установщик, но НЕ в репозиторий.
 
 #ifndef AppVersion
-  #define AppVersion "35.4.5"
+  #define AppVersion "35.4.6"
 #endif
 
 #ifndef ReportKey
@@ -17,7 +17,7 @@
 #endif
 
 #define AppName "Yandex.Disk Backup"
-#define AppPublisher "ex3544 (vovapuh's son)"
+#define AppPublisher "Sergey Pukhir (ex3544, vovapuh's son)"
 #define AppExeName "YandexDiskBackup.exe"
 #define AppIdValue "{{8E4A3F42-6C1D-4A7E-9F2B-3544A1B2C3D4}"
 
@@ -48,7 +48,8 @@ OutputBaseFilename=YandexDiskBackup-{#AppVersion}-setup
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} {#AppVersion}
-LicenseFile=..\LICENSE
+; Соглашение на двух языках: русский текст идёт первым, ниже — оригинал MIT.
+LicenseFile=LICENSE_BILINGUAL.txt
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
@@ -69,6 +70,7 @@ Type: filesandordirs; Name: "{app}\_internal"
 Source: "..\dist\YandexDiskBackup\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE.ru.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; Официальный загрузчик Microsoft Edge WebView2 (Evergreen Bootstrapper).
 ; dontcopy: файл распаковывается только если WebView2 действительно нет.
 Source: "vendor\MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: dontcopy

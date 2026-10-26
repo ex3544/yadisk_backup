@@ -31,7 +31,7 @@
 
 ### Первый запуск и диагностика (этап 2)
 
-- [`version.py`](./version.py) — единая версия: `35.4.4`, издатель `ex3544 (vovapuh's son)`.
+- [`version.py`](./version.py) — единая версия: `35.4.6`, издатель `Sergey Pukhir (ex3544, vovapuh's son)`.
 - [`diagnostics.py`](./diagnostics.py) — сборка ZIP-отчёта и отправка через Cloudflare Worker. В отчёт попадают система, пути, маскированные настройки, статистика баз, статусы задач, хвосты логов и найденные ошибки. **Токен, куки, содержимое файлов и полные базы не включаются**; все строки проходят через `redact_text()`.
 - Большие логи читаются с конца (`seek`), а не целиком: `unlim_backup.log` бывает в сотни мегабайт.
 - Ключ отправки хранится в `DATA_DIR/.report_key.txt` (или `REPORT_KEY` в окружении) и никогда не выводится в отчёт/лог. Без ключа отчёт сохраняется в `DATA_DIR/reports/`.
@@ -52,14 +52,14 @@
 
 ### Сборка и установщик (этап 4)
 
-- `python build_exe.py` → `dist/YandexDiskBackup/` (PyInstaller 6.22.3, Python 3.15, ~155 МБ). Проверено: exe запускается без консоли, окно `Yandex.Disk Backup 35.4.4`, трей, `/api/version`, закрытие окна сворачивает в трей, воркер `YandexDiskBackup.exe main.py stats` работает.
+- `python build_exe.py` → `dist/YandexDiskBackup/` (PyInstaller 6.22.3, Python 3.15, ~155 МБ). Проверено: exe запускается без консоли, окно `Yandex.Disk Backup 35.4.6`, трей, `/api/version`, закрытие окна сворачивает в трей, воркер `YandexDiskBackup.exe main.py stats` работает.
 - Секретов разработчика в `dist/` нет: `.env`, куки, базы и ключи не попадают в сборку.
 - [`installer/yadisk_backup.iss`](./installer/yadisk_backup.iss) — установщик Inno Setup 6: admin, `Program Files`, ярлыки, необязательный автозапуск, сохранение данных при удалении.
 - Если WebView2 нет, установщик сам запускает официальный Microsoft Edge WebView2 Bootstrapper (`/silent /install`) и проверяет результат в реестре. Нет интернета/не удалось — приложение откроется в браузере.
 - [`build_installer.py`](./build_installer.py) — сборка установщика. Ключ отчётов берётся из `REPORT_KEY` или локального `.report_key.txt`, в git не попадает; `--no-key` отключает встраивание. Bootstrapper WebView2 скачивается с сайта Microsoft в `installer/vendor/` (gitignored) и проверяется по Authenticode-подписи. При отсутствии Inno Setup скрипт завершается с кодом 2 и ничего не устанавливает.
-- [build_portable.py](./build_portable.py) → `dist/YandexDiskBackup-35.4.4-portable.zip` без установки; секреты и рабочие данные не включаются.
-- **Установщик собран:** Inno Setup 6.7.3 установлен по подтверждению пользователя; `python build_installer.py` → `installer_output/YandexDiskBackup-35.4.4-setup.exe` (47,7 МБ, ключ встроен).
-- **Проверено сквозным тестом (2026-10-26):** тихая установка во временную папку → приложение запускается, окно `Yandex.Disk Backup 35.4.4`, `/api/version` отдаёт версию и издателя, первый запуск `needs_setup: true`, чистая версия без токена/кук; удаление убирает файлы, ярлыки, ключ реестра и `.report_key.txt`. Данные в `%LOCALAPPDATA%` при удалении сохраняются.
+- [build_portable.py](./build_portable.py) → `dist/YandexDiskBackup-35.4.6-portable.zip` без установки; секреты и рабочие данные не включаются.
+- **Установщик собран:** Inno Setup 6.7.3 установлен по подтверждению пользователя; `python build_installer.py` → `installer_output/YandexDiskBackup-35.4.6-setup.exe` (47,7 МБ, ключ встроен).
+- **Проверено сквозным тестом (2026-10-26):** тихая установка во временную папку → приложение запускается, окно `Yandex.Disk Backup 35.4.6`, `/api/version` отдаёт версию и издателя, первый запуск `needs_setup: true`, чистая версия без токена/кук; удаление убирает файлы, ярлыки, ключ реестра и `.report_key.txt`. Данные в `%LOCALAPPDATA%` при удалении сохраняются.
 - **Публикация:** https://github.com/ex3544/yadisk_backup — публичный репозиторий, релиз `v35.4.4` с установщиком (без ключа отчётов) и portable ZIP. CI [`.github/workflows/release.yml`](./.github/workflows/release.yml) собирает и публикует Release по тегу `v*`.
 - **Обновления:** [`updater.py`](./updater.py) сверяет `version.APP_VERSION` с последним Release; `GET /api/updates/check` и кнопка «Проверить обновления» на вкладке «Диагностика». Автоустановки нет — только ссылка на скачивание.
 - **Исправлена регрессия:** `launcher._env_port()` падал на `int.strip()`, если `WEBUI_PORT` не задан. Теперь пустая/некорректная переменная → порт по умолчанию.
@@ -131,7 +131,7 @@
 | `paths.py` | Единая точка правды для путей: `APP_DIR`/`BUNDLE_DIR` (программа) и `DATA_DIR` (изменяемые данные), `YADISK_DATA_DIR`. |
 | `db_migrations.py` | Версионирование схемы SQLite (`PRAGMA user_version`), резервная копия перед миграцией, атомарное применение. |
 | `unlim_schema.py` | Общая схема и миграции `unlim_state.db` для выгрузчика, сборщика и воркеров. |
-| `version.py` | Название, версия (`35.4.4`) и издатель (`ex3544 (vovapuh's son)`). |
+| `version.py` | Название, версия (`35.4.6`) и издатель (`Sergey Pukhir (ex3544, vovapuh's son)`). |
 | `diagnostics.py` | Диагностический отчёт: безопасный сбор данных, ZIP, отправка через Worker; секреты редактируются. |
 | `state.py` | SQLite-трекер (`state.db`, WAL), соединение на поток. |
 | `utils.py` | Санитизация путей, длинные пути Windows (`\\?\`), `auto_workers()` — подбор числа потоков по ОЗУ. |

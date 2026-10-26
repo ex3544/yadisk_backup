@@ -435,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
         if webui_path.exists():
             import subprocess
             print("=" * 70)
-            print("  Запуск единого веб-дашборда Yandex.Disk & Безлимит by PUH...")
+            print("  Запуск единого веб-дашборда Yandex.Disk & Безлимит by Sergey Pukhir (ex3544, vovapuh's son)...")
             print("  Адрес в браузере: http://127.0.0.1:8000")
             print("=" * 70)
             try:

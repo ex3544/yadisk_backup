@@ -4,6 +4,8 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) [![Release](https://img.shields.io/github/v/release/ex3544/yadisk_backup)](https://github.com/ex3544/yadisk_backup/releases)
 
+**Соавтор и maintainer:** Sergey Pukhir (ex3544, vovapuh's son).
+
 **Ключевые сценарии:**
 скачать всё с Яндекс.Диска · скачать безлимит Яндекс.Фото · бэкап перед отменой подписки · миграция с Yandex Disk на Google Drive / OneDrive / локальный NAS · экспорт фото с телефона из Яндекс.Диска · download Yandex.Disk Photoslice · Yandex Disk full backup tool
 
@@ -14,7 +16,7 @@
 | Возможность | Как работает |
 |---|---|
 | 💾 **Скачивание обычного диска** | Через официальный REST API Яндекс.Диска в естественном порядке (`rowid ASC`). Нужен OAuth-токен. Авто-защита от сетевых зависаний (IPv4, MSS clamp) |
-| 📸 **Скачивание безлимита** | Скрытое мобильное фото-хранилище (Photoslice) напрямую с CDN серверов Яндекса на полной скорости канала (`unlim_backup.py by PUH`) |
+| 📸 **Скачивание безлимита** | Скрытое мобильное фото-хранилище (Photoslice) напрямую с CDN серверов Яндекса на полной скорости канала (`unlim_backup.py`) |
 | 🗂 **Сортировка по полочкам** | Раскладывает файлы по типам: Фото/Видео/Документы/Архивы/… с подпапками по годам и месяцам (`organizer.py`) |
 | 📁 **Выбор папок через Проводник** | Нажатие кнопки «Обзор» открывает системное окно выбора папки ОС (Windows Explorer / Zenity / KDialog / Tkinter) |
 | 🧹 **Дедупликация** | По MD5 и SHA-256 — одну и ту же фотку в разных папках оставляет один раз |
@@ -284,7 +286,7 @@ python organize.py --input "D:/Backup" --action move    # применить
 
    ```bash
    python build_installer.py
-   # результат: installer_output\YandexDiskBackup-35.4.4-setup.exe
+   # результат: installer_output\YandexDiskBackup-35.4.6-setup.exe
    ```
 
 Установщик ставит программу в `Program Files` (нужны права администратора),
@@ -308,7 +310,7 @@ Microsoft Edge WebView2 Bootstrapper (нужен интернет). Если у�
 
    ```bash
    python build_portable.py
-   # результат: dist\YandexDiskBackup-35.4.4-portable.zip
+   # результат: dist\YandexDiskBackup-35.4.6-portable.zip
    ```
 
    Архив распаковывается в папку `YandexDiskBackup` и запускается двойным
@@ -440,15 +442,15 @@ ruff check --select F,E9 .   # линтер
 
 ## Лицензия
 
-[MIT](LICENSE). Программа распространяется «как есть», без гарантий: автор не
-отвечает за потерю данных, простой или иные последствия использования.
-Проект некоммерческий.
+[MIT](LICENSE), русский перевод — [LICENSE.ru.txt](LICENSE.ru.txt). Программа
+распространяется «как есть», без гарантий: автор не отвечает за потерю данных,
+простой или иные последствия использования. Проект некоммерческий.
 
 ## Авторство
 
-- Оригинальный проект: **Davron Saydakramov (PXSYS13)** —
-  [github.com/PXSYS13/yadisk_backup](https://github.com/PXSYS13/yadisk_backup),
-  лицензия MIT. Copyright сохранён в [LICENSE](LICENSE).
-- Доработки, оконная оболочка и установщик: **ex3544 (vovapuh's son)**, 2026.
+Соавтор и maintainer: **Sergey Pukhir** (ex3544, vovapuh's son), 2026.
+
+Оригинальное уведомление об авторских правах и полный текст MIT сохранены в
+[LICENSE](LICENSE).
 
 Если проект помог — поставь ⭐ на GitHub. Если что-то не работает — открой issue.

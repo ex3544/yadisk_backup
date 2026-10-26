@@ -103,6 +103,13 @@ def mask_token(token: str) -> str:
     return f"{token[:6]}…{token[-4:]} ({len(token)} симв.)"
 
 
+def public_config(cfg: dict) -> dict:
+    """Конфиг для браузера: сам токен наружу не отдаём, только маску."""
+    result = {key: value for key, value in cfg.items() if key != "token"}
+    result["token_masked"] = mask_token(cfg.get("token", ""))
+    return result
+
+
 app = FastAPI(title="Yandex.Disk Backup UI")
 
 
@@ -967,7 +974,7 @@ def api_status():
             pass
 
     return {
-        "config": {**cfg, "token_masked": mask_token(cfg["token"])},
+        "config": public_config(cfg),
         "token": check_token(cfg["token"]),
         "cookies": check_cookies(),
         "disk": {
@@ -2053,7 +2060,7 @@ def main():
     port = int(os.getenv("WEBUI_PORT", "8000"))
     url = f"http://{_browser_host(host)}:{port}"
     print("=" * 64)
-    print("  Yandex.Disk Backup by PUH")
+    print("  Yandex.Disk Backup by Sergey Pukhir (ex3544, vovapuh's son)")
     print(f"  Дашборд: {url}")
     print("=" * 64)
     print("  Быстрые ссылки для настройки:")

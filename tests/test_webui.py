@@ -42,6 +42,20 @@ def test_mask_token_empty():
     assert webui.mask_token("short") == ""
 
 
+def test_public_config_never_exposes_raw_token():
+    cfg = {
+        "token": "y0_AgAAAABsecretsecretsecret",
+        "download_dir": r"C:\NeUnlim",
+        "unlim_dir": r"C:\Unlim",
+        "disk_dir": r"C:\NeUnlim",
+        "max_workers": 4,
+    }
+    public = webui.public_config(cfg)
+    assert "token" not in public
+    assert public["token_masked"].startswith("y0_AgA")
+    assert "secretsecret" not in public["token_masked"]
+
+
 # ── защита organize от системных папок ──────────────────────────────────────
 
 

@@ -3,7 +3,7 @@
 
 Порядок:
     python build_exe.py          # dist/YandexDiskBackup/
-    python build_installer.py    # installer_output/YandexDiskBackup-35.4.4-setup.exe
+    python build_installer.py    # installer_output/YandexDiskBackup-<версия>-setup.exe
 
 Ключ отправки отчётов берётся из переменной REPORT_KEY или из локального
 `.report_key.txt` и передаётся компилятору Inno Setup. В репозиторий он не

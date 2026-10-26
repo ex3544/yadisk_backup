@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 unlim_backup.py — Универсальный автономный загрузчик «Безлимита» Яндекс.Диска.
-Разработано: by PUH
+Разработано: Sergey Pukhir (ex3544, vovapuh's son)
 
 Кроссплатформенный (Windows / Linux / macOS).
 Полностью автономный:
@@ -645,7 +645,7 @@ def run_backup(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("  Yandex.Disk — Универсальный выгрузчик Безлимита (by PUH)")
+    print("  Yandex.Disk — Универсальный выгрузчик Безлимита (Sergey Pukhir, ex3544)")
     print("=" * 70)
     print(f"  База данных  : {db_path}")
     print(f"  Куки         : {cookies_path}")
@@ -881,7 +881,7 @@ def main():
     script_dir = paths.APP_DIR
 
     parser = argparse.ArgumentParser(
-        description="unlim_backup.py — Универсальный автономный выгрузчик Безлимита Яндекс.Диска (by PUH)"
+        description="unlim_backup.py — Универсальный автономный выгрузчик Безлимита Яндекс.Диска (Sergey Pukhir, ex3544)"
     )
     parser.add_argument("--db", type=str, default=str(paths.UNLIM_DB_FILE), help="Путь к файлу unlim_state.db")
     parser.add_argument("--cookies", type=str, default=str(paths.COOKIES_FILE), help="Путь к cookies.json")
@@ -915,7 +915,7 @@ def main():
             return
         python_exe = find_python_interpreter(script_dir)
         print("=" * 70)
-        print("  Запуск веб-панели управления Yandex.Disk & Безлимит by PUH...")
+        print("  Запуск веб-панели управления Yandex.Disk & Безлимит by Sergey Pukhir (ex3544, vovapuh's son)...")
         print("  Адрес в браузере: http://127.0.0.1:8000")
         print("=" * 70)
         try:

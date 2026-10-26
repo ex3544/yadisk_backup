@@ -30,6 +30,9 @@ EXCLUDED_NAMES = {
     ".setup_done",
 }
 EXCLUDED_SUFFIXES = {".db", ".db-wal", ".db-shm", ".log"}
+# Лицензия и README должны ехать вместе с portable-сборкой: MIT требует
+# сохранять уведомление об авторских правах в каждой копии.
+EXTRA_FILES = ("LICENSE", "LICENSE.ru.txt", "README.md")
 
 
 def excluded(path: Path) -> bool:
@@ -51,14 +54,22 @@ def main() -> int:
         print("В папке сборки нет файлов.")
         return 1
 
+    extra_files = [PROJECT_DIR / name for name in EXTRA_FILES if (PROJECT_DIR / name).is_file()]
+
     OUT_FILE.unlink(missing_ok=True)
     with zipfile.ZipFile(OUT_FILE, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in sorted(files):
             arcname = Path(APP_DIR.name) / path.relative_to(APP_DIR)
             zf.write(path, arcname.as_posix())
+        for path in extra_files:
+            arcname = Path(APP_DIR.name) / path.name
+            zf.write(path, arcname.as_posix())
 
     size_mb = OUT_FILE.stat().st_size / (1024 * 1024)
-    print(f"✅ Переносимый архив готов: {OUT_FILE} ({size_mb:.1f} МБ, файлов: {len(files)})")
+    print(
+        f"✅ Переносимый архив готов: {OUT_FILE} "
+        f"({size_mb:.1f} МБ, файлов: {len(files) + len(extra_files)})"
+    )
     return 0
 
 

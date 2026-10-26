@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-organizer.py — Умный сортировщик файлов и медиа по категориям и датам (by PUH).
+organizer.py — Умный сортировщик файлов и медиа по категориям и датам (Sergey Pukhir, ex3544).
 Разложит файлы по полочкам:
   - Фото / Видео / Документы / Архивы / Программы / Аудио / Прочее.
   - Внутри Фото и Видео — подпапки по годам и месяцам (Год/Месяц).
@@ -301,7 +301,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Органайзер медиа и файлов by PUH</title>
+  <title>Органайзер медиа и файлов — Sergey Pukhir (ex3544, vovapuh's son)</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -439,7 +439,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="logo">
         <span>📁 Органайзер файлов и медиа</span>
       </div>
-      <div class="badge">by PUH</div>
+      <div class="badge">Sergey Pukhir</div>
     </header>
 
     <div class="grid">
@@ -517,7 +517,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <footer>
-      Органайзер медиа и файлов Яндекс.Диска • Разработано <strong>by PUH</strong>
+      Органайзер медиа и файлов Яндекс.Диска • Разработано <strong>Sergey Pukhir (ex3544, vovapuh's son)</strong>
     </footer>
   </div>
 
@@ -674,7 +674,7 @@ class OrganizerHandler(http.server.BaseHTTPRequestHandler):
 def run_web(host: str = "0.0.0.0", port: int = 8002):
     server = http.server.ThreadingHTTPServer((host, port), OrganizerHandler)
     print("=" * 70)
-    print("  Органайзер файлов by PUH запущен!")
+    print("  Органайзер файлов Sergey Pukhir (ex3544, vovapuh's son) запущен!")
     print(f"  Веб-интерфейс доступен по адресу: http://127.0.0.1:{port}")
     print(f"  В сети / Tailscale               : http://{host}:{port}")
     print("=" * 70)
@@ -690,7 +690,7 @@ def run_web(host: str = "0.0.0.0", port: int = 8002):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="organizer.py — Умный сортировщик файлов по папкам и датам с детекцией дубликатов (by PUH)"
+        description="organizer.py — Умный сортировщик файлов по папкам и датам с детекцией дубликатов (Sergey Pukhir, ex3544)"
     )
     parser.add_argument("--src", type=str, help="Папка с исходными файлами (например, выгруженный Безлимит)")
     parser.add_argument("--dst", type=str, help="Целевая папка для организованной структуры")

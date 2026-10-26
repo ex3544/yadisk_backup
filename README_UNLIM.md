@@ -1,4 +1,4 @@
-# 🚀 Руководство: unlim_backup.py (by PUH)
+# 🚀 Руководство: unlim_backup.py (Sergey Pukhir, ex3544)
 
 Автономный кроссплатформенный загрузчик оригиналов фото и видео из «Безлимита» Яндекс.Диска для Windows, Linux и macOS.
 
@@ -144,4 +144,4 @@ python unlim_backup.py --batch-size 100 --batches 1 --from-end --out-dir "D:/Bac
 | `--cli` | — | Принудительный запуск в консоли без открытия веб-интерфейса |
 
 ---
-**Разработано: by PUH**
+**Разработано: Sergey Pukhir (ex3544, vovapuh's son)**
