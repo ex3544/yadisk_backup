@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from version import APP_VERSION
+
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+REPORT_KEY_HINT = "ключ выдаёт ex3544; без него отчёт остаётся на диске"
 
 
 def test_spec_keeps_yadisk_session_modules():
@@ -27,3 +30,30 @@ def test_installer_license_is_bilingual_and_russian_first():
 
 def test_russian_license_file_exists():
     assert (PROJECT_DIR / "LICENSE.ru.txt").is_file()
+
+
+def test_changelog_has_current_version():
+    changelog = (PROJECT_DIR / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## [{APP_VERSION}]" in changelog
+
+
+def test_release_workflow_uses_changelog_body():
+    workflow = (PROJECT_DIR / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "tools/changelog_for_tag.py" in workflow
+    assert "body_path: release_notes.md" in workflow
+    assert "generate_release_notes: true" not in workflow
+
+
+def test_report_key_hint_is_visible_in_both_places():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert html.count(REPORT_KEY_HINT) >= 2
+
+
+def test_readme_offers_ready_build_before_python_source():
+    readme = (PROJECT_DIR / "README.md").read_text(encoding="utf-8")
+    assert "Python устанавливать не нужно" in readme
+    assert readme.index("Вариант A — готовый установщик") < readme.index(
+        "Вариант C — из исходников"
+    )

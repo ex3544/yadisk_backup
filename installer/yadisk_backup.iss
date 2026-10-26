@@ -9,7 +9,7 @@
 ; ReportKey попадает в собранный установщик, но НЕ в репозиторий.
 
 #ifndef AppVersion
-  #define AppVersion "35.4.6"
+  #define AppVersion "35.4.7"
 #endif
 
 #ifndef ReportKey
@@ -71,6 +71,7 @@ Source: "..\dist\YandexDiskBackup\*"; DestDir: "{app}"; Flags: ignoreversion rec
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE.ru.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Официальный загрузчик Microsoft Edge WebView2 (Evergreen Bootstrapper).
 ; dontcopy: файл распаковывается только если WebView2 действительно нет.
 Source: "vendor\MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: dontcopy

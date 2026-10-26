@@ -578,7 +578,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.6</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.7</span></div>
     </div>
   </div>
   <div class="pills">
@@ -1045,7 +1045,7 @@
 
   <div class="card">
     <div class="card-title">Ключ отправки</div>
-    <div class="card-sub">Нужен только для кнопки «Отправить отчёт». Без него отчёт сохраняется на диск.</div>
+    <div class="card-sub">Нужен только для кнопки «Отправить отчёт».</div>
     <div id="diag-key-state" class="badge" style="margin-bottom:10px">проверяю…</div>
     <label class="field-label">Ключ Cloudflare Worker</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1053,7 +1053,7 @@
       <button onclick="saveReportKey()">Сохранить ключ</button>
       <button class="ghost" onclick="clearReportKey()">Удалить</button>
     </div>
-    <div class="setup-hint">Ключ хранится только на этом компьютере, в отчёт не включается.</div>
+    <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске. Ключ хранится только на этом компьютере и в отчёт не включается.</div>
   </div>
 
   <div class="card">
@@ -1076,7 +1076,7 @@
 </div>
 
 <footer>
-  <span class="author" style="font-size:14px">Соавтор: Sergey Pukhir (ex3544, vovapuh's son)</span> · обновляется каждые 1.5 сек
+  <span class="author" style="font-size:14px">Автор доработок и мейнтейнер: Sergey Pukhir (ex3544, vovapuh's son)</span> · обновляется каждые 1.5 сек
   <div style="margin-top:4px;font-size:11px;opacity:.65">
     MIT · полный текст лицензии и уведомления об авторских правах — в файле LICENSE.
   </div>
@@ -1120,7 +1120,7 @@
     <div class="modal-field">
       <label class="field-label" for="setup-report-key">Ключ отправки отчётов (необязательно)</label>
       <input type="password" id="setup-report-key" placeholder="можно оставить пустым и добавить позже" autocomplete="off">
-      <div class="setup-hint">Без ключа отчёт всё равно собирается и сохраняется на диск.</div>
+      <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске.</div>
     </div>
 
     <div class="modal-actions">

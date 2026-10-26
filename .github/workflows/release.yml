@@ -64,11 +64,14 @@ jobs:
       - name: Build portable ZIP
         run: python build_portable.py
 
+      - name: Extract release notes from CHANGELOG
+        run: python tools/changelog_for_tag.py "${{ github.ref_name }}" release_notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             installer_output/YandexDiskBackup-*-setup.exe
             dist/YandexDiskBackup-*-portable.zip
-          generate_release_notes: true
+          body_path: release_notes.md
           fail_on_unmatched_files: true

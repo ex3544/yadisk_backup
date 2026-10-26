@@ -32,7 +32,7 @@ EXCLUDED_NAMES = {
 EXCLUDED_SUFFIXES = {".db", ".db-wal", ".db-shm", ".log"}
 # Лицензия и README должны ехать вместе с portable-сборкой: MIT требует
 # сохранять уведомление об авторских правах в каждой копии.
-EXTRA_FILES = ("LICENSE", "LICENSE.ru.txt", "README.md")
+EXTRA_FILES = ("LICENSE", "LICENSE.ru.txt", "README.md", "CHANGELOG.md")
 
 
 def excluded(path: Path) -> bool:
