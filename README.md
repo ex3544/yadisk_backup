@@ -2,7 +2,7 @@
 
 > **Готовый инструмент для миграции с Яндекс.Диска.** Скачивает обычные файлы через официальный REST API и скрытый безлимит (Photoslice — фото с телефонов) через куки браузера. Дедупликация по MD5, сортировка по полочкам, веб-интерфейс. Запуск одним кликом — зависимости ставятся сами.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Python](https://img.shields.io/badge/Python-3.10+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) [![Release](https://img.shields.io/github/v/release/ex3544/yadisk_backup)](https://github.com/ex3544/yadisk_backup/releases)
 
 **Ключевые сценарии:**
 скачать всё с Яндекс.Диска · скачать безлимит Яндекс.Фото · бэкап перед отменой подписки · миграция с Yandex Disk на Google Drive / OneDrive / локальный NAS · экспорт фото с телефона из Яндекс.Диска · download Yandex.Disk Photoslice · Yandex Disk full backup tool
