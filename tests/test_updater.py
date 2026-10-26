@@ -47,12 +47,12 @@ def test_version_comparison_is_numeric():
 
 
 def test_check_reports_new_version(monkeypatch):
-    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **k: _release("v35.4.5"))
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **k: _release("v99.0.0"))
     result = updater.check_for_updates()
     assert result["ok"] is True
-    assert result["latest"] == "35.4.5"
+    assert result["latest"] == "99.0.0"
     assert result["update_available"] is True
-    assert result["url"].endswith("/releases/tag/v35.4.5")
+    assert result["url"].endswith("/releases/tag/v99.0.0")
 
 
 def test_check_same_version_is_up_to_date(monkeypatch):

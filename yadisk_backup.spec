@@ -31,6 +31,11 @@ hidden_imports = [
     'starlette.responses',
     'starlette.middleware',
     'yadisk',
+    # yadisk импортирует сессию динамически через __import__(..., level=1),
+    # поэтому PyInstaller не видит её при статическом анализе. Без этих
+    # модулей собранный exe падает: No module named 'yadisk.sessions'.
+    'yadisk.sessions',
+    'yadisk.sessions.requests_session',
     'requests',
     'dotenv',
     'tenacity',
