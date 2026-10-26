@@ -272,7 +272,7 @@ def main():
     print(f"  Действие: {args.action}")
     print(f"  Схема: {args.scheme}")
     if args.quick:
-        print(f"  Быстрый отчёт: без поиска дубликатов (MD5)")
+        print("  Быстрый отчёт: без поиска дубликатов (MD5)")
     print("=" * 60)
 
     t0 = time.time()

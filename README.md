@@ -2,7 +2,7 @@
 
 > **Готовый инструмент для миграции с Яндекс.Диска.** Скачивает обычные файлы через официальный REST API и скрытый безлимит (Photoslice — фото с телефонов) через куки браузера. Дедупликация по MD5, сортировка по полочкам, веб-интерфейс. Запуск одним кликом — зависимости ставятся сами.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) [![Release](https://img.shields.io/github/v/release/ex3544/yadisk_backup)](https://github.com/ex3544/yadisk_backup/releases)
+![Python](https://img.shields.io/badge/Python-3.11+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) [![Release](https://img.shields.io/github/v/release/ex3544/yadisk_backup)](https://github.com/ex3544/yadisk_backup/releases)
 
 **Ключевые сценарии:**
 скачать всё с Яндекс.Диска · скачать безлимит Яндекс.Фото · бэкап перед отменой подписки · миграция с Yandex Disk на Google Drive / OneDrive / локальный NAS · экспорт фото с телефона из Яндекс.Диска · download Yandex.Disk Photoslice · Yandex Disk full backup tool
@@ -30,7 +30,7 @@
 
 ### Шаг 1 — Установи Python (один раз, если ещё не стоит)
 
-Скачай Python 3.10+ с [python.org/downloads](https://www.python.org/downloads/).
+Скачай Python 3.11+ с [python.org/downloads](https://www.python.org/downloads/).
 **При установке отметь галочку «Add Python to PATH»** — это важно!
 
 ### Шаг 2 — Скачай проект
@@ -54,7 +54,7 @@ bash webui.sh
 
 При первом запуске скрипт:
 1. Проверит установлен ли Python
-2. Проверит версию (нужна 3.10+)
+2. Проверит версию (нужна 3.11+)
 3. Проверит `pip` — если нет, доставит
 4. Установит все библиотеки из `requirements.txt` (~1 минута)
 5. Запустит сервер
@@ -407,7 +407,7 @@ python unlim_backup.py --target skipped --media all --out-dir "ПУТЬ" --worke
 
 ## Требования
 
-- Python 3.10+ (с pip — он почти всегда идёт в комплекте)
+- Python 3.11+ (с pip — он почти всегда идёт в комплекте)
 - Windows / Linux / macOS (тестировалось на Windows 11)
 - ~150 МБ для зависимостей
 - Свободное место на диске под бэкап (от 1 ГБ до 200+ ГБ в зависимости от данных)
@@ -434,7 +434,7 @@ pytest -q            # тесты
 ruff check --select F,E9 .   # линтер
 ```
 
-Те же две команды гоняет CI на каждый push и pull request — на Windows и Linux, Python 3.10 и 3.13.
+Те же две команды гоняет CI на каждый push и pull request — на Windows и Linux, Python 3.11 и 3.13.
 
 ---
 

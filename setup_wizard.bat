@@ -17,7 +17,7 @@ echo [1/4] Проверка Python в системе...
 where python >nul 2>&1
 if errorlevel 1 goto :no_python
 
-python -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+python -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" >nul 2>&1
 if errorlevel 1 goto :old_python
 
 for /f "tokens=*" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
@@ -37,7 +37,7 @@ pause
 exit /b 1
 
 :old_python
-echo   [!] Установленный Python слишком старый (требуется 3.10 или новее).
+echo   [!] Установленный Python слишком старый (требуется 3.11 или новее).
 set /p ANS_PY="[?] Открыть страницу загрузки свежего Python 3.12? (Д/Н / Y/N): "
 if /i "!ANS_PY!"=="Д" goto :install_python
 if /i "!ANS_PY!"=="Y" goto :install_python

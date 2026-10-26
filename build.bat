@@ -11,7 +11,7 @@ echo.
 where python >nul 2>&1
 if errorlevel 1 (
     echo [!] Python не найден в системе.
-    echo Установите Python 3.10+ с python.org и отметьте Add Python to PATH.
+    echo Установите Python 3.11+ с python.org и отметьте Add Python to PATH.
     pause
     exit /b 1
 )

@@ -12,11 +12,11 @@ echo "  Yandex.Disk Backup"
 echo "============================================================"
 echo
 
-# 1) Find Python 3.10+
+# 1) Find Python 3.11+
 PY=""
-for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
+for cand in python3.13 python3.12 python3.11 python3 python; do
     if command -v "$cand" >/dev/null 2>&1; then
-        if "$cand" -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" 2>/dev/null; then
+        if "$cand" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" 2>/dev/null; then
             PY="$cand"
             break
         fi
@@ -24,7 +24,7 @@ for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
 done
 
 if [ -z "$PY" ]; then
-    echo "[!] Python 3.10+ not found."
+    echo "[!] Python 3.11+ not found."
     echo "Install Python first:"
     echo "  Ubuntu/Debian: sudo apt install python3 python3-pip"
     echo "  macOS:         brew install python"

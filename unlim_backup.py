@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import errno
 import json
-import logging
 import os
 import random
 import re
@@ -250,7 +249,7 @@ def api_call(s: requests.Session, sk: str, uid: str, method: str, params: dict |
                 print(f"[!] Превышен лимит запросов (HTTP 429), ожидание {wait}с...")
                 time.sleep(wait)
                 continue
-        except Exception as e:
+        except Exception:
             time.sleep(2 ** att)
     raise RuntimeError(f"Ошибка вызова {method} после 5 попыток")
 
@@ -754,7 +753,6 @@ def run_backup(
                 }
 
                 for i, future in enumerate(as_completed(future_to_item), start=1):
-                    it = future_to_item[future]
                     ok, sz, msg = future.result()
                     if ok:
                         batch_success += 1
@@ -858,7 +856,7 @@ def run_backup(
 def find_python_interpreter(script_dir: Path) -> str:
     # 1. Проверяем текущий интерпретатор
     try:
-        import uvicorn, fastapi, dotenv  # type: ignore
+        import uvicorn, fastapi, dotenv  # type: ignore  # noqa: F401
         return sys.executable
     except ImportError:
         pass

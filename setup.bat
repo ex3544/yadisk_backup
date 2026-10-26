@@ -9,7 +9,7 @@ echo   Yandex.Disk Backup — установка недостающего и з�
 echo ============================================================
 echo.
 
-REM ========== 1. Поиск рабочего Python 3.10+ ==========
+REM ========== 1. Поиск рабочего Python 3.11+ ==========
 call :find_python
 if defined PYEXE (
     echo [OK] Найден Python:
@@ -19,7 +19,7 @@ if defined PYEXE (
 )
 
 REM ========== 2. Установка Python через winget ==========
-echo [!] Python 3.10+ не найден.
+echo [!] Python 3.11+ не найден.
 where winget >nul 2>&1
 if errorlevel 1 goto :manual
 
@@ -71,14 +71,14 @@ echo ============================================================
 pause
 exit /b 0
 
-REM ========== Поиск рабочего Python 3.10+ ==========
+REM ========== Поиск рабочего Python 3.11+ ==========
 :find_python
 set "PYEXE="
 for /f "delims=" %%p in ('where python 2^>nul') do (
     if not defined PYEXE (
         echo %%~p | findstr /i /c:"WindowsApps" >nul
         if errorlevel 1 (
-            "%%~p" -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+            "%%~p" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" >nul 2>&1
             if not errorlevel 1 set "PYEXE=%%~p"
         )
     )
@@ -86,14 +86,14 @@ for /f "delims=" %%p in ('where python 2^>nul') do (
 if defined PYEXE goto :eof
 for /d %%d in ("%LocalAppData%\Programs\Python\Python3*") do (
     if exist "%%d\python.exe" (
-        "%%d\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+        "%%d\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" >nul 2>&1
         if not errorlevel 1 set "PYEXE=%%d\python.exe"
     )
 )
 if defined PYEXE goto :eof
 for /d %%d in ("%ProgramFiles%\Python\Python3*") do (
     if exist "%%d\python.exe" (
-        "%%d\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+        "%%d\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" >nul 2>&1
         if not errorlevel 1 set "PYEXE=%%d\python.exe"
     )
 )

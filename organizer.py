@@ -15,7 +15,6 @@ import datetime
 import hashlib
 import http.server
 import json
-import logging
 import os
 import re
 import shutil
@@ -229,7 +228,6 @@ class OrganizerEngine:
 
                     # Проверка на дубликат если есть файлы такого же размера
                     if sz > 0 and len(size_map.get(sz, [])) > 1:
-                        qh = quick_hash(file_path)
                         fh = full_hash(file_path)
                         if fh in seen_hashes:
                             is_dup = True
@@ -277,7 +275,7 @@ class OrganizerEngine:
                         self.progress["category_counts"][cat_name] += 1
 
                     if i % 100 == 0 or is_dup or i == len(all_files):
-                        dup_str = f" [ДУБЛИКАТ -> duplicates/]" if is_dup else ""
+                        dup_str = " [ДУБЛИКАТ -> duplicates/]" if is_dup else ""
                         self.log(f"[{i}/{len(all_files)}] {file_path.name} -> {cat_name}{dup_str}")
 
                 except Exception as e:
@@ -676,7 +674,7 @@ class OrganizerHandler(http.server.BaseHTTPRequestHandler):
 def run_web(host: str = "0.0.0.0", port: int = 8002):
     server = http.server.ThreadingHTTPServer((host, port), OrganizerHandler)
     print("=" * 70)
-    print(f"  Органайзер файлов by PUH запущен!")
+    print("  Органайзер файлов by PUH запущен!")
     print(f"  Веб-интерфейс доступен по адресу: http://127.0.0.1:{port}")
     print(f"  В сети / Tailscale               : http://{host}:{port}")
     print("=" * 70)

@@ -11,7 +11,6 @@ ZIP распаковывается в папку YandexDiskBackup и запус�
 
 from __future__ import annotations
 
-import sys
 import zipfile
 from pathlib import Path
 

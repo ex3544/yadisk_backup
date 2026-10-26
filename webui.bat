@@ -25,10 +25,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM ==== 2) Check Python version (need 3.10+) ====
-python -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+REM ==== 2) Check Python version (need 3.11+) ====
+python -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo [!] Python is too old. Need 3.10 or newer.
+    echo [!] Python is too old. Need 3.11 or newer.
     python --version
     pause
     exit /b 1

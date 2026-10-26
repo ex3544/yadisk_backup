@@ -404,7 +404,7 @@ def run(
     print(f"  Потоков       : {workers}")
     print(f"  Таймаут       : {timeout} сек (connect: 3.0s, read: {timeout}s)")
     print(f"  Порядок       : {'С КОНЦА (старые файлы / photounlim)' if from_end else 'С начала (новые файлы)'}")
-    print(f"  Режим ошибок  : БЕЗ ПОВТОРОВ (мгновенный пропуск в skipped)")
+    print("  Режим ошибок  : БЕЗ ПОВТОРОВ (мгновенный пропуск в skipped)")
     print(f"  Прокси        : {'Через 127.0.0.1:10808' if use_proxy else 'Прямой доступ (мимо прокси)'}")
     print(f"  Фильтр        : {'Только фото' if photos_only else 'Все медиа (фото + видео)'}")
     print("=" * 68)
