@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+env:
+  # Русский текст в print() иначе падает на cp1252 в консоли раннера.
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 jobs:
   build:
     runs-on: windows-latest

@@ -7,6 +7,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # Русский текст в print() иначе падает на cp1252 в консоли раннера.
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 jobs:
   release:
     runs-on: windows-latest
