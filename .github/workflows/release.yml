@@ -46,6 +46,18 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
+      - name: Prepare WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          $dst = Join-Path $PWD "installer\vendor\MicrosoftEdgeWebView2Setup.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dst
+          $sig = Get-AuthenticodeSignature -LiteralPath $dst
+          Write-Host "WebView2: $($sig.Status) / $($sig.SignerCertificate.Subject) / $((Get-Item $dst).Length) bytes"
+          if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notlike "*Microsoft Corporation*") {
+            throw "WebView2 bootstrapper signature check failed"
+          }
+
       - name: Build installer (without report key)
         run: python build_installer.py --no-key
 
