@@ -10,8 +10,16 @@ from __future__ import annotations
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, Iterator, Optional
+
+import db_migrations
+
+
+def _utc_now() -> str:
+    """Текущее время UTC в том же формате, что писали раньше (utcnow() устарел)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -25,6 +33,11 @@ CREATE TABLE IF NOT EXISTS files (
 );
 CREATE INDEX IF NOT EXISTS idx_status ON files(status);
 """
+
+# История схемы. Добавлять только в конец, не переименовывать версии.
+MIGRATIONS: list[db_migrations.Migration] = [
+    (1, SCHEMA),
+]
 
 
 class State:
@@ -64,7 +77,7 @@ class State:
 
     def _init_schema(self) -> None:
         with self._lock:
-            self._conn().executescript(SCHEMA)
+            db_migrations.migrate(self._conn(), "state.db", MIGRATIONS)
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
@@ -110,7 +123,7 @@ class State:
                        downloaded_at = ?
                  WHERE remote_path = ?
                 """,
-                (local_path, datetime.utcnow().isoformat(timespec="seconds"), remote_path),
+                (local_path, _utc_now(), remote_path),
             )
 
     def mark_skipped(self, remote_path: str, local_path: str) -> None:
@@ -124,7 +137,7 @@ class State:
                        downloaded_at = ?
                  WHERE remote_path = ?
                 """,
-                (local_path, datetime.utcnow().isoformat(timespec="seconds"), remote_path),
+                (local_path, _utc_now(), remote_path),
             )
 
     def mark_failed(self, remote_path: str, error: str) -> None:
@@ -146,10 +159,17 @@ class State:
             )
             return cur.rowcount
 
-    def get_pending(self) -> Iterable[sqlite3.Row]:
+    def get_pending(self, order_by: str = "rowid ASC") -> Iterable[sqlite3.Row]:
         """Возвращает курсор с pending-файлами. Читается лениво, без загрузки всего в RAM."""
+        valid_orders = {
+            "rowid ASC": "rowid ASC",
+            "rowid DESC": "rowid DESC",
+            "size ASC": "size ASC",
+            "size DESC": "size DESC",
+        }
+        order = valid_orders.get(order_by, "rowid ASC")
         return self._conn().execute(
-            "SELECT remote_path, size, md5 FROM files WHERE status='pending' ORDER BY size ASC"
+            f"SELECT remote_path, size, md5 FROM files WHERE status='pending' ORDER BY {order}"
         )
 
     def get_failed(self) -> Iterable[sqlite3.Row]:

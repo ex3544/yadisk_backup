@@ -26,14 +26,16 @@ import requests
 from dotenv import load_dotenv
 from tqdm import tqdm
 
+import paths
+import unlim_schema
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-PROJECT = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(PROJECT, ".env"))
+load_dotenv(paths.ENV_FILE)
 
-COOKIES_FILE = os.path.join(PROJECT, "cookies.json")
-DB_FILE = os.path.join(PROJECT, "unlim_state.db")
-LOG_FILE = os.path.join(PROJECT, "logs", "unlim.log")
+COOKIES_FILE = str(paths.COOKIES_FILE)
+DB_FILE = str(paths.UNLIM_DB_FILE)
+LOG_FILE = str(paths.UNLIM_COLLECT_LOG)
 
 BASE = "https://disk.yandex.ru"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -46,29 +48,6 @@ log = logging.getLogger("unlim")
 
 
 # ── DB ──────────────────────────────────────────────────────────────────────
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS unlim_files (
-    file_id TEXT PRIMARY KEY,
-    cluster_id TEXT,
-    name TEXT,
-    size INTEGER,
-    md5 TEXT,
-    mime TEXT,
-    status TEXT DEFAULT 'pending',
-    local_path TEXT,
-    error TEXT,
-    worker_id INTEGER,
-    assigned_at TIMESTAMP,
-    downloaded_at TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_unlim_status ON unlim_files(status);
-CREATE TABLE IF NOT EXISTS unlim_clusters (
-    cluster_id TEXT PRIMARY KEY,
-    size INTEGER,
-    fetched INTEGER DEFAULT 0
-);
-"""
 
 _tls = threading.local()
 
@@ -86,7 +65,7 @@ def db() -> sqlite3.Connection:
 
 
 def db_init():
-    db().executescript(SCHEMA)
+    unlim_schema.migrate(db())
 
 
 # ── HTTP ────────────────────────────────────────────────────────────────────
@@ -121,8 +100,8 @@ def get_sk_uid(s: requests.Session) -> tuple[str, str]:
     r = s.get(f"{BASE}/client/disk", timeout=30)
     if "passport.yandex" in r.url or r.status_code != 200:
         sys.exit("Куки невалидны — нужно обновить cookies.json")
-    sk = re.search(r'"sk"\s*:\s*"([^"]+)"', r.text)
-    uid = re.search(r'"uid"\s*:\s*"?(\d+)"?', r.text)
+    sk = re.search(r'"sk"\s*:\s*"([^"]+)"', r.text) or re.search(r'"csrfToken"\s*:\s*"([^"]+)"', r.text)
+    uid = re.search(r'"uid"\s*:\s*"?(\d+)"?', r.text) or re.search(r'"default_uid"\s*:\s*"?(\d+)"?', r.text)
     if not sk or not uid:
         sys.exit("Не нашёл sk/uid в HTML — Яндекс изменил формат")
     return sk.group(1), uid.group(1)
@@ -144,9 +123,12 @@ def api_call(s: requests.Session, sk: str, uid: str, method: str,
                        json=body, timeout=120)
             if r.status_code == 200:
                 try:
-                    return r.json()
+                    data = r.json()
                 except Exception:
-                    return None
+                    raise RuntimeError(f"{method}: ответ не JSON: {r.text[:200]}")
+                if not isinstance(data, dict):
+                    raise RuntimeError(f"{method}: неожиданный формат ответа: {type(data).__name__}")
+                return data
             if r.status_code in (401, 403):
                 sys.exit(f"Сессия истекла (HTTP {r.status_code})")
             if r.status_code == 429:
@@ -251,7 +233,7 @@ def cmd_collect():
         print(f"  ✓ uid={uid}, sk OK")
 
         psid = init_snapshot(s, sk, uid)
-        print(f"  ✓ photoslice_id получен")
+        print("  ✓ photoslice_id получен")
 
         clusters = get_all_clusters(s, sk, uid, psid)
         print(f"  ✓ кластеров (дней с фото): {len(clusters)}")
@@ -303,17 +285,34 @@ def cmd_status():
         print(f"  {k}: {v}")
 
 
+def cmd_retry_failed():
+    """Возвращает failed-файлы в очередь (сбрасывает счётчик попыток)."""
+    if not os.path.exists(DB_FILE):
+        print("БД пуста — запусти --collect")
+        return
+    db_init()
+    n = db().execute(
+        "UPDATE unlim_files SET status='pending', attempts=0, error=NULL, "
+        "worker_id=NULL WHERE status IN ('failed', 'in_progress')"
+    ).rowcount
+    print(f"Возвращено в очередь: {n}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--collect", action="store_true",
                     help="Собрать список файлов из photoslice")
     ap.add_argument("--status", action="store_true",
                     help="Показать статус БД")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="Вернуть упавшие и зависшие файлы в очередь")
     args = ap.parse_args()
     if args.collect:
         cmd_collect()
     elif args.status:
         cmd_status()
+    elif args.retry_failed:
+        cmd_retry_failed()
     else:
         ap.print_help()
 

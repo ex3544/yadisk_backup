@@ -1,6 +1,14 @@
-yadisk[sync_defaults]>=3.4.0
-tqdm>=4.66.0
-python-dotenv>=1.0.0
-tenacity>=8.2.0
-fastapi>=0.115.0
-uvicorn>=0.32.0
+# Точные версии: сборка проверяется на этом наборе.
+# Обновлять осознанно и прогонять тесты после каждого обновления.
+yadisk[sync_defaults]==3.4.1
+tqdm==4.70.1
+python-dotenv==1.2.4
+tenacity==9.2.1
+requests==2.34.2
+fastapi==0.143.1
+uvicorn==0.54.0
+playwright==1.64.0
+# Оконная обёртка и трей (собранный exe и запуск из исходников)
+pywebview==6.2.1
+pystray==0.19.5
+Pillow==13.0.0

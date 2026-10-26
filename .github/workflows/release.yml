@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt "pyinstaller>=6.0.0"
+
+      - name: Check tag matches version.py
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $ver = python -c "import version; print(version.APP_VERSION)"
+          if ($tag -ne $ver) {
+            throw "Тег $tag не совпадает с версией в version.py ($ver)"
+          }
+
+      - name: Build application (PyInstaller onedir)
+        run: python build_exe.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer (without report key)
+        run: python build_installer.py --no-key
+
+      - name: Build portable ZIP
+        run: python build_portable.py
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            installer_output/YandexDiskBackup-*-setup.exe
+            dist/YandexDiskBackup-*-portable.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

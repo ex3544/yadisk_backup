@@ -1,22 +1,22 @@
-"""Сортирует папку с бэкапом по полочкам.
+"""Сортирует папку с бэкапом по датам и типам.
 
 Что делает:
   1. Сканирует папку рекурсивно
-  2. Дедуп по (size, md5) — дубликаты → _duplicates/
-  3. Раскладывает по типам:
-     - Фото:    Фото/YYYY/YYYY-MM/
-     - Видео:   Видео/YYYY/YYYY-MM/
-     - Док:     Документы/
-     - Архивы:  Архивы/
-     - Программы: Программы/
-     - Аудио:   Аудио/
-     - Прочее:  Прочее/
+  2. Дедуп по (size, md5) — дубликаты → _duplicates/ (пропускается с --quick)
+  3. Раскладывает по выбранной схеме (--scheme):
+     - type-year-month (по умолчанию): Фото/YYYY/YYYY-MM/, Видео/YYYY/YYYY-MM/,
+       остальное по типам (Документы/, Архивы/, Программы/, Аудио/, Прочее/)
+     - year-month: все файлы → YYYY/YYYY-MM/
+     - year:       все файлы → YYYY/
 
-  Дату берёт из имени файла (YYYY-MM-DD), иначе из mtime.
+  Дату берёт по приоритету: EXIF фото → атом mvhd видео → дата в имени
+  файла (YYYY-MM-DD / IMG_YYYYMMDD) → дата изменения файла (mtime).
 
 Запуск:
   python organize.py --input "E:/папка" --action report-only
   python organize.py --input "E:/папка" --action move
+  python organize.py --input "E:/папка" --action move --scheme year
+  python organize.py --input "E:/папка" --action report-only --quick   # без MD5, быстрее
 """
 
 from __future__ import annotations
@@ -84,7 +84,58 @@ def md5_of(path: str) -> str:
     return h.hexdigest()
 
 
+def get_exif_date(path: str) -> tuple[int, int] | None:
+    """Извлекает дату съемки из EXIF метаданных фото без сторонних зависимостей."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(131072)
+            exif_idx = header.find(b"Exif\x00\x00")
+            search_buf = header[exif_idx:] if exif_idx != -1 else header
+            m = re.search(rb"(20\d{2}|19\d{2})[:\-\.](\d{2})[:\-\.](\d{2})[\sT]\d{2}:\d{2}:\d{2}", search_buf)
+            if m:
+                y = int(m.group(1))
+                mo = int(m.group(2))
+                if 1990 <= y <= 2040 and 1 <= mo <= 12:
+                    return y, mo
+    except OSError:
+        pass
+    return None
+
+
+def get_mp4_date(path: str) -> tuple[int, int] | None:
+    """Извлекает дату создания из атома mvhd для MP4 / MOV."""
+    try:
+        with open(path, "rb") as f:
+            buf = f.read(131072)
+            idx = buf.find(b"mvhd")
+            if idx != -1 and idx + 12 <= len(buf):
+                version = buf[idx + 4]
+                if version == 0 and idx + 12 <= len(buf):
+                    import struct
+                    creation_time = struct.unpack(">I", buf[idx + 8 : idx + 12])[0]
+                    # Секунды от 1904-01-01 (MP4 epoch) к 1970-01-01 (Unix epoch): 2082844800 сек
+                    epoch_time = creation_time - 2082844800
+                    if 946684800 <= epoch_time <= 2208988800:
+                        t = time.gmtime(epoch_time)
+                        return t.tm_year, t.tm_mon
+    except Exception:
+        pass
+    return None
+
+
 def get_date(path: str) -> tuple[int, int]:
+    ext = Path(path).suffix.lower()
+    # 1. Проверяем метаданные внутри файла
+    if ext in PHOTO_EXTS:
+        d = get_exif_date(path)
+        if d:
+            return d
+    elif ext in VIDEO_EXTS:
+        d = get_mp4_date(path)
+        if d:
+            return d
+
+    # 2. Поиск даты в названии файла (регулярки)
     name = os.path.basename(path)
     for rx in DATE_REGEXES:
         m = rx.search(name)
@@ -96,6 +147,8 @@ def get_date(path: str) -> tuple[int, int]:
                     return y, mo
             except (ValueError, IndexError):
                 pass
+
+    # 3. Fallback на системную дату файла
     try:
         t = time.localtime(os.path.getmtime(path))
         return t.tm_year, t.tm_mon
@@ -114,10 +167,15 @@ def classify(path: str) -> str:
     return DIR_OTHER
 
 
-def target_path(root: str, src: str, category: str) -> str:
+def target_path(root: str, src: str, category: str, scheme: str = "type-year-month") -> str:
     name = os.path.basename(src)
+    y, mo = get_date(src)
+    if scheme == "year":
+        return os.path.join(root, str(y), name)
+    if scheme == "year-month":
+        return os.path.join(root, str(y), f"{y}-{mo:02d}", name)
+    # scheme == "type-year-month" — прежнее поведение по умолчанию
     if category in (DIR_PHOTO, DIR_VIDEO):
-        y, mo = get_date(src)
         sub = os.path.join(root, category, str(y), f"{y}-{mo:02d}")
     else:
         sub = os.path.join(root, category)
@@ -139,7 +197,9 @@ def unique_path(dst: str) -> str:
 def scan(root: str) -> list[dict]:
     files = []
     skip = {os.path.join(root, d) for d in SKIP_DIRS}
-    print(f"\n[1/4] Сканирую {root}...")
+    print(f"\n[1/4] Сканирую {root}...", flush=True)
+    t0 = time.time()
+    last = t0
     for dp, dirs, fns in os.walk(root):
         dirs[:] = [d for d in dirs if os.path.join(dp, d) not in skip]
         for fn in fns:
@@ -148,24 +208,33 @@ def scan(root: str) -> list[dict]:
                 files.append({"path": full, "size": os.path.getsize(full)})
             except OSError:
                 pass
-    print(f"  Найдено: {len(files)}")
+            now = time.time()
+            if len(files) % 500 == 0 and now - last >= 3:
+                rate = len(files) / max(1.0, now - t0)
+                print(f"  сканирую: {len(files)} файлов ({rate:.0f} файл/с)", flush=True)
+                last = now
+    print(f"  Найдено: {len(files)}", flush=True)
     return files
 
 
 def compute_md5(files: list[dict]):
-    print(f"\n[2/4] MD5 для подозреваемых...")
+    print("\n[2/4] MD5 для подозреваемых...", flush=True)
     by_size = defaultdict(list)
     for f in files:
         by_size[f["size"]].append(f)
     suspect = [f for v in by_size.values() if len(v) > 1 for f in v]
-    print(f"  Подозреваемых: {len(suspect)}")
+    print(f"  Подозреваемых: {len(suspect)}", flush=True)
+    t0 = time.time()
     for i, f in enumerate(suspect):
         try:
             f["md5"] = md5_of(f["path"])
         except OSError:
             f["md5"] = None
-        if (i + 1) % 500 == 0:
-            print(f"    progress: {i+1}/{len(suspect)}")
+        if (i + 1) % 500 == 0 or (i + 1) == len(suspect):
+            elapsed = max(0.001, time.time() - t0)
+            rate = (i + 1) / elapsed
+            eta = (len(suspect) - (i + 1)) / max(0.001, rate)
+            print(f"    progress: {i+1}/{len(suspect)} · ~{eta/60:.1f} мин осталось", flush=True)
 
 
 def find_dup_paths(files: list[dict]) -> set[str]:
@@ -187,6 +256,11 @@ def main():
     ap.add_argument("--input", required=True)
     ap.add_argument("--action", default="report-only",
                     choices=["report-only", "move"])
+    ap.add_argument("--scheme", default="type-year-month",
+                    choices=["type-year-month", "year-month", "year"],
+                    help="Схема раскладки: по типам+дате, по годам+месяцам или только по годам")
+    ap.add_argument("--quick", action="store_true",
+                    help="Быстрый отчёт: пропустить поиск дубликатов (MD5)")
     args = ap.parse_args()
 
     root = os.path.abspath(args.input)
@@ -196,19 +270,27 @@ def main():
     print("=" * 60)
     print(f"  СОРТИРОВКА: {root}")
     print(f"  Действие: {args.action}")
+    print(f"  Схема: {args.scheme}")
+    if args.quick:
+        print(f"  Быстрый отчёт: без поиска дубликатов (MD5)")
     print("=" * 60)
 
     t0 = time.time()
     files = scan(root)
-    compute_md5(files)
-    dups = find_dup_paths(files)
+    if args.quick:
+        dups = set()
+        print("\n[2/4] Поиск дубликатов пропущен (быстрый отчёт).", flush=True)
+    else:
+        compute_md5(files)
+        dups = find_dup_paths(files)
 
-    print(f"\n[3/4] Раскладываю...")
+    print("\n[3/4] Раскладываю...", flush=True)
     plan = []
     cat_n = Counter()
     cat_b = Counter()
     dup_b = 0
-    for f in files:
+    t_last = time.time()
+    for i, f in enumerate(files):
         src = f["path"]
         if src in dups:
             rel = os.path.relpath(src, root)
@@ -216,16 +298,23 @@ def main():
             dup_b += f["size"]
         else:
             cat = classify(src)
-            plan.append((src, target_path(root, src, cat), False))
+            plan.append((src, target_path(root, src, cat, args.scheme), False))
             cat_n[cat] += 1
             cat_b[cat] += f["size"]
+        now = time.time()
+        if (i + 1) % 5000 == 0 and now - t_last >= 3:
+            print(f"  раскладываю: {i+1}/{len(files)}", flush=True)
+            t_last = now
 
     total_b = sum(f["size"] for f in files)
-    print(f"\n[4/4] СТАТИСТИКА:")
+    print("\n[4/4] СТАТИСТИКА:")
     print(f"  Всего:           {len(files)} ({human(total_b)})")
-    print(f"  Дубликатов:      {len(dups)} ({human(dup_b)})")
-    print(f"  Уникальных:      {len(files) - len(dups)}")
-    print(f"\n  По полкам:")
+    if args.quick:
+        print("  Дубликатов:      не проверялись (быстрый отчёт)")
+    else:
+        print(f"  Дубликатов:      {len(dups)} ({human(dup_b)})")
+        print(f"  Уникальных:      {len(files) - len(dups)}")
+    print("\n  По полкам:")
     for cat in [DIR_PHOTO, DIR_VIDEO, DIR_AUDIO, DIR_DOC, DIR_ARCHIVE,
                 DIR_PROGRAM, DIR_OTHER]:
         if cat_n[cat]:
@@ -266,7 +355,7 @@ def main():
         except OSError:
             pass
 
-    print(f"\n✅ ГОТОВО:")
+    print("\n✅ ГОТОВО:")
     print(f"  Перемещено: {moved}")
     print(f"  Ошибок:     {err}")
     print(f"  Удалено пустых папок: {cleaned}")

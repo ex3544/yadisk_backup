@@ -18,14 +18,13 @@ import os
 import sys
 import time
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 from dotenv import load_dotenv
 from tqdm import tqdm
 
+import paths
 import yadisk
 from downloader import (
-    DownloadJob,
     check_token,
     download_all,
     scan_media,
@@ -33,18 +32,18 @@ from downloader import (
 )
 from state import State
 from utils import (
+    auto_workers,
     compute_md5,
     file_size_safe,
     human_bytes,
     human_duration,
-    to_long_path,
 )
 
-# Где лежит проект — все относительные пути считаем отсюда
-PROJECT_DIR = Path(__file__).resolve().parent
-LOG_DIR = PROJECT_DIR / "logs"
-LOG_FILE = LOG_DIR / "backup.log"
-DB_FILE = PROJECT_DIR / "state.db"
+# Пути программы и данных — в paths.py, здесь только короткие псевдонимы.
+PROJECT_DIR = paths.APP_DIR
+LOG_DIR = paths.LOG_DIR
+LOG_FILE = paths.BACKUP_LOG
+DB_FILE = paths.DB_FILE
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -78,7 +77,7 @@ def load_config(require_token: bool = True) -> dict:
     Если require_token=True и токен не задан — выходим с понятной ошибкой.
     Для команд stats/verify токен не нужен, можно работать только с БД.
     """
-    dotenv_path = PROJECT_DIR / ".env"
+    dotenv_path = paths.ENV_FILE
     if dotenv_path.exists():
         load_dotenv(dotenv_path)
     elif require_token:
@@ -89,7 +88,7 @@ def load_config(require_token: bool = True) -> dict:
         )
 
     token = os.getenv("YA_DISK_TOKEN", "").strip()
-    download_dir = os.getenv("DOWNLOAD_DIR", str(PROJECT_DIR / "downloads")).strip()
+    download_dir = os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR)).strip()
     try:
         max_workers = int(os.getenv("MAX_WORKERS", "4"))
     except ValueError:
@@ -215,7 +214,7 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
             finally:
                 client.close()
 
-    workers = args.workers or cfg["max_workers"]
+    workers = args.workers or auto_workers()
     print(f"Старт скачивания в {workers} потоков → {cfg['download_dir']}")
 
     t0 = time.time()
@@ -227,6 +226,22 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
             download_dir=cfg["download_dir"],
             workers=workers,
         )
+
+        # Один повторный проход для сбойных файлов (по --retry).
+        if args.retry and counters["failed"] > 0:
+            n = state.reset_failed_to_pending()
+            if n > 0:
+                print(f"\n— Повторный проход для сбойных файлов ({n} → pending)…")
+                counters2 = download_all(
+                    token=cfg["token"],
+                    state=state,
+                    download_dir=cfg["download_dir"],
+                    workers=workers,
+                )
+                for k in counters:
+                    counters[k] += counters2.get(k, 0)
+            else:
+                print("\n— Сбойных файлов не осталось, повтор не нужен.")
     except KeyboardInterrupt:
         print("\nПрервано пользователем. Прогресс сохранён в state.db.")
         state.close()
@@ -252,7 +267,7 @@ def cmd_retry_failed(cfg: dict, args: argparse.Namespace) -> int:
         state.close()
         return 0
 
-    workers = args.workers or cfg["max_workers"]
+    workers = args.workers or auto_workers()
     t0 = time.time()
     counters = {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
     try:
@@ -396,6 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_dl.add_argument("--workers", type=int, default=None, help="Число потоков (макс 5)")
     p_dl.add_argument("--root", default="/", help="Корень для авто-scan если БД пуста")
     p_dl.add_argument("--no-scan", action="store_true", help="Не делать авто-scan если БД пуста")
+    p_dl.add_argument("--retry", action="store_true", help="После основного прохода один раз прогнать сбойные (failed → pending)")
     p_dl.set_defaults(func=cmd_download)
 
     p_retry = sub.add_parser("retry-failed", help="Перезапустить failed → pending")
@@ -412,6 +428,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Если запущен без аргументов — автоматически поднимаем веб-дашборд
+    is_no_args = (argv is None and len(sys.argv) == 1) or (argv is not None and len(argv) == 0)
+    if is_no_args:
+        webui_path = PROJECT_DIR / "webui.py"
+        if webui_path.exists():
+            import subprocess
+            print("=" * 70)
+            print("  Запуск единого веб-дашборда Yandex.Disk & Безлимит by PUH...")
+            print("  Адрес в браузере: http://127.0.0.1:8000")
+            print("=" * 70)
+            try:
+                return subprocess.run([sys.executable, str(webui_path)]).returncode
+            except KeyboardInterrupt:
+                return 130
+
     parser = build_parser()
     args = parser.parse_args(argv)
 

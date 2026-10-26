@@ -2,6 +2,13 @@
 .env
 cookies.json
 cookies.json.tmp
+bot_token.txt
+chat_id.txt
+.report_key.txt
+.setup_done
+.install_id
+.wrangler/
+worker/.dev.vars
 
 # БД с локальным состоянием
 state.db
@@ -11,8 +18,12 @@ unlim_state.db
 unlim_state.db-wal
 unlim_state.db-shm
 
-# Логи и временные папки
+# Резервные копии БД
+*.db.bak_*
+
+# Логи, отчёты и временные папки
 logs/
+reports/
 downloads/
 *.log
 
@@ -21,6 +32,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
+.ruff_cache/
 
 # Виртуальные окружения
 .venv/
@@ -42,4 +55,6 @@ desktop.ini
 # Сборки
 build/
 dist/
+installer_output/
+installer/vendor/
 *.egg-info/

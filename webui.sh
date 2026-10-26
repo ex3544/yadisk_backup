@@ -31,22 +31,28 @@ if [ -z "$PY" ]; then
     exit 1
 fi
 
-# 2) Make sure pip is available
-if ! "$PY" -m pip --version >/dev/null 2>&1; then
-    echo "[setup] Installing pip..."
-    "$PY" -m ensurepip --upgrade
+# 2) Create .venv if not exists (avoids PEP 668 externally-managed-environment on Ubuntu 24.04/Debian 12)
+if [ ! -d ".venv" ]; then
+    echo "[setup] Creating virtual environment in .venv..."
+    "$PY" -m venv .venv || {
+        echo "[!] Failed to create venv. Make sure python3-venv is installed:"
+        echo "    sudo apt install python3-venv"
+        exit 1
+    }
 fi
 
+VENV_PY=".venv/bin/python"
+
 # 3) Check dependencies
-if ! "$PY" -c "import fastapi, uvicorn, yadisk, tqdm, dotenv, tenacity, requests" >/dev/null 2>&1; then
-    echo "[setup] Installing dependencies. Runs ONLY ONCE, takes 1-2 min..."
+if ! "$VENV_PY" -c "import fastapi, uvicorn, yadisk, tqdm, dotenv, tenacity, requests" >/dev/null 2>&1; then
+    echo "[setup] Installing dependencies into .venv. Runs ONLY ONCE, takes 1-2 min..."
     echo
-    "$PY" -m pip install --upgrade pip --quiet 2>/dev/null || true
-    "$PY" -m pip install -r requirements.txt
+    "$VENV_PY" -m pip install --upgrade pip --quiet 2>/dev/null || true
+    "$VENV_PY" -m pip install -r requirements.txt
     echo
     echo "[OK] All dependencies installed!"
     echo
 fi
 
 # 4) Start server
-"$PY" webui.py
+"$VENV_PY" webui.py

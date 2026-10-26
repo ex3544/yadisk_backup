@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Yandex.Disk Backup</title>
+<title>Yandex.Disk Backup by PUH</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root{
@@ -37,27 +37,27 @@
     min-height:100vh;
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale;
-    padding:32px 24px 80px;
+    padding:16px 20px 24px;
   }
-  .container{max-width:980px;margin:0 auto}
+  .container{max-width:1600px;margin:0 auto}
 
   /* ── Header ── */
-  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;gap:16px;flex-wrap:wrap}
-  .brand{display:flex;align-items:center;gap:14px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px}
   .brand-logo{
-    width:36px;height:36px;border-radius:9px;
+    width:28px;height:28px;border-radius:8px;
     background:linear-gradient(135deg,#0a84ff,#bf5af2);
     display:flex;align-items:center;justify-content:center;
     box-shadow:0 4px 14px rgba(10,132,255,.25);
   }
-  .brand-name{font-size:21px;font-weight:600;letter-spacing:-.02em}
-  .brand-sub{font-size:13px;color:var(--text-tertiary);margin-top:1px;letter-spacing:0}
+  .brand-name{font-size:18px;font-weight:600;letter-spacing:-.02em}
+  .brand-sub{font-size:12px;color:var(--text-tertiary);margin-top:0;letter-spacing:0}
 
   .pills{display:flex;gap:8px;flex-wrap:wrap}
   .pill{
-    display:inline-flex;align-items:center;gap:7px;
-    padding:6px 13px;border-radius:99px;
-    font-size:13px;font-weight:500;
+    display:inline-flex;align-items:center;gap:6px;
+    padding:4px 11px;border-radius:99px;
+    font-size:12.5px;font-weight:500;
     background:var(--surface);
     color:var(--text-secondary);
     border:0.5px solid var(--hairline-strong);
@@ -75,15 +75,15 @@
   .tabs{
     display:flex;gap:2px;
     background:var(--surface);
-    padding:3px;border-radius:10px;
-    margin-bottom:28px;overflow-x:auto;
+    padding:2px;border-radius:10px;
+    margin-bottom:8px;overflow-x:auto;
     border:0.5px solid var(--hairline);
   }
   .tab{
     flex:1;min-width:80px;
-    padding:8px 14px;text-align:center;
+    padding:6px 12px;text-align:center;
     border-radius:8px;cursor:pointer;
-    font-size:13.5px;font-weight:500;
+    font-size:13px;font-weight:500;
     color:var(--text-secondary);
     transition:color .15s,background .15s;
     white-space:nowrap;
@@ -105,13 +105,13 @@
     background:var(--surface);
     border:0.5px solid var(--hairline);
     border-radius:14px;
-    padding:24px;
-    margin-bottom:16px;
+    padding:16px;
+    margin-bottom:12px;
     transition:border-color .2s;
   }
   .card:hover{border-color:var(--hairline-strong)}
-  .card-title{font-size:20px;font-weight:600;letter-spacing:-.02em;margin-bottom:6px}
-  .card-sub{font-size:14px;color:var(--text-secondary);margin-bottom:18px}
+  .card-title{font-size:17px;font-weight:600;letter-spacing:-.02em;margin-bottom:2px}
+  .card-sub{font-size:13px;color:var(--text-secondary);margin-bottom:8px}
 
   .section-label{
     font-size:11px;font-weight:600;color:var(--text-tertiary);
@@ -136,21 +136,21 @@
     background:var(--surface);
   }
   textarea{
-    min-height:120px;
+    min-height:56px;
     font-family:'SF Mono','Menlo','Consolas',monospace;
     font-size:12px;resize:vertical;
   }
-  label.field-label{display:block;font-size:13px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+  label.field-label{display:block;font-size:12.5px;color:var(--text-secondary);margin-bottom:4px;font-weight:500}
 
   /* ── Buttons ── */
-  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
   button,.btn{
     background:var(--surface2);
     color:var(--text);
     border:0.5px solid var(--hairline-strong);
-    padding:10px 18px;
+    padding:8px 14px;
     border-radius:10px;
-    font-size:14px;font-weight:500;
+    font-size:13px;font-weight:500;
     cursor:pointer;font-family:inherit;
     transition:all .15s;
     display:inline-flex;align-items:center;gap:7px;
@@ -178,8 +178,8 @@
   .hero-title{font-size:28px;font-weight:600;letter-spacing:-.03em;margin-bottom:8px}
   .hero-sub{color:var(--text-secondary);margin-bottom:24px;font-size:15px}
   .big-btn{
-    font-size:17px;font-weight:600;letter-spacing:-.01em;
-    padding:14px 44px;border-radius:99px;
+    font-size:15px;font-weight:600;letter-spacing:-.01em;
+    padding:10px 32px;border-radius:99px;
     background:var(--accent);color:#fff;border:none;cursor:pointer;
     box-shadow:0 8px 24px rgba(10,132,255,.35);
     transition:all .15s;
@@ -206,6 +206,28 @@
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-bottom:16px}
   .grid-2{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-bottom:16px}
   @media (max-width:680px){.grid-2{grid-template-columns:1fr}}
+
+  /* ── Широкоформатный (16:9) расклад: два столбца на больших экранах ── */
+  @media (min-width:1200px){
+    .panel.active[data-panel="home"]{
+      display:grid;grid-template-columns:1fr 1.2fr;gap:16px;align-items:start;
+    }
+    .panel[data-panel="home"] .card,
+    .panel[data-panel="home"] .grid-2{margin-bottom:0}
+    .home-control{grid-column:1;grid-row:1 / span 2}
+    #pipeline-card{grid-column:2;grid-row:1}
+    .home-stats{grid-column:2;grid-row:2;grid-template-columns:1fr 1fr}
+
+    .panel.active[data-panel="setup"]{
+      display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;
+    }
+    .panel[data-panel="setup"] .card{margin-bottom:0}
+    /* Балансировка по высоте: токен+куки сверху, папки снизу */
+    .panel[data-panel="setup"] .card:nth-child(1){grid-column:1;grid-row:1}
+    .panel[data-panel="setup"] .card:nth-child(2){grid-column:1;grid-row:2}
+    .panel[data-panel="setup"] .card:nth-child(3){grid-column:2;grid-row:2}
+    .panel[data-panel="setup"] .card:nth-child(4){grid-column:2;grid-row:1}
+  }
 
   .stat{
     background:var(--surface);border:0.5px solid var(--hairline);
@@ -272,7 +294,7 @@
     border-radius:10px;padding:14px;
     font-family:'SF Mono','Menlo','Consolas',monospace;
     font-size:12px;color:#e5e5e7;
-    height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
   }
   .console::-webkit-scrollbar{width:6px}
   .console::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:3px}
@@ -292,10 +314,10 @@
   .info{
     background:rgba(10,132,255,.08);
     border:0.5px solid rgba(10,132,255,.25);
-    padding:16px;border-radius:10px;margin-bottom:16px;font-size:14px;
+    padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;
   }
-  .info ol{padding-left:22px;margin-top:8px;color:var(--text-secondary)}
-  .info li{margin-bottom:6px;padding-left:4px}
+  .info ol{padding-left:18px;margin-top:4px;color:var(--text-secondary)}
+  .info li{margin-bottom:3px;padding-left:4px}
   .info a{color:var(--accent);text-decoration:none}
   .info a:hover{text-decoration:underline}
   .info code{
@@ -303,6 +325,11 @@
     font-family:'SF Mono',monospace;font-size:12.5px;color:var(--purple);
   }
   .info strong{color:var(--text);font-weight:600}
+
+  /* Сворачиваемые инструкции */
+  details.info summary{font-weight:600;color:var(--text);cursor:pointer;list-style:none;font-size:13.5px}
+  details.info summary::-webkit-details-marker{display:none}
+  details.info[open] summary{margin-bottom:6px}
 
   /* ── Status badge ── */
   .badge{
@@ -317,7 +344,7 @@
 
   /* ── Footer ── */
   footer{
-    margin-top:40px;text-align:center;
+    margin-top:16px;text-align:center;
     color:var(--text-tertiary);font-size:12px;
   }
 
@@ -337,7 +364,7 @@
   #toast.ok{border-color:rgba(48,209,88,.4)}
   #toast.err{border-color:rgba(255,69,58,.4)}
 
-  hr{border:none;border-top:0.5px solid var(--hairline);margin:18px 0}
+  hr{border:none;border-top:0.5px solid var(--hairline);margin:10px 0}
   .muted{color:var(--text-secondary);font-size:14px}
   .num{font-variant-numeric:tabular-nums;font-weight:600}
 
@@ -420,6 +447,57 @@
     align-items:center;gap:7px;
   }
   .active-tasks.show{display:inline-flex}
+
+  /* ── Модальное окно первой настройки ── */
+  .modal-backdrop{
+    position:fixed;inset:0;z-index:1000;
+    display:none;align-items:center;justify-content:center;
+    padding:20px;background:rgba(0,0,0,.72);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  }
+  .modal-backdrop.show{display:flex}
+  .modal-box{
+    width:100%;max-width:640px;max-height:92vh;overflow:auto;
+    background:var(--surface);border:0.5px solid var(--hairline-strong);
+    border-radius:18px;padding:24px;
+    box-shadow:0 24px 80px rgba(0,0,0,.55);
+    animation:fadein .2s ease;
+  }
+  .modal-kicker{
+    font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:6px;
+  }
+  .modal-title{font-size:24px;font-weight:700;letter-spacing:-.03em;margin-bottom:6px}
+  .modal-sub{font-size:14px;color:var(--text-secondary);line-height:1.45;margin-bottom:18px}
+  .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:620px){.modal-grid{grid-template-columns:1fr}}
+  .modal-field{margin-bottom:14px}
+  .modal-field .field-label{margin-bottom:6px}
+  .setup-hint{font-size:12.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px}
+  .setup-hint.ok{color:var(--green)}
+  .setup-hint.err{color:var(--red)}
+  .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
+  .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
+
+  /* ── Диагностика ── */
+  .diag-pre{
+    display:none;white-space:pre-wrap;word-break:break-word;
+    background:var(--surface2);border:0.5px solid var(--hairline-strong);
+    border-radius:12px;padding:14px;margin-top:14px;
+    max-height:560px;overflow:auto;
+    font-family:'SF Mono','Menlo','Consolas',monospace;
+    font-size:12px;line-height:1.5;color:var(--text-secondary);
+  }
+  .diag-note{
+    padding:10px 14px;border-radius:10px;
+    background:rgba(10,132,255,.08);border:0.5px solid rgba(10,132,255,.28);
+    font-size:13px;color:var(--text-secondary);line-height:1.45;margin-bottom:14px;
+  }
+  .diag-report-row{
+    display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:8px 0;border-bottom:0.5px solid var(--hairline);font-size:13px;
+  }
+  .diag-report-row:last-child{border-bottom:none}
 </style>
 
 <!-- SVG sprite -->
@@ -500,7 +578,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">by Davron</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">by PUH</span> · <span id="app-version">35.4.4</span></div>
     </div>
   </div>
   <div class="pills">
@@ -510,40 +588,207 @@
     </span>
     <span class="pill" id="pill-token"><span class="dot"></span><span id="pill-token-text">токен</span></span>
     <span class="pill" id="pill-cookies"><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
+    <span class="pill ok" id="pill-speed" style="display:none"><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
+    <span class="pill ok" id="pill-session" style="display:none"><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
+    <span class="pill ok" id="pill-disk-session" style="display:none"><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
   </div>
 </header>
 
+<div id="cookies-expired-banner" style="display:none; background:var(--red); color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,69,58,.35);">
+  🍪 Сессия Яндекса истекла — скачивание остановлено (HTTP 401/403).<br>
+  <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
+    Обновите cookies: браузер → Cookie-Editor → Export → Export as JSON → вставьте в «Настройки» → сохраните, затем запустите скачивание заново.
+  </span>
+</div>
+
+<div id="disk-full-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
+  💾 Недостаточно места на диске — скачивание остановлено.<br>
+  <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
+    Остальные файлы остались в очереди (pending). Освободите место на диске и запустите скачивание заново — оно продолжится с того же места.
+  </span>
+</div>
+
 <div class="tabs" id="tabs">
   <div class="tab active" data-tab="home">Главная</div>
-  <div class="tab" data-tab="setup">Настройка</div>
-  <div class="tab" data-tab="disk">Диск</div>
-  <div class="tab" data-tab="photos">Безлимит</div>
-  <div class="tab" data-tab="organize">Сортировка</div>
+  <div class="tab" data-tab="setup">Настройки</div>
+  <div class="tab" data-tab="organize">Организация</div>
+  <div class="tab" data-tab="diagnostics">Диагностика</div>
 </div>
 
 <!-- ============= ГЛАВНАЯ ============= -->
 <div class="panel active" data-panel="home">
 
-  <div class="hero">
-    <div class="hero-title">Скачать всё</div>
-    <div class="hero-sub">Автоматически: сканирование, выбор файлов, скачивание</div>
-    <button id="big-start" class="big-btn" onclick="bigStart()">
-      <svg class="ico"><use href="#i-play"/></svg>Запустить
-    </button>
-    <button id="big-stop" class="big-btn danger" style="display:none" onclick="bigStop()">
-      <svg class="ico"><use href="#i-stop"/></svg>Остановить
-    </button>
-    <div class="opts">
-      <label class="opt-pill"><input type="checkbox" id="opt-disk" checked> Обычный диск</label>
-      <label class="opt-pill"><input type="checkbox" id="opt-unlim" checked> Безлимит</label>
-      <label class="opt-pill">Потоков: <input type="number" id="opt-workers" value="4" min="1" max="6" style="width:44px;background:transparent;border:none;color:var(--text);padding:0;text-align:center"></label>
+  <div class="card home-control" style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div>
+        <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
+        <div class="card-sub" style="margin-bottom:0">Прямое скоростное скачивание оригиналов без прокси (by PUH)</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span id="session-count-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">✅ Безлимит: 0 файлов за сессию</span>
+        <span id="disk-session-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">✅ Диск: 0 файлов за сессию</span>
+        <div id="live-speed-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">⚡ 0 МБ/с</div>
+      </div>
+    </div>
+
+    <!-- Баннер: скачать всё (Диск + Безлимит) одновременно -->
+    <div style="margin-bottom:12px;padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,rgba(10,132,255,.14),rgba(94,92,230,.14));border:1px solid rgba(10,132,255,.35);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <div style="font-weight:700;font-size:15px;color:var(--text)">🚀 Скачать всё автоматически</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">Обычный Диск (все файлы) + Безлимит (все фото и видео) — одновременно.</div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;cursor:pointer">
+          <input type="checkbox" id="all-retry-skipped" style="width:16px;height:16px;accent-color:var(--accent)">
+          Сначала новые, затем пропущенные (повтор)
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px">
+          <span style="color:var(--text-secondary)">Прогонов:</span>
+          <input type="number" id="all-runs" value="1" min="1" max="20" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+          <span id="all-runs-status" style="font-size:12px;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+      <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()" style="flex:0 0 auto;min-width:200px">
+        <svg class="ico"><use href="#i-play"/></svg>Скачать всё
+      </button>
+    </div>
+
+    <!-- Сторож свободного места -->
+    <div class="card" style="padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <div style="font-weight:700;font-size:15px;color:var(--text)">🛡 Сторож свободного места</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">
+          Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога.
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label class="field-label" style="margin:0">Порог:</label>
+        <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="10">10 ГБ</option>
+          <option value="20">20 ГБ</option>
+          <option value="30">30 ГБ</option>
+          <option value="50" selected>50 ГБ</option>
+          <option value="100">100 ГБ</option>
+        </select>
+        <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
+        <span id="watchdog-status" class="badge">—</span>
+      </div>
+    </div>
+
+    <!-- Сброс статусов обратно в очередь -->
+    <div class="card" style="padding:14px 16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:15px;color:var(--text)">♻ Сброс очереди</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:3px;margin-bottom:10px">
+        Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('disk_failed')">
+          Ошибочные Диска (<span id="reset-disk-failed">0</span>)
+        </button>
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_skipped')">
+          Пропущенные Безлимита (<span id="reset-unlim-skipped">0</span>)
+        </button>
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_stuck')">
+          Зависшие Безлимита (<span id="reset-unlim-stuck">0</span>)
+        </button>
+      </div>
+    </div>
+
+    <!-- 1. Что скачиваем -->
+    <div style="margin-bottom:10px">
+      <label class="field-label" style="font-size:13px">Что скачиваем:</label>
+      <div style="display:flex;gap:12px;margin-top:6px">
+        <label class="opt-pill" style="cursor:pointer;flex:1;text-align:center;padding:10px 14px;background:var(--surface2)">
+          <input type="radio" name="ctrl-mode" value="unlim" checked onchange="toggleModeOpts()"> 
+          <strong style="color:var(--purple);margin-left:6px">🟣 Безлимит (фото/видео с телефона)</strong>
+        </label>
+        <label class="opt-pill" style="cursor:pointer;flex:1;text-align:center;padding:10px 14px;background:var(--surface2)">
+          <input type="radio" name="ctrl-mode" value="disk" onchange="toggleModeOpts()"> 
+          <strong style="color:var(--accent);margin-left:6px">🔵 Обычный Диск (файлы и папки)</strong>
+        </label>
+      </div>
+    </div>
+
+    <!-- 2. Параметры для Безлимита -->
+    <div id="unlim-opts-row" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-bottom:10px">
+      <div>
+        <label class="field-label">Тип медиа:</label>
+        <select id="ctrl-media" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="photos" selected>Только фото (.jpg, .heic, .raw…)</option>
+          <option value="videos">Только видео (.mp4, .mov…)</option>
+          <option value="all">Все медиа (фото + видео)</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Очередь:</label>
+        <select id="ctrl-target" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="pending" selected>Новые файлы (pending)</option>
+          <option value="skipped">Повторить сбойные (skipped)</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Порядок файлов:</label>
+        <select id="ctrl-order" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="from_end" selected>С конца (старые архивы)</option>
+          <option value="from_start">С начала (свежие файлы)</option>
+        </select>
+      </div>
+      <label style="grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;margin-top:2px">
+        <input type="checkbox" id="unlim-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
+        Разложить фото/видео по датам сразу после скачивания (Фото/год/месяц, без поиска дубликатов)
+      </label>
+    </div>
+
+    <!-- 3. Настройки батчей и потоков -->
+    <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:10px">
+      <div>
+        <label class="field-label">Потоков:</label>
+        <input type="number" id="ctrl-workers" value="10" min="1" max="24" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+        <div id="ctrl-workers-hint" class="field-label" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);line-height:1.3">
+          Рекомендуется: —
+        </div>
+      </div>
+      <div>
+        <label class="field-label">Размер батча:</label>
+        <input type="number" id="ctrl-batch-size" value="1000" min="10" max="5000" step="50" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+      </div>
+      <div>
+        <label class="field-label">Повторить батчей:</label>
+        <input type="number" id="ctrl-batches" value="0" min="0" max="1000" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center" title="0 = скачивать все до конца">
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;text-align:center">0 = все до конца</div>
+      </div>
+      <div>
+        <label class="field-label">Таймаут (сек):</label>
+        <input type="number" id="ctrl-timeout" value="7.0" min="2" max="60" step="0.5" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+      </div>
+    </div>
+
+    <!-- Статус локальной базы данных -->
+    <div id="db-status-banner" style="margin-bottom:10px;padding:8px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--hairline);display:flex;align-items:center;gap:12px;font-size:13px">
+      <div id="db-status-icon" style="font-size:20px">🔍</div>
+      <div style="flex:1">
+        <div id="db-status-title" style="font-weight:600;color:var(--text)">Проверка состояния базы данных…</div>
+        <div id="db-status-sub" style="color:var(--text-secondary);font-size:12px;margin-top:2px">—</div>
+      </div>
+      <span class="badge" id="db-status-badge">проверка</span>
+    </div>
+
+    <!-- 4. Кнопки запуска/остановки/сканирования -->
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button id="ctrl-scan-btn" class="big-btn ghost" onclick="startCustomScan()" style="flex:1" title="Собрать список всех файлов из облака в базу данных без скачивания">
+        <svg class="ico"><use href="#i-search"/></svg>Сформировать базу данных
+      </button>
+      <button id="ctrl-start-btn" class="big-btn" onclick="startCustomDownload()" style="flex:1.2">
+        <svg class="ico"><use href="#i-play"/></svg>Запустить скачивание
+      </button>
+      <button id="ctrl-stop-btn" class="big-btn danger" style="display:none;flex:1" onclick="stopCustomDownload()">
+        <svg class="ico"><use href="#i-stop"/></svg>Остановить
+      </button>
     </div>
   </div>
 
-  <div class="card" id="pipeline-card" style="display:none">
+  <div class="card" id="pipeline-card" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div class="card-title" style="margin-bottom:0">Выполнение</div>
-      <span class="badge" id="pipeline-state">—</span>
+      <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
+      <span class="badge" id="pipeline-state">ожидание</span>
     </div>
     <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
     <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
@@ -551,7 +796,7 @@
     <div class="console" id="pipeline-console"><div class="console-empty">жду запуска…</div></div>
   </div>
 
-  <div class="grid-2">
+  <div class="grid-2 home-stats">
     <div class="card">
       <div class="card-title">Обычный диск</div>
       <div class="stat-value num" id="home-disk-done">—</div>
@@ -572,6 +817,65 @@
 
 </div>
 
+<!-- ============= ОРГАНИЗАЦИЯ ============= -->
+<div class="panel" data-panel="organize">
+
+  <div class="card">
+    <div class="card-title">Организация файлов по датам</div>
+    <div class="card-sub">Раскладывает уже скачанные файлы (например, из Безлимита) по папкам годов и месяцев. Дату берёт из EXIF фото, метаданных видео, имени файла или даты изменения.</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
+      <div>
+        <label class="field-label">Папка для сортировки:</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="organize-input" placeholder="например: E:\Backup\Unlim" style="flex:1;padding:9px 12px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:14px">
+          <button class="ghost" onclick="browseFolder('organize')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+            <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+          </button>
+        </div>
+      </div>
+      <div>
+        <label class="field-label">Схема раскладки:</label>
+        <select id="organize-scheme" style="width:100%;padding:9px 12px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="type-year-month">По типам → год → месяц (Фото/2020/2020-01)</option>
+          <option value="year-month">Год → месяц (2020/2020-01)</option>
+          <option value="year">Только по годам (2020)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="info" style="margin-bottom:16px">
+      <strong>Сначала сделай отчёт</strong> — он покажет, куда что ляжет и сколько найдётся дубликатов, ничего не перемещая. Потом можно применить реальную сортировку. Дубликаты (по размеру + MD5) уедут в <code>_duplicates/</code>.
+    </div>
+
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:16px;cursor:pointer">
+      <input type="checkbox" id="organize-quick" onchange="organizeQuickChanged()" style="width:18px;height:18px;accent-color:var(--accent)">
+      <span>Сортировать сразу — кнопка «Отчёт» раскладывает файлы без предпросмотра и без поиска дубликатов (MD5)</span>
+    </label>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <button id="organize-report-btn" class="big-btn ghost" onclick="organize('report-only', this)" style="flex:1">
+        <svg class="ico"><use href="#i-search"/></svg>Отчёт
+      </button>
+      <button class="big-btn" onclick="organize('move', this)" style="flex:1">
+        <svg class="ico"><use href="#i-play"/></svg>Применить сортировку
+      </button>
+      <button class="big-btn danger" onclick="action('organize_stop')" style="flex:0 0 auto">
+        <svg class="ico"><use href="#i-stop"/></svg>Остановить
+      </button>
+    </div>
+
+    <div id="organize-banner" class="task-banner" style="display:none">
+      <div class="task-banner-body">
+        <div id="organize-title" class="task-banner-title">…</div>
+        <div id="organize-sub" class="task-banner-sub">…</div>
+      </div>
+      <div id="organize-time" class="task-banner-time">—</div>
+    </div>
+  </div>
+
+</div>
+
 <!-- ============= НАСТРОЙКА ============= -->
 <div class="panel" data-panel="setup">
 
@@ -579,8 +883,8 @@
     <div class="card-title">OAuth-токен</div>
     <div class="card-sub">Нужен для скачивания обычного диска через официальный API.</div>
 
-    <div class="info">
-      <strong>Где взять (1 минута):</strong>
+    <details class="info">
+      <summary>Где взять OAuth-токен (1 минута)</summary>
       <ol>
         <li>Открой <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
         <li>Залогинься своим аккаунтом Яндекса</li>
@@ -588,7 +892,7 @@
         <li>Скопируй строку <code>y0_xxxx…</code>, вставь ниже</li>
         <li>Сначала <strong>«Проверить»</strong>, потом <strong>«Сохранить»</strong> когда статус зелёный</li>
       </ol>
-    </div>
+    </details>
 
     <!-- Текущий сохранённый -->
     <div id="saved-token-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
@@ -621,12 +925,34 @@
   </div>
 
   <div class="card">
-    <div class="card-title">Папка для скачивания</div>
-    <div class="card-sub">Куда складывать файлы. Папка создастся автоматически.</div>
-    <label class="field-label">Путь</label>
-    <input type="text" id="dir-input" placeholder="например: D:/YandexBackup">
+    <div class="card-title">Папка для Безлимита</div>
+    <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
+    <label class="field-label">Путь к папке Безлимита</label>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="text" id="unlim-dir-input" placeholder="например: /media/vb/backup Ya1/Unlim" style="flex:1">
+      <button class="ghost" onclick="browseFolder('unlim')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
     <div class="actions">
-      <button class="primary" onclick="saveDir()">
+      <button class="primary" onclick="saveUnlimDir()">
+        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+      </button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Папка для обычного Диска</div>
+    <div class="card-sub">Куда складывать файлы и структуру основного Диска. Папка создастся автоматически.</div>
+    <label class="field-label">Путь к папке Диска</label>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="text" id="disk-dir-input" placeholder="например: /media/vb/backup Ya1/Disk" style="flex:1">
+      <button class="ghost" onclick="browseFolder('disk')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick="saveDiskDir()">
         <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
       </button>
     </div>
@@ -636,10 +962,9 @@
     <div class="card-title">Cookies браузера</div>
     <div class="card-sub">Опционально — для скачивания безлимитного фото-хранилища.</div>
 
-    <div class="info">
-      <strong>Что это:</strong> Яндекс прячет фото с телефона в скрытом хранилище. Через REST API оно не отдаётся — нужны куки браузера.
-      <br><br>
-      <strong>Как получить:</strong>
+    <details class="info">
+      <summary>Что это и как получить куки</summary>
+      <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
       <ol>
         <li>Установи <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
         <li>Открой <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и залогинься</li>
@@ -647,7 +972,7 @@
         <li>Вставь JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
       </ol>
       <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
-    </div>
+    </details>
 
     <!-- Текущие сохранённые -->
     <div id="saved-cookies-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
@@ -668,6 +993,20 @@
         <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
       </button>
     </div>
+
+    <!-- Полуавтоматическое обновление кук через Playwright -->
+    <div id="cookie-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Обновить куки автоматически</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войди в Яндекс, куки снимутся сами.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="primary" id="btn-cookie-fetch" onclick="startCookieFetch()">
+          <svg class="ico-sm"><use href="#i-cookies"/></svg>Обновить куки
+        </button>
+        <button id="btn-cookie-fetch-cancel" onclick="cancelCookieFetch()" style="display:none">Отмена</button>
+      </div>
+      <div id="cookie-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
+    </div>
+
     <hr>
     <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
       <span class="muted">Статус сохранённых</span>
@@ -677,227 +1016,122 @@
 
 </div>
 
-<!-- ============= ДИСК ============= -->
-<div class="panel" data-panel="disk">
+<!-- ============= ДИАГНОСТИКА ============= -->
+<div class="panel" data-panel="diagnostics">
 
   <div class="card">
-    <div class="card-title">Сканирование</div>
-    <div class="card-sub">Сначала просканируй диск — увидишь сколько каких файлов есть.</div>
-    <div class="actions">
-      <button class="primary" onclick="action('disk_scan', this)">
-        <svg class="ico-sm"><use href="#i-search"/></svg>Проверить диск
-      </button>
-      <button onclick="refreshPreview('disk')">
-        <svg class="ico-sm"><use href="#i-refresh"/></svg>Обновить превью
-      </button>
-      <button class="danger" onclick="action('disk_stop', this)">
-        <svg class="ico-sm"><use href="#i-stop"/></svg>Стоп
-      </button>
-    </div>
-    <!-- Live статус сканирования -->
-    <div id="disk-scan-status" style="display:none;margin-top:14px;padding:12px 14px;background:var(--surface2);border-radius:10px;border:0.5px solid var(--hairline-strong)">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div class="spinner"></div>
-        <div style="flex:1">
-          <div style="font-weight:500" id="disk-scan-status-title">Сканирую диск…</div>
-          <div style="font-size:12.5px;color:var(--text-secondary);margin-top:2px" id="disk-scan-status-sub">—</div>
-        </div>
-      </div>
-    </div>
-  </div>
+    <div class="card-title">Диагностический отчёт</div>
+    <div class="card-sub">Один ZIP со сводкой о компьютере, настройках, базах и последних ошибках.</div>
 
-  <div class="card" id="disk-preview-card" style="display:none">
-    <div class="card-title">Что нашлось — выбери что скачать</div>
-    <div class="card-sub">Включи нужные категории, остальные пропустим.</div>
-    <div class="list" id="disk-preview-list"></div>
-    <div class="total-row">
-      <span>Выбрано к скачиванию</span>
-      <span class="num" id="disk-preview-selected">—</span>
+    <div class="diag-note">
+      🔒 В отчёт <strong>не попадают</strong> токен, куки, содержимое файлов и полные базы.
+      Только маски, счётчики, размеры и последние строки логов. Отчёт можно сначала
+      собрать и посмотреть, и только потом отправить.
     </div>
-    <div class="actions">
-      <button class="primary" onclick="downloadSelected('disk', this)">
-        <svg class="ico-sm"><use href="#i-arrow-down"/></svg>Скачать выбранное
-      </button>
-      <button class="danger" onclick="clearDb('disk')" style="margin-left:auto">
-        <svg class="ico-sm"><use href="#i-stop"/></svg>Очистить и заново
-      </button>
-    </div>
-    <!-- Live status of disk download -->
-    <div id="disk-download-banner" class="task-banner" style="display:none">
-      <div class="spinner"></div>
-      <div class="task-banner-body">
-        <div class="task-banner-title" id="disk-download-title">Скачиваю файлы…</div>
-        <div class="task-banner-sub" id="disk-download-sub">—</div>
-      </div>
-      <div class="task-banner-time" id="disk-download-time">—</div>
-    </div>
-  </div>
 
-  <div class="grid">
-    <div class="stat">
-      <div class="stat-label">Скачано</div>
-      <div class="stat-value num" id="s-downloaded" style="color:var(--green)">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Пропущено</div>
-      <div class="stat-value num" id="s-skipped">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">В очереди</div>
-      <div class="stat-value num" id="s-pending" style="color:var(--yellow)">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Ошибок</div>
-      <div class="stat-value num" id="s-failed" style="color:var(--red)">0</div>
-    </div>
-  </div>
-
-  <div class="grid-2">
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div class="section-label" style="margin:0">Консоль</div>
-        <button onclick="clearLog('disk')" style="padding:4px 10px;font-size:11px;background:transparent;border:0.5px solid var(--hairline-strong);color:var(--text-secondary)">Очистить лог</button>
-      </div>
-      <div class="console" id="disk-console"><div class="console-empty">жду запуска…</div></div>
-    </div>
-    <div class="card">
-      <div class="section-label">Последние скачанные</div>
-      <div id="disk-recent"><div class="muted">пока пусто</div></div>
-    </div>
-  </div>
-</div>
-
-<!-- ============= БЕЗЛИМИТ ============= -->
-<div class="panel" data-panel="photos">
-
-  <div class="card">
-    <div class="card-title">Безлимит (photoslice)</div>
-    <div class="card-sub">Скрытое фото-хранилище Яндекса. Требует cookies (см. Настройка).</div>
-    <div class="actions">
-      <button class="primary" onclick="action('unlim_collect', this)">
-        <svg class="ico-sm"><use href="#i-search"/></svg>Собрать список
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="primary" id="diag-build-btn" onclick="buildDiagnostics()">
+        <svg class="ico-sm"><use href="#i-check"/></svg>Собрать отчёт
       </button>
-      <button onclick="refreshPreview('unlim')">
-        <svg class="ico-sm"><use href="#i-refresh"/></svg>Обновить превью
+      <button class="big-btn" id="diag-send-btn" onclick="sendDiagnostics()" style="padding:8px 20px">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Отправить отчёт
       </button>
-      <button class="danger" onclick="action('unlim_stop', this)">
-        <svg class="ico-sm"><use href="#i-stop"/></svg>Стоп
-      </button>
+      <button class="ghost" onclick="openReportsFolder()">Открыть папку отчётов</button>
     </div>
-    <div id="unlim-scan-status" style="display:none;margin-top:14px;padding:12px 14px;background:var(--surface2);border-radius:10px;border:0.5px solid var(--hairline-strong)">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div class="spinner"></div>
-        <div style="flex:1">
-          <div style="font-weight:500" id="unlim-scan-status-title">Собираю список…</div>
-          <div style="font-size:12.5px;color:var(--text-secondary);margin-top:2px" id="unlim-scan-status-sub">—</div>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="card" id="unlim-preview-card" style="display:none">
-    <div class="card-title">Что нашлось в безлимите</div>
-    <div class="card-sub">Выбери категории к скачиванию.</div>
-    <div class="list" id="unlim-preview-list"></div>
-    <div class="total-row">
-      <span>Выбрано</span>
-      <span class="num" id="unlim-preview-selected">—</span>
-    </div>
-    <div class="actions">
-      <button class="primary" onclick="downloadSelected('unlim', this)">
-        <svg class="ico-sm"><use href="#i-arrow-down"/></svg>Скачать выбранное
-      </button>
-      <span class="muted" style="font-size:13px">Воркеров: <input type="number" id="unlim-workers" value="4" min="1" max="6" style="width:50px;text-align:center;padding:4px;background:var(--surface2);color:var(--text);border:0.5px solid var(--hairline-strong);border-radius:6px"></span>
-      <button class="danger" onclick="clearDb('unlim')" style="margin-left:auto">
-        <svg class="ico-sm"><use href="#i-stop"/></svg>Очистить и заново
-      </button>
-    </div>
-    <div id="unlim-download-banner" class="task-banner" style="display:none">
-      <div class="spinner"></div>
-      <div class="task-banner-body">
-        <div class="task-banner-title" id="unlim-download-title">Скачиваю безлимит…</div>
-        <div class="task-banner-sub" id="unlim-download-sub">—</div>
-      </div>
-      <div class="task-banner-time" id="unlim-download-time">—</div>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="stat">
-      <div class="stat-label">Скачано</div>
-      <div class="stat-value num" id="u-downloaded" style="color:var(--green)">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">В очереди</div>
-      <div class="stat-value num" id="u-pending" style="color:var(--yellow)">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">В работе</div>
-      <div class="stat-value num" id="u-in-progress" style="color:var(--purple)">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Ошибок</div>
-      <div class="stat-value num" id="u-failed" style="color:var(--red)">0</div>
-    </div>
+    <div id="diag-status" class="setup-hint" style="margin-top:12px"></div>
+    <pre id="diag-output" class="diag-pre"></pre>
   </div>
 
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div class="section-label" style="margin:0">Консоль</div>
-      <button onclick="clearLog('unlim')" style="padding:4px 10px;font-size:11px;background:transparent;border:0.5px solid var(--hairline-strong);color:var(--text-secondary)">Очистить лог</button>
+    <div class="card-title">Ключ отправки</div>
+    <div class="card-sub">Нужен только для кнопки «Отправить отчёт». Без него отчёт сохраняется на диск.</div>
+    <div id="diag-key-state" class="badge" style="margin-bottom:10px">проверяю…</div>
+    <label class="field-label">Ключ Cloudflare Worker</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="password" id="diag-report-key" placeholder="вставьте ключ, чтобы включить отправку" autocomplete="off" style="flex:1;min-width:220px">
+      <button onclick="saveReportKey()">Сохранить ключ</button>
+      <button class="ghost" onclick="clearReportKey()">Удалить</button>
     </div>
-    <div class="console" id="unlim-console"><div class="console-empty">жду запуска…</div></div>
-  </div>
-</div>
-
-<!-- ============= СОРТИРОВКА ============= -->
-<div class="panel" data-panel="organize">
-
-  <div class="card">
-    <div class="card-title">Финальная сортировка</div>
-    <div class="card-sub">
-      Разложит файлы по полочкам: Фото / Видео / Документы / Архивы / Программы / Аудио / Прочее.
-      Внутри Фото и Видео — подпапки по годам и месяцам. Дубликаты переместит в <code>_duplicates/</code>.
-    </div>
-
-    <label class="field-label">Папка</label>
-    <input type="text" id="organize-input" placeholder="Путь к папке с файлами, например: D:/Backup">
-
-    <div class="actions">
-      <button onclick="organize('report-only', this)">
-        <svg class="ico-sm"><use href="#i-search"/></svg>Только отчёт
-      </button>
-      <button class="success" onclick="organize('move', this)">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Применить
-      </button>
-      <button class="danger" onclick="action('organize_stop', this)">
-        <svg class="ico-sm"><use href="#i-stop"/></svg>Стоп
-      </button>
-    </div>
-    <!-- Live status: organize -->
-    <div id="organize-banner" class="task-banner" style="display:none">
-      <div class="spinner"></div>
-      <div class="task-banner-body">
-        <div class="task-banner-title" id="organize-title">Готовится отчёт…</div>
-        <div class="task-banner-sub" id="organize-sub">—</div>
-      </div>
-      <div class="task-banner-time" id="organize-time">—</div>
-    </div>
+    <div class="setup-hint">Ключ хранится только на этом компьютере, в отчёт не включается.</div>
   </div>
 
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div class="section-label" style="margin:0">Консоль</div>
-      <button onclick="clearLog('organize')" style="padding:4px 10px;font-size:11px;background:transparent;border:0.5px solid var(--hairline-strong);color:var(--text-secondary)">Очистить лог</button>
-    </div>
-    <div class="console" id="organize-console"><div class="console-empty">жду запуска…</div></div>
+    <div class="card-title">Последние отчёты</div>
+    <div class="card-sub">Файлы лежат в папке данных приложения.</div>
+    <div id="diag-reports" class="muted">—</div>
   </div>
+
+  <div class="card">
+    <div class="card-title">Обновления</div>
+    <div class="card-sub">Сравнение с последним релизом на GitHub. Программа не обновляется сама — установщик скачивается вручную.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button id="update-check-btn" onclick="checkUpdates()">Проверить обновления</button>
+      <span id="update-status" class="setup-hint" style="margin:0">—</span>
+      <button id="update-open-btn" class="ghost" style="display:none" onclick="openUpdatePage()">Скачать</button>
+    </div>
+    <pre id="update-notes" class="diag-pre" style="display:none"></pre>
+  </div>
+
 </div>
 
 <footer>
-  <span class="author" style="font-size:14px">by Davron</span> · обновляется каждые 1.5 сек
+  <span class="author" style="font-size:14px">by PUH</span> · обновляется каждые 1.5 сек
+  <div style="margin-top:4px;font-size:11px;opacity:.75">
+    Основано на open-source проекте Davron Saydakramov (PXSYS13) · MIT.
+    Доработки и установщик — ex3544 (vovapuh's son).
+  </div>
 </footer>
 
+</div>
+
+<!-- ============= ПЕРВЫЙ ЗАПУСК ============= -->
+<div class="modal-backdrop" id="setup-modal">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div class="modal-kicker">Yandex.Disk Backup · первый запуск</div>
+    <div class="modal-title" id="setup-title">Настроим за минуту</div>
+    <div class="modal-sub">
+      Нужен OAuth-токен Яндекс.Диска и две папки для файлов. Куки для Безлимита
+      можно добавить позже в «Настройках» — они не обязательны.
+    </div>
+
+    <div class="modal-field">
+      <label class="field-label" for="setup-token">OAuth-токен</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="password" id="setup-token" placeholder="y0_..." autocomplete="off" style="flex:1;min-width:220px">
+        <button type="button" id="setup-check-btn" onclick="setupCheckToken()">Проверить</button>
+      </div>
+      <div id="setup-token-status" class="setup-hint">
+        Получить токен: <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener">yandex.ru/dev/disk/poligon</a>.
+        Токен сохранится только на этом компьютере.
+      </div>
+    </div>
+
+    <div class="modal-grid">
+      <div class="modal-field">
+        <label class="field-label" for="setup-disk-dir">Папка для обычного Диска</label>
+        <input type="text" id="setup-disk-dir" placeholder="D:\\YandexDiskBackup\\Disk">
+      </div>
+      <div class="modal-field">
+        <label class="field-label" for="setup-unlim-dir">Папка для Безлимита</label>
+        <input type="text" id="setup-unlim-dir" placeholder="D:\\YandexDiskBackup\\Unlim">
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <label class="field-label" for="setup-report-key">Ключ отправки отчётов (необязательно)</label>
+      <input type="password" id="setup-report-key" placeholder="можно оставить пустым и добавить позже" autocomplete="off">
+      <div class="setup-hint">Без ключа отчёт всё равно собирается и сохраняется на диск.</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="primary" id="setup-finish-btn" onclick="finishSetup()">Начать работу</button>
+      <button class="ghost" id="setup-skip-btn" onclick="skipSetup()">Позже</button>
+    </div>
+    <div class="setup-hint" style="margin-top:12px">
+      Все данные — токен, куки, базы и настройки — остаются на этом компьютере.
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -918,7 +1152,7 @@ function dur(s){
   if(m>0) return `${m}м ${String(ss).padStart(2,'0')}с`;
   return `${ss}с`;
 }
-function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function toast(msg, type='ok'){
   const t=document.getElementById('toast');
   t.textContent=msg; t.className=type;
@@ -967,6 +1201,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       document.getElementById('btn-save-cookies').disabled = true;
     });
   }
+  // Ручное изменение числа потоков отключает автоподстановку рекомендации.
+  const wkIn = document.getElementById('ctrl-workers');
+  if(wkIn){
+    wkIn.addEventListener('input', ()=>{ window._workersTouched = true; });
+  }
 });
 
 async function testToken(){
@@ -1014,13 +1253,61 @@ async function clearToken(){
   refresh();
 }
 
-async function saveDir(){
-  const dir=document.getElementById('dir-input').value.trim();
-  if(!dir){toast('Пусто','err');return}
-  const r=await fetch('/api/config/download_dir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({download_dir:dir})});
-  const d=await r.json();
-  if(d.ok){toast('Сохранено','ok')} else {toast('Ошибка','err')}
+async function saveUnlimDir(){
+  const dir = document.getElementById('unlim-dir-input').value.trim();
+  if(!dir){ toast('Укажите путь к папке Безлимита','err'); return; }
+  try {
+    const r = await fetch('/api/config/dirs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ unlim_dir: dir })
+    });
+    const d = await r.json();
+    if(d.ok){ toast('Папка Безлимита сохранена', 'ok'); }
+    else { toast('Ошибка сохранения', 'err'); }
+  } catch(e){ toast('Ошибка сети: ' + e.message, 'err'); }
   refresh();
+}
+
+async function saveDiskDir(){
+  const dir = document.getElementById('disk-dir-input').value.trim();
+  if(!dir){ toast('Укажите путь к папке Диска','err'); return; }
+  try {
+    const r = await fetch('/api/config/dirs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ disk_dir: dir })
+    });
+    const d = await r.json();
+    if(d.ok){ toast('Папка Диска сохранена', 'ok'); }
+    else { toast('Ошибка сохранения', 'err'); }
+  } catch(e){ toast('Ошибка сети: ' + e.message, 'err'); }
+  refresh();
+}
+
+async function browseFolder(target){
+  const inputId = (target === 'organize') ? 'organize-input' : (target + '-dir-input');
+  const inputEl = document.getElementById(inputId);
+  const currentVal = inputEl ? inputEl.value.trim() : '';
+  toast('Открываю проводник для выбора папки…', 'ok');
+  try {
+    const r = await fetch('/api/browse_dir', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ initial: currentVal })
+    });
+    const d = await r.json();
+    if(d.ok && d.path){
+      if(inputEl){
+        inputEl.value = d.path;
+        toast('Выбрана папка: ' + d.path, 'ok');
+      }
+    } else {
+      if(d.msg !== 'Выбор отменён') toast(d.msg || 'Выбор отменён', 'err');
+    }
+  } catch(e){
+    toast('Ошибка открытия проводника: ' + e.message, 'err');
+  }
 }
 
 function _parseCookies(){
@@ -1085,6 +1372,49 @@ async function clearCookies(){
   refresh();
 }
 
+async function startCookieFetch(){
+  try {
+    const r=await fetch('/api/cookies/fetch',{method:'POST'});
+    const d=await r.json();
+    toast(d.msg||(d.ok?'Запускаю…':'Ошибка'), d.ok?'ok':'err');
+  } catch(e){ toast('Сеть: '+e.message,'err') }
+  refresh();
+}
+
+async function cancelCookieFetch(){
+  try {
+    const r=await fetch('/api/cookies/fetch/cancel',{method:'POST'});
+    const d=await r.json();
+    toast(d.msg||'Отменено','ok');
+  } catch(e){ toast('Сеть: '+e.message,'err') }
+  refresh();
+}
+
+function renderCookieFetch(f){
+  const area=document.getElementById('cookie-fetch-area');
+  if(!area) return;
+  const btn=document.getElementById('btn-cookie-fetch');
+  const cancel=document.getElementById('btn-cookie-fetch-cancel');
+  const status=document.getElementById('cookie-fetch-status');
+  f = f || {};
+  const state = f.state || 'idle';
+  if(state==='running'){
+    btn.disabled = true;
+    cancel.style.display = 'inline-block';
+    status.innerHTML = `⏳ <strong>${f.msg||'Жду входа…'}</strong>`;
+  } else {
+    btn.disabled = false;
+    cancel.style.display = 'none';
+    if(state==='done'){
+      status.innerHTML = `✅ <strong style="color:var(--green)">${f.msg||'Готово'}</strong>`;
+    } else if(state==='cancelled' || state==='timeout' || state==='error' || state==='stopped'){
+      status.innerHTML = `⚠️ <strong style="color:var(--red)">${f.msg||state}</strong>`;
+    } else {
+      status.innerHTML = '';
+    }
+  }
+}
+
 // ────── Big start / pipeline ──────
 async function bigStart(){
   const opts = {
@@ -1102,6 +1432,223 @@ async function bigStop(){
   const r=await fetch('/api/start/stop',{method:'POST'});
   const d=await r.json();
   toast(d.msg, d.ok?'ok':'err');
+  refresh();
+}
+
+function updateDbStatusBanner(s){
+  if(!s) return;
+  const currentModeEl = document.querySelector('input[name="ctrl-mode"]:checked');
+  const currentMode = currentModeEl ? currentModeEl.value : 'unlim';
+  const dbIcon = document.getElementById('db-status-icon');
+  const dbTitle = document.getElementById('db-status-title');
+  const dbSub = document.getElementById('db-status-sub');
+  const dbBadge = document.getElementById('db-status-badge');
+  const banner = document.getElementById('db-status-banner');
+  if(!banner) return;
+
+  const tasks = s.tasks || {};
+  const unlimTask = tasks.unlim;
+  const diskTask = tasks.disk;
+  const isUnlimRunning = unlimTask && unlimTask.running;
+  const isDiskRunning = diskTask && diskTask.running;
+
+  if (currentMode === 'unlim') {
+    const uSum = s.unlim?.summary || {};
+    const uDb = s.unlim?.db || {};
+    const isScanRunning = isUnlimRunning && (unlimTask?.log_tail || []).some(l => /фотосреза|кластер|scan/i.test(l));
+    const total = uSum.total_files || uDb.total || 0;
+
+    if (isScanRunning) {
+      if (dbIcon) dbIcon.textContent = '⏳';
+      if (dbTitle) dbTitle.textContent = 'Идёт сбор базы Безлимита из облака…';
+      if (dbSub) dbSub.textContent = `Собрано файлов: ${total.toLocaleString('ru')}…`;
+      if (dbBadge) { dbBadge.textContent = 'сканирование'; dbBadge.className = 'badge run'; }
+      banner.style.borderColor = 'var(--purple)';
+    } else if (uSum.is_ready || total > 0) {
+      if (dbIcon) dbIcon.textContent = '✅';
+      if (dbTitle) dbTitle.textContent = `База Безлимита полностью сформирована: ${total.toLocaleString('ru')} файлов`;
+      if (dbSub) dbSub.textContent = `Файл unlim_state.db (${uSum.size_mb || '11.65'} МБ), все 4 860 кластеров дат обработаны (100%). Готово к выгрузке!`;
+      if (dbBadge) { dbBadge.textContent = 'база готова'; dbBadge.className = 'badge ok'; }
+      banner.style.borderColor = 'var(--green)';
+    } else {
+      if (dbIcon) dbIcon.textContent = '⚠️';
+      if (dbTitle) dbTitle.textContent = 'База Безлимита ещё не создана';
+      if (dbSub) dbSub.textContent = 'Нажмите «Сформировать базу данных», чтобы опросить облако (~2 мин).';
+      if (dbBadge) { dbBadge.textContent = 'нет базы'; dbBadge.className = 'badge err'; }
+      banner.style.borderColor = 'var(--hairline)';
+    }
+  } else {
+    const dDb = s.disk?.db || {};
+    const isDiskScanRunning = isDiskRunning && (diskTask?.log_tail || []).some(l => /scan|Обхожу/i.test(l));
+    const total = dDb.total || 0;
+
+    if (isDiskScanRunning) {
+      if (dbIcon) dbIcon.textContent = '⏳';
+      if (dbTitle) dbTitle.textContent = 'Идёт сканирование обычного Диска…';
+      if (dbSub) dbSub.textContent = `Найдено файлов: ${total.toLocaleString('ru')}…`;
+      if (dbBadge) { dbBadge.textContent = 'сканирование'; dbBadge.className = 'badge run'; }
+      banner.style.borderColor = 'var(--accent)';
+    } else if (total > 0) {
+      if (dbIcon) dbIcon.textContent = '✅';
+      if (dbTitle) dbTitle.textContent = `База обычного Диска готова: ${total.toLocaleString('ru')} файлов`;
+      if (dbSub) dbSub.textContent = `Файл state.db, каталоги проиндексированы. Готово к скачиванию!`;
+      if (dbBadge) { dbBadge.textContent = 'база готова'; dbBadge.className = 'badge ok'; }
+      banner.style.borderColor = 'var(--green)';
+    } else {
+      if (dbIcon) dbIcon.textContent = '⚠️';
+      if (dbTitle) dbTitle.textContent = 'База обычного Диска ещё не создана';
+      if (dbSub) dbSub.textContent = 'Нажмите «Сформировать базу данных», чтобы собрать структуру папок через API.';
+      if (dbBadge) { dbBadge.textContent = 'нет базы'; dbBadge.className = 'badge err'; }
+      banner.style.borderColor = 'var(--hairline)';
+    }
+  }
+}
+
+function toggleModeOpts(){
+  const mode = document.querySelector('input[name="ctrl-mode"]:checked').value;
+  const unlimRow = document.getElementById('unlim-opts-row');
+  if(unlimRow){
+    if(mode === 'disk'){
+      unlimRow.style.opacity = '0.35';
+      unlimRow.style.pointerEvents = 'none';
+    } else {
+      unlimRow.style.opacity = '1';
+      unlimRow.style.pointerEvents = 'auto';
+    }
+  }
+  updateDbStatusBanner(window._lastStatus);
+}
+
+async function startDownloadAll(){
+  const retry = document.getElementById('all-retry-skipped').checked;
+  const sort_after = document.getElementById('unlim-sort-after').checked;
+  const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
+  const runs = Math.max(1, Math.min(parseInt(document.getElementById('all-runs').value, 10) || 1, 20));
+  try {
+    const r = await fetch('/api/download/all', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ workers: workers, runs: runs, retry_skipped: retry, sort_after: sort_after })
+    });
+    const d = await r.json();
+    if(d.ok){
+      toast(d.msg || 'Запущено: Диск + Безлимит одновременно','ok');
+    } else {
+      toast(d.msg || 'Не удалось запустить', 'err');
+    }
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function startCustomDownload(){
+  const mode = document.querySelector('input[name="ctrl-mode"]:checked').value;
+  const media = document.getElementById('ctrl-media').value;
+  const target = document.getElementById('ctrl-target').value;
+  const from_end = document.getElementById('ctrl-order').value === 'from_end';
+  const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
+  const batch_size = parseInt(document.getElementById('ctrl-batch-size').value, 10) || 1000;
+  const batches = parseInt(document.getElementById('ctrl-batches').value, 10) || 0;
+  const timeout = parseFloat(document.getElementById('ctrl-timeout').value) || 7.0;
+  const sort_after = document.getElementById('unlim-sort-after').checked;
+
+  const payload = {
+    mode: mode,
+    media: media,
+    target: target,
+    from_end: from_end,
+    workers: workers,
+    batch_size: batch_size,
+    batches: batches,
+    timeout: timeout,
+    sort_after: sort_after
+  };
+
+  try {
+    const r = await fetch('/api/download/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if(d.ok){
+      toast('Запущено: ' + (mode === 'unlim' ? 'Безлимит' : 'Диск'), 'ok');
+    } else {
+      toast('Ошибка: ' + (d.msg || 'Не удалось запустить'), 'err');
+    }
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function stopCustomDownload(){
+  if(!confirm('Остановить процесс скачивания?')) return;
+  try {
+    const r = await fetch('/api/download/stop', { method: 'POST' });
+    const d = await r.json();
+    toast('Процесс остановлен', 'ok');
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function startCustomScan(){
+  const mode = document.querySelector('input[name="ctrl-mode"]:checked').value;
+  const label = mode === 'unlim' ? 'Безлимита (фото/видео)' : 'обычного Диска';
+  let force = false;
+
+  if (mode === 'unlim') {
+    const totalFiles = window._lastStatus?.unlim?.db?.total || 0;
+    if (totalFiles > 0) {
+      const choice = confirm(
+        `База данных Безлимита (unlim_state.db) уже существует на диске и содержит ${totalFiles.toLocaleString('ru')} файлов!\n\n` +
+        `• Чтобы использовать готовую базу — нажмите «Отмена» и затем «Запустить скачивание».\n` +
+        `• Чтобы ПЕРЕСОЗДАТЬ базу заново с нуля (займёт ~2-3 минуты) — нажмите «OK».`
+      );
+      if (!choice) {
+        toast(`Используется существующая база (${totalFiles.toLocaleString('ru')} файлов). Можно запускать скачивание.`, 'ok');
+        return;
+      }
+      force = true;
+    } else {
+      if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
+    }
+  } else {
+    const totalFiles = window._lastStatus?.disk?.db?.total || 0;
+    if (totalFiles > 0) {
+      if (!confirm(`База данных обычного Диска (state.db) уже существует на диске (${totalFiles.toLocaleString('ru')} файлов).\n\nЗапустить повторное сканирование для обновления списка?`)) return;
+    } else {
+      if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.`)) return;
+    }
+  }
+
+  const card = document.getElementById('pipeline-card');
+  if (card) card.style.display = 'block';
+  const ps = document.getElementById('pipeline-state');
+  if (ps) { ps.textContent = 'идёт сканирование'; ps.className = 'badge run'; }
+  const pStep = document.getElementById('pipeline-step');
+  if (pStep) pStep.textContent = `Сканирование: ${mode === 'unlim' ? 'Безлимит (unlim_backup.py)' : 'Обычный Диск (main.py)'}`;
+  setConsole('pipeline-console', `[+] Запуск процесса сканирования ${label}...\n[+] Подключаюсь к облаку Яндекс.Диска... (расчётное время для 4800 кластеров ~2 мин)`);
+
+  try {
+    const r = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ mode: mode, force: force })
+    });
+    const d = await r.json();
+    if(d.ok){
+      toast('Сканирование облака запущено: ' + (mode === 'unlim' ? 'Безлимит' : 'Диск'), 'ok');
+    } else {
+      toast('Ошибка запуска: ' + (d.msg || 'Не удалось запустить'), 'err');
+      if (ps) { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
+    }
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
   refresh();
 }
 
@@ -1152,20 +1699,27 @@ async function action(name, btn){
 
 async function organize(actionType, btn){
   const inp=document.getElementById('organize-input').value.trim();
+  const scheme=document.getElementById('organize-scheme').value;
+  const quick=document.getElementById('organize-quick').checked;
   if(!inp){toast('Укажи папку','err');return}
 
-  // Сохраняем путь для показа в статусе
+  // С галочкой «Сортировать сразу» отчёт превращается в реальную сортировку (move)
+  const action = (quick && actionType === 'report-only') ? 'move' : actionType;
+
+  // Сохраняем путь и фактическое действие для показа в статусе
   _organizePath = inp;
-  _organizeAction = actionType;
+  _organizeAction = action;
 
   // Сразу показать баннер
   const banner = document.getElementById('organize-banner');
   banner.style.display = 'flex';
   banner.className = 'task-banner';
   document.getElementById('organize-title').textContent =
-    actionType === 'report-only' ? 'Готовится отчёт…' : 'Применяю сортировку…';
+    action === 'report-only' ? 'Готовится отчёт…' : (quick ? 'Сортирую сразу…' : 'Применяю сортировку…');
   document.getElementById('organize-sub').innerHTML =
-    `Папка: <code>${esc(inp)}</code> · подсчёт MD5 может занять минуты`;
+    quick
+      ? `Папка: <code>${esc(inp)}</code> · без MD5, раскладываю сразу`
+      : `Папка: <code>${esc(inp)}</code> · подсчёт MD5 может занять минуты`;
   document.getElementById('organize-time').textContent = '0с';
   setTimeout(()=>banner.scrollIntoView({behavior:'smooth', block:'center'}), 50);
 
@@ -1177,13 +1731,22 @@ async function organize(actionType, btn){
   }
 
   try {
-    const r=await fetch('/api/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:inp, action:actionType})});
+    const r=await fetch('/api/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:inp, action:action, scheme:scheme, quick:quick})});
     const d=await r.json();
     toast(d.msg, d.ok===false?'err':'ok');
   } catch(e){
     toast('Сеть: '+e.message,'err');
   }
   refresh();
+}
+
+function organizeQuickChanged(){
+  const q = document.getElementById('organize-quick').checked;
+  const btn = document.getElementById('organize-report-btn');
+  if(!btn) return;
+  btn.innerHTML = q
+    ? '<svg class="ico"><use href="#i-play"/></svg>Сортировать сразу'
+    : '<svg class="ico"><use href="#i-search"/></svg>Отчёт';
 }
 
 let _organizePath = '';
@@ -1377,6 +1940,41 @@ function parseDownloadProgress(logTail){
   return null;
 }
 
+// ────── Журнал «окошко хода выполнения» ──────
+// Человеческие метки для слотов задач, чтобы было видно, какой процесс идёт.
+const TASK_LABELS = {
+  disk: '🔵 Обычный Диск',
+  unlim: '🟣 Безлимит',
+  unlim_collect: '🟣 Безлимит · сбор кластеров',
+  organize: '🗂️ Сортировка файлов',
+  cookies_fetch: '🍪 Обновление кук',
+};
+
+function taskLabel(slot){
+  if(TASK_LABELS[slot]) return TASK_LABELS[slot];
+  if(slot.startsWith('unlim_w')) return '🟣 Безлимит · воркер ' + slot.slice('unlim_w'.length);
+  return slot;
+}
+
+function taskKind(slot, logTail){
+  const txt = (logTail || []).join(' ');
+  if(slot === 'cookies_fetch') return 'обновление кук';
+  if(slot === 'organize') return 'сортировка';
+  if(slot === 'unlim_collect' || /фотосреза|кластер|collect/i.test(txt)) return 'сбор базы';
+  if(/Повторный проход|Фаза 2|пропущенных|retry/i.test(txt)) return 'повтор сбойных';
+  if(/scan|Обхожу|Найдено\s*\[/.test(txt)) return 'сканирование';
+  return 'выгрузка';
+}
+
+// Стабильный порядок слотов в журнале: диск, безлимит, сбор, воркеры, прочее.
+function slotOrder(slot){
+  if(slot === 'disk') return 0;
+  if(slot === 'unlim') return 1;
+  if(slot === 'unlim_collect') return 2;
+  if(slot.startsWith('unlim_w')) return 3 + (parseInt(slot.slice('unlim_w'.length)) || 0);
+  return 100;
+}
+
 function updateDownloadBanner(kind, task){
   const banner = document.getElementById(`${kind}-download-banner`);
   const title = document.getElementById(`${kind}-download-title`);
@@ -1486,17 +2084,35 @@ function updateOrganizeBanner(task){
   if(task.running){
     banner.style.display = 'flex';
     banner.className = 'task-banner';
-    title.textContent = _organizeAction === 'report-only' ? 'Готовится отчёт…' : 'Применяю сортировку…';
-    // Парсим прогресс из stdout
     const log = (task.log_tail||[]).slice().reverse();
+    // Определяем текущую фазу по последним строкам лога
+    let phase = '';
+    for(const l of log){
+      if(/MD5|Подозреваемых/.test(l)){ phase = 'считаю MD5'; break }
+      if(/сканирую:|Сканирую/.test(l)){ phase = 'сканирую файлы'; break }
+      if(/раскладываю|Раскладываю/.test(l)){ phase = 'раскладываю файлы'; break }
+      if(/Перемещаю|перемещаю/.test(l)){ phase = 'перемещаю файлы'; break }
+    }
+    const verb = _organizeAction === 'report-only' ? 'Отчёт' : 'Сортировка';
+    title.textContent = phase ? `${verb}: ${phase}…` : (_organizeAction === 'report-only' ? 'Готовится отчёт…' : 'Применяю сортировку…');
+    // Прогресс и остаток времени
     let info = `Папка: <code>${esc(_organizePath)}</code>`;
     for(const l of log){
       const m1 = /progress:\s*(\d+)\/(\d+)/.exec(l);
-      if(m1){info += ` · MD5 ${m1[1]}/${m1[2]}`; break}
-      const m2 = /Найдено:\s*(\d+)/.exec(l);
-      if(m2){info += ` · найдено ${m2[1]} файлов`; break}
-      const m3 = /Перемещаю\s*(\d+)/.exec(l);
-      if(m3){info += ` · перемещаю ${m3[1]}`; break}
+      if(m1){
+        info += ` · MD5 ${(+m1[1]).toLocaleString('ru')}/${(+m1[2]).toLocaleString('ru')}`;
+        const eta = /~([\d.]+)\s*мин осталось/.exec(l);
+        if(eta) info += ` · осталось ~${eta[1]} мин`;
+        break;
+      }
+      const m2 = /сканирую:\s*(\d+)\s*файлов/.exec(l);
+      if(m2){ info += ` · найдено ${(+m2[1]).toLocaleString('ru')} файлов`; break }
+      const m3 = /Найдено:\s*(\d+)/.exec(l);
+      if(m3){ info += ` · найдено ${(+m3[1]).toLocaleString('ru')} файлов`; break }
+      const m4 = /Перемещаю\s*(\d+)/.exec(l);
+      if(m4){ info += ` · перемещаю ${m4[1]}`; break }
+      const m5 = /раскладываю:\s*(\d+)\/(\d+)/.exec(l);
+      if(m5){ info += ` · раскладываю ${(+m5[1]).toLocaleString('ru')}/${(+m5[2]).toLocaleString('ru')}`; break }
     }
     sub.innerHTML = info;
     time.textContent = dur(task.elapsed);
@@ -1588,10 +2204,162 @@ function updateScanStatus(kind, task, lastTotal){
   }
 }
 
+function renderSessionCounters(s, tasks){
+  const sp = s.speed || {};
+  const dsp = s.disk_speed || {};
+  const ut = tasks && tasks.unlim;
+  const dt = tasks && tasks.disk;
+
+  // Показываем счётчик, пока задача идёт (в т.ч. зависла) или уже завершилась,
+  // чтобы в конце сессии было видно, что файлы реально скачались.
+  const unlimShow = !!ut && (ut.running || ut.exit_code !== null) && sp.success !== undefined;
+  const diskShow = !!dt && (dt.running || dt.exit_code !== null) && dsp.downloaded !== undefined;
+
+  setSessionCounter('pill-session', 'pill-session-text', unlimShow, sp.success, sp.skipped, 'файлов');
+  setSessionCounter('session-count-badge', null, unlimShow, sp.success, sp.skipped, 'файлов за сессию', 'Безлимит: ');
+  setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskShow, dsp.downloaded, dsp.skipped, 'файлов');
+  setSessionCounter('disk-session-badge', null, diskShow, dsp.downloaded, dsp.skipped, 'файлов за сессию', 'Диск: ');
+}
+
+function setSessionCounter(id, textId, show, count, skipped, suffix, prefix){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(show && count !== undefined){
+    el.style.display = 'inline-flex';
+    let label = (prefix || '') + '✅ ' + (+count).toLocaleString('ru') + ' ' + suffix;
+    if(skipped) label += ' · ↷ ' + (+skipped).toLocaleString('ru');
+    if(textId) document.getElementById(textId).textContent = label;
+    else el.textContent = label;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function workersWord(n){
+  const a = Math.abs(n) % 100, b = a % 10;
+  if(a > 10 && a < 20) return 'потоков';
+  if(b === 1) return 'поток';
+  if(b >= 2 && b <= 4) return 'потока';
+  return 'потоков';
+}
+
+function renderAutoRuns(a){
+  const el = document.getElementById('all-runs-status');
+  if(!el) return;
+  if(!a || !a.running){
+    if(a && a.state === 'done' && a.runs_total > 0){
+      el.textContent = `завершено: ${a.runs_total} прогон(ов)`;
+    } else if(a && a.state === 'stopped'){
+      el.textContent = 'остановлено';
+    } else {
+      el.textContent = '';
+    }
+    return;
+  }
+  el.textContent = `выполняется прогон ${a.run_current} из ${a.runs_total}`;
+}
+
+async function toggleWatchdog(){
+  const st = window._lastStatus && window._lastStatus.watchdog;
+  const running = !!(st && st.running);
+  const url = running ? '/api/watchdog/stop' : '/api/watchdog/start';
+  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 50;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(running ? {} : {threshold_gb: threshold})
+    });
+    const d = await r.json();
+    toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+function renderWatchdog(w){
+  const btn = document.getElementById('watchdog-btn');
+  const st = document.getElementById('watchdog-status');
+  if(!w || !btn || !st) return;
+  if(w.running){
+    btn.textContent = 'Выключить сторож';
+    btn.classList.add('danger');
+    btn.classList.remove('ghost');
+    const sel = document.getElementById('watchdog-threshold');
+    if(sel) sel.value = String(w.threshold_gb);
+  } else {
+    btn.textContent = 'Включить сторож';
+    btn.classList.remove('danger');
+    btn.classList.add('ghost');
+  }
+  let txt = w.free_gb != null ? `Свободно ${w.free_gb} ГБ` : 'свободное место неизвестно';
+  let cls = 'badge';
+  if(w.state === 'triggered'){
+    txt = w.message || 'остановлено по порогу';
+    cls = 'badge err';
+  } else if(w.running){
+    txt += ` · порог ${w.threshold_gb} ГБ`;
+    cls = 'badge ok';
+  }
+  st.textContent = txt;
+  st.className = cls;
+}
+
+function renderResetCounts(s){
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = (+v || 0).toLocaleString('ru');
+  };
+  set('reset-disk-failed', s && s.disk && s.disk.db ? s.disk.db.failed : 0);
+  set('reset-unlim-skipped', s && s.unlim && s.unlim.db ? s.unlim.db.skipped : 0);
+  set('reset-unlim-stuck', s && s.unlim && s.unlim.db ? s.unlim.db.in_progress : 0);
+}
+
+async function resetStatus(what){
+  const labels = {
+    disk_failed: 'ошибочные файлы Диска',
+    unlim_skipped: 'пропущенные файлы Безлимита',
+    unlim_stuck: 'зависшие файлы Безлимита'
+  };
+  if(!confirm(`Сбросить ${labels[what] || what} обратно в очередь?\n\nМеняются только статусы в базе — скачанные файлы не удаляются.`)) return;
+  try {
+    const r = await fetch('/api/reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({what})
+    });
+    const d = await r.json();
+    toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
+  } catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+function renderRamHint(ram){
+  const hint = document.getElementById('ctrl-workers-hint');
+  const inp = document.getElementById('ctrl-workers');
+  if(!ram || !hint || !inp) return;
+  const rec = parseInt(ram.recommended_workers, 10);
+  const parts = [];
+  if(ram.total_gb != null) parts.push(`ОЗУ ${ram.total_gb} ГБ`);
+  if(ram.available_gb != null) parts.push(`свободно ${ram.available_gb} ГБ`);
+  hint.textContent = `Рекомендуется: ${rec} ${workersWord(rec)}` +
+                     (parts.length ? ` (${parts.join(', ')})` : '');
+  // Подставляем рекомендацию, пока пользователь сам не менял поле.
+  if(!window._workersTouched) inp.value = rec;
+}
+
 async function refresh(){
   try {
     const r=await fetch('/api/status');
     const s=await r.json();
+    window._lastStatus = s;
+    renderRamHint(s.ram);
+    renderAutoRuns(s.auto_runs);
+    renderWatchdog(s.watchdog);
+    renderResetCounts(s);
 
     // Pills
     const pt=document.getElementById('pill-token');
@@ -1601,6 +2369,31 @@ async function refresh(){
     const pc=document.getElementById('pill-cookies');
     pc.className = 'pill '+(s.cookies.ok?'ok':'err');
     document.getElementById('pill-cookies-text').textContent = s.cookies.ok ? 'cookies · OK' : 'нет cookies';
+
+    const pSpeed = document.getElementById('pill-speed');
+    const sp = s.speed || {};
+    const unlimLive = !!(s.tasks && s.tasks.unlim && s.tasks.unlim.running);
+    if (pSpeed && sp.active && sp.speed_mb !== undefined && unlimLive) {
+      pSpeed.style.display = 'inline-flex';
+      document.getElementById('pill-speed-text').textContent = `⚡ ${sp.speed_mb} МБ/с (${sp.speed_mbit} Мбит/с)`;
+    } else if (pSpeed) {
+      pSpeed.style.display = 'none';
+    }
+
+    // Баннер «cookies протухли» (когда загрузчик оборвался по 401/403)
+    const ckExpBanner = document.getElementById('cookies-expired-banner');
+    if (ckExpBanner) {
+      ckExpBanner.style.display = (s.download_error === 'cookies_expired') ? 'block' : 'none';
+    }
+
+    // Баннер «недостаточно места на диске» (когда загрузчик оборвался по disk_full)
+    const dkFullBanner = document.getElementById('disk-full-banner');
+    if (dkFullBanner) {
+      dkFullBanner.style.display = (s.download_error === 'disk_full') ? 'block' : 'none';
+    }
+
+    // Полуавтоматическое обновление кук
+    renderCookieFetch(s.cookies_fetch);
 
     // Setup checks
     const ct=document.getElementById('check-token');
@@ -1632,121 +2425,223 @@ async function refresh(){
       savedCkCard.style.display = 'none';
     }
 
-    const dirIn=document.getElementById('dir-input');
-    if(!dirIn.value && s.config.download_dir) dirIn.placeholder=`текущее: ${s.config.download_dir}`;
-
-    // Pipeline
-    const pl = s.pipeline || {};
-    const card = document.getElementById('pipeline-card');
-    const startBtn = document.getElementById('big-start');
-    const stopBtn = document.getElementById('big-stop');
-    const ps = document.getElementById('pipeline-state');
-    if(pl.running){
-      card.style.display='block';
-      startBtn.style.display='none';
-      stopBtn.style.display='inline-flex';
-      ps.textContent = 'идёт'; ps.className = 'badge run';
-    } else {
-      startBtn.style.display='inline-flex';
-      stopBtn.style.display='none';
-      if(pl.state === 'done'){
-        card.style.display='block';
-        ps.textContent='готово'; ps.className='badge ok';
-      } else if(pl.state === 'failed'){
-        card.style.display='block';
-        ps.textContent='ошибка'; ps.className='badge err';
-      } else if(pl.state === 'stopped'){
-        card.style.display='block';
-        ps.textContent='остановлено пользователем'; ps.className='badge';
-      } else {
-        card.style.display='none';
-      }
+    const unlimDirIn = document.getElementById('unlim-dir-input');
+    if (unlimDirIn && !unlimDirIn.value && s.config.unlim_dir) {
+      unlimDirIn.placeholder = `текущее: ${s.config.unlim_dir}`;
     }
-    document.getElementById('pipeline-step').textContent = pl.step || '—';
-    document.getElementById('pipeline-time').textContent = dur(pl.elapsed);
-    setConsole('pipeline-console', (pl.log||[]).join('\n'));
-
-    // Disk
-    const dd=s.disk.db;
-    document.getElementById('home-disk-done').textContent =
-      (dd.downloaded||0).toLocaleString('ru') + (dd.total ? ` / ${dd.total.toLocaleString('ru')}` : '');
-    document.getElementById('home-disk-info').textContent =
-      `${human(dd.bytes_done||0)} из ${human(dd.bytes_total||0)}`;
-    const hdpct = dd.total ? ((dd.downloaded+dd.skipped)/dd.total*100) : 0;
-    document.getElementById('home-disk-bar').style.width = hdpct + '%';
-
-    document.getElementById('s-downloaded').textContent=(dd.downloaded||0).toLocaleString('ru');
-    document.getElementById('s-skipped').textContent=(dd.skipped||0).toLocaleString('ru');
-    document.getElementById('s-pending').textContent=(dd.pending||0).toLocaleString('ru');
-    document.getElementById('s-failed').textContent=(dd.failed||0).toLocaleString('ru');
-
-    const dRecent=document.getElementById('disk-recent');
-    if(dd.recent&&dd.recent.length){
-      dRecent.innerHTML=dd.recent.map(r=>{
-        const name=(r.path||'').split('/').pop();
-        return `<div class="recent-item" title="${esc(r.path)}"><span class="name">${esc(name)}</span></div>`;
-      }).join('');
-    } else {
-      dRecent.innerHTML='<div class="muted">пока пусто</div>';
+    const diskDirIn = document.getElementById('disk-dir-input');
+    if (diskDirIn && !diskDirIn.value && s.config.disk_dir) {
+      diskDirIn.placeholder = `текущее: ${s.config.disk_dir}`;
     }
 
-    // Unlim
-    const ud=s.unlim.db;
-    document.getElementById('home-unlim-done').textContent =
-      (ud.downloaded||0).toLocaleString('ru') + (ud.total ? ` / ${ud.total.toLocaleString('ru')}` : '');
-    document.getElementById('home-unlim-info').textContent =
-      `${human(ud.bytes_done||0)} из ${human(ud.bytes_total||0)}`;
-    const hupct = ud.total ? (ud.downloaded/ud.total*100) : 0;
-    document.getElementById('home-unlim-bar').style.width = hupct + '%';
-
-    document.getElementById('u-downloaded').textContent=(ud.downloaded||0).toLocaleString('ru');
-    document.getElementById('u-pending').textContent=(ud.pending||0).toLocaleString('ru');
-    document.getElementById('u-in-progress').textContent=(ud.in_progress||0).toLocaleString('ru');
-    document.getElementById('u-failed').textContent=(ud.failed||0).toLocaleString('ru');
-
-    // Consoles + scan status tracking
+    // Download Task & Pipeline State
     const tasks = s.tasks || {};
+    const pl = s.pipeline || {};
+    const unlimTask = tasks.unlim;
     const diskTask = tasks.disk;
-    const unlimTask = tasks.unlim_collect;
+    const isUnlimRunning = unlimTask && unlimTask.running;
+    const isDiskRunning = diskTask && diskTask.running;
+    const isPipeRunning = pl && pl.running;
+    const runningSlots = Object.keys(tasks).filter(k => tasks[k].running).sort((a,b) => slotOrder(a) - slotOrder(b));
+    const isRunning = runningSlots.length > 0 || isPipeRunning;
 
-    // Live-статус сканирования
-    updateScanStatus('disk', diskTask, dd.total);
-    updateScanStatus('unlim', unlimTask, ud.total);
+    // Live DB status banner
+    updateDbStatusBanner(s);
 
-    // Авто-refreshPreview при завершении задач
-    function detectDone(slot, kind){
-      const prev = _prevTaskStates[slot];
-      const cur = tasks[slot];
-      if(!cur) return;
-      const wasRunning = prev && prev.running;
-      const isRunning = cur.running;
-      if(wasRunning && !isRunning && cur.exit_code === 0){
-        setTimeout(()=>refreshPreview(kind), 500);
-        toast(`Сканирование завершено — обновляю список`, 'ok');
-      }
-      _prevTaskStates[slot] = {running: cur.running, exit_code: cur.exit_code};
+    // Completion toast notification
+    if (window._prevWasScanning && !isRunning) {
+      window._prevWasScanning = false;
+      const uSum = s.unlim?.summary || {};
+      const total = uSum.total_files || s.unlim?.db?.total || 47662;
+      toast(`🎉 Сбор базы данных завершён! Всего в базе: ${total.toLocaleString('ru')} файлов.`, 'ok');
     }
-    detectDone('disk', 'disk');
-    detectDone('unlim_collect', 'unlim');
+    if (isRunning && (isUnlimRunning || isDiskRunning)) {
+      const isScan = (unlimTask?.log_tail || diskTask?.log_tail || []).some(l => /фотосреза|кластер|scan|Обхожу/i.test(l));
+      if (isScan) window._prevWasScanning = true;
+    }
 
-    // Обновление баннеров download / organize
-    updateDownloadBanner('disk', diskTask);
-    updateUnlimBanner(tasks);
+    const card = document.getElementById('pipeline-card');
+    const startBtn = document.getElementById('ctrl-start-btn');
+    const scanBtn = document.getElementById('ctrl-scan-btn');
+    const stopBtn = document.getElementById('ctrl-stop-btn');
+    const allBtn = document.getElementById('ctrl-all-btn');
+    const ps = document.getElementById('pipeline-state');
+    const pStep = document.getElementById('pipeline-step');
+    const pTime = document.getElementById('pipeline-time');
+
+    // Live speed badge in download control card
+    const liveSpeed = document.getElementById('live-speed-badge');
+    if (liveSpeed) {
+      if (sp.active && sp.speed_mb !== undefined && isUnlimRunning) {
+        liveSpeed.style.display = 'inline-block';
+        liveSpeed.textContent = `⚡ ${sp.speed_mb} МБ/с (${sp.speed_mbit} Мбит/с)`;
+      } else {
+        liveSpeed.style.display = 'none';
+      }
+    }
+
+    // Счётчики успешно скачанных файлов за текущую сессию (Диск и Безлимит).
+    renderSessionCounters(s, tasks);
+
+    if (isRunning) {
+      if (card) card.style.display = 'block';
+      if (startBtn) startBtn.style.display = 'none';
+      if (scanBtn) scanBtn.style.display = 'none';
+      if (allBtn) allBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'inline-flex';
+      if (ps) { ps.textContent = runningSlots.length > 1 ? `идёт ${runningSlots.length} процесса` : 'идёт процесс'; ps.className = 'badge run'; }
+
+      if (runningSlots.length > 0) {
+        const labels = runningSlots.map(s => `${taskLabel(s)} · ${taskKind(s, tasks[s].log_tail)}`);
+        if (pStep) pStep.textContent = labels.join('   +   ');
+        if (pTime) pTime.textContent = dur(Math.max(...runningSlots.map(s => tasks[s].elapsed || 0)));
+        const body = runningSlots.map(s => {
+          const t = tasks[s];
+          const log = (t.log_tail || []).slice(-25).join('\n');
+          return `▶ ${taskLabel(s)} · ${taskKind(s, t.log_tail)} · ${dur(t.elapsed)}\n${log}`;
+        }).join('\n\n');
+        setConsole('pipeline-console', body);
+      } else if (isPipeRunning) {
+        if (pStep) pStep.textContent = pl.step || 'Пайплайн';
+        if (pTime) pTime.textContent = dur(pl.elapsed);
+        setConsole('pipeline-console', (pl.log || []).join('\n'));
+      }
+    } else {
+      if (startBtn) startBtn.style.display = 'inline-flex';
+      if (scanBtn) scanBtn.style.display = 'inline-flex';
+      if (allBtn) allBtn.style.display = 'inline-flex';
+      if (stopBtn) stopBtn.style.display = 'none';
+
+      const lastTask = (unlimTask && unlimTask.exit_code !== null) ? unlimTask :
+                       ((diskTask && diskTask.exit_code !== null) ? diskTask : null);
+      if (lastTask && lastTask.log_tail && lastTask.log_tail.length > 0) {
+        if (card) card.style.display = 'block';
+        const isDone = lastTask.exit_code === 0;
+        const isUserStop = isStopped(lastTask.exit_code);
+        const isScanTask = (lastTask.log_tail || []).some(l => /фотосреза|кластер|scan|Обхожу/i.test(l));
+        const doneLabel = isScanTask ? 'сканирование завершено (база готова)' : 'скачивание завершено';
+        if (ps) {
+          if (isDone) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
+          else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge'; }
+          else { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
+        }
+        if (pStep) pStep.textContent = (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (isDone ? doneLabel : (isUserStop ? 'остановлено' : `ошибка (код ${lastTask.exit_code})`));
+        if (pTime) pTime.textContent = dur(lastTask.elapsed);
+        setConsole('pipeline-console', (lastTask.log_tail || []).join('\n'));
+      } else if (s.last_unlim_log && s.last_unlim_log.length > 0 && s.unlim?.summary?.is_ready) {
+        // Показываем последний успешный лог даже после обновления страницы (F5)
+        if (card) card.style.display = 'block';
+        if (ps) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
+        if (pStep) pStep.textContent = `Безлимит: база данных полностью собрана (${(s.unlim.summary.total_files || 0).toLocaleString('ru')} файлов в базе)`;
+        if (pTime) pTime.textContent = 'завершено';
+        setConsole('pipeline-console', s.last_unlim_log.join('\n'));
+      } else if (pl.state === 'done' || pl.state === 'failed' || pl.state === 'stopped') {
+        if (card) card.style.display = 'block';
+        if (ps) {
+          if (pl.state === 'done') { ps.textContent = 'готово'; ps.className = 'badge ok'; }
+          else if (pl.state === 'failed') { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
+          else { ps.textContent = 'остановлено пользователем'; ps.className = 'badge'; }
+        }
+        if (pStep) pStep.textContent = pl.step || 'Завершено';
+        if (pTime) pTime.textContent = dur(pl.elapsed);
+        setConsole('pipeline-console', (pl.log || []).join('\n'));
+      } else {
+        if (card) card.style.display = 'block';
+      }
+    }
+
+    // Disk Stats
+    const dd = s.disk.db || {};
+    const isDiskScanning = isDiskRunning && (diskTask?.log_tail || []).some(l => /scan|Обхожу/i.test(l));
+    const diskDoneEl = document.getElementById('home-disk-done');
+    const totalDisk = dd.total || 0;
+    const diskDone = (dd.downloaded || 0) + (dd.skipped || 0);
+
+    if (diskDoneEl) {
+      if (isDiskScanning) {
+        diskDoneEl.innerHTML = `<span style="font-size:18px;color:var(--accent)">🔍 Найдено: ${totalDisk.toLocaleString('ru')} файлов</span>`;
+      } else if (diskDone === 0 && totalDisk > 0) {
+        diskDoneEl.innerHTML = `<span style="font-size:20px;color:var(--green)">✓ ${totalDisk.toLocaleString('ru')} в базе</span>`;
+      } else {
+        diskDoneEl.textContent = (dd.downloaded || 0).toLocaleString('ru') + (totalDisk ? ` / ${totalDisk.toLocaleString('ru')}` : '');
+      }
+    }
+    const diskInfoEl = document.getElementById('home-disk-info');
+    if (diskInfoEl) {
+      if (isDiskScanning) {
+        diskInfoEl.textContent = 'сканирование дерева каталогов…';
+      } else if (diskDone === 0 && totalDisk > 0) {
+        diskInfoEl.innerHTML = `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`;
+      } else {
+        diskInfoEl.textContent = `${human(dd.bytes_done || 0)} из ${human(dd.bytes_total || 0)}`;
+      }
+    }
+    const diskBarEl = document.getElementById('home-disk-bar');
+    if (diskBarEl) {
+      if (isDiskScanning) {
+        diskBarEl.style.width = '100%';
+        diskBarEl.style.opacity = '0.6';
+      } else if (diskDone === 0 && totalDisk > 0) {
+        diskBarEl.style.width = '100%';
+        diskBarEl.style.opacity = '1';
+        diskBarEl.style.background = 'var(--green)';
+      } else {
+        diskBarEl.style.opacity = '1';
+        diskBarEl.style.background = '';
+        const hdpct = totalDisk ? (diskDone / totalDisk * 100) : 0;
+        diskBarEl.style.width = Math.min(100, hdpct) + '%';
+      }
+    }
+
+    // Unlim Stats
+    const ud = s.unlim.db || {};
+    const uSum = s.unlim.summary || {};
+    const isUnlimScanning = isUnlimRunning && (unlimTask?.log_tail || []).some(l => /фотосреза|кластер|scan/i.test(l));
+    const unlimDoneEl = document.getElementById('home-unlim-done');
+    const totalUnlim = uSum.total_files || ud.total || 0;
+    const unlimDownloaded = ud.downloaded || 0;
+
+    if (unlimDoneEl) {
+      if (isUnlimScanning) {
+        unlimDoneEl.innerHTML = `<span style="font-size:18px;color:var(--purple)">🔍 В базе: ${totalUnlim.toLocaleString('ru')} файлов</span>`;
+      } else if (unlimDownloaded === 0 && totalUnlim > 0) {
+        unlimDoneEl.innerHTML = `<span style="font-size:20px;color:var(--green)">✓ ${totalUnlim.toLocaleString('ru')} в базе</span>`;
+      } else {
+        unlimDoneEl.textContent = unlimDownloaded.toLocaleString('ru') + (totalUnlim ? ` / ${totalUnlim.toLocaleString('ru')}` : '');
+      }
+    }
+    const unlimInfoEl = document.getElementById('home-unlim-info');
+    if (unlimInfoEl) {
+      if (isUnlimScanning) {
+        unlimInfoEl.textContent = 'сканирование кластеров Безлимита…';
+      } else if (unlimDownloaded === 0 && totalUnlim > 0) {
+        unlimInfoEl.innerHTML = `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`;
+      } else {
+        unlimInfoEl.textContent = `${human(ud.bytes_done || 0)} из ${human(ud.bytes_total || 0)}`;
+      }
+    }
+    const unlimBarEl = document.getElementById('home-unlim-bar');
+    if (unlimBarEl) {
+      if (isUnlimScanning) {
+        unlimBarEl.style.width = '100%';
+        unlimBarEl.style.opacity = '0.6';
+      } else if (unlimDownloaded === 0 && totalUnlim > 0) {
+        unlimBarEl.style.width = '100%';
+        unlimBarEl.style.opacity = '1';
+        unlimBarEl.style.background = 'var(--purple)';
+      } else {
+        unlimBarEl.style.opacity = '1';
+        unlimBarEl.style.background = '';
+        const hupct = totalUnlim ? (unlimDownloaded / totalUnlim * 100) : 0;
+        unlimBarEl.style.width = Math.min(100, hupct) + '%';
+      }
+    }
+
+    // Организация файлов (сортировка по датам)
     updateOrganizeBanner(tasks.organize);
 
-    // Индикатор активных задач в шапке
+    // Header active indicator
     updateActiveTasksHeader(tasks, pl);
-
-    setConsole('disk-console', (tasks.disk?.log_tail||[]).join('\n'));
-    const unlimLog = [];
-    for (const k of Object.keys(tasks)){
-      if(k.startsWith('unlim')){
-        (tasks[k].log_tail||[]).forEach(l=>unlimLog.push(`[${k}] ${l}`));
-      }
-    }
-    unlimLog.sort();
-    setConsole('unlim-console', unlimLog.slice(-100).join('\n'));
-    setConsole('organize-console', (tasks.organize?.log_tail||[]).join('\n'));
 
   } catch(e){
     console.error('refresh', e);
@@ -1769,6 +2664,340 @@ if (window.location.protocol === 'file:') {
   if (warn) warn.style.display = 'block';
 }
 
+// ────── первая настройка ──────
+let _setupTokenVerified = null;
+
+function updateReportKeyState(configured){
+  const el = document.getElementById('diag-key-state');
+  if(!el) return;
+  el.textContent = configured ? 'ключ настроен' : 'ключ не настроен';
+  el.className = 'badge ' + (configured ? 'ok' : 'err');
+}
+
+async function initSetup(){
+  try{
+    const r = await fetch('/api/setup/status');
+    const d = await r.json();
+    const disk = document.getElementById('setup-disk-dir');
+    const unlim = document.getElementById('setup-unlim-dir');
+    if(disk && !disk.value) disk.value = d.disk_dir || '';
+    if(unlim && !unlim.value) unlim.value = d.unlim_dir || '';
+    updateReportKeyState(!!d.report_key_configured);
+    if(d.needs_setup){
+      setTimeout(()=>document.getElementById('setup-modal').classList.add('show'), 250);
+    }
+  }catch(e){ /* сервер ещё поднимается — не мешаем */ }
+}
+
+async function setupCheckToken(){
+  const tok = document.getElementById('setup-token').value.trim();
+  const status = document.getElementById('setup-token-status');
+  const btn = document.getElementById('setup-check-btn');
+  if(!tok){
+    status.className = 'setup-hint err';
+    status.textContent = 'Вставьте токен или нажмите «Позже», чтобы настроить потом.';
+    return;
+  }
+  btn.disabled = true;
+  status.className = 'setup-hint';
+  status.textContent = 'Проверяю токен…';
+  try{
+    const r = await fetch('/api/config/token/check', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token: tok})
+    });
+    const d = await r.json();
+    if(d.ok){
+      _setupTokenVerified = tok;
+      status.className = 'setup-hint ok';
+      status.textContent = `Токен валиден: ${d.login}. Занято ${human(d.used)} из ${human(d.total)}.`;
+    }else{
+      _setupTokenVerified = null;
+      status.className = 'setup-hint err';
+      status.textContent = 'Токен не подошёл: ' + (d.msg || 'неизвестная ошибка');
+    }
+  }catch(e){
+    _setupTokenVerified = null;
+    status.className = 'setup-hint err';
+    status.textContent = 'Не удалось проверить токен: ' + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function finishSetup(){
+  const token = document.getElementById('setup-token').value.trim();
+  const diskDir = document.getElementById('setup-disk-dir').value.trim();
+  const unlimDir = document.getElementById('setup-unlim-dir').value.trim();
+  const reportKey = document.getElementById('setup-report-key').value.trim();
+  const status = document.getElementById('setup-token-status');
+  const btn = document.getElementById('setup-finish-btn');
+  if(token && _setupTokenVerified !== token){
+    status.className = 'setup-hint err';
+    status.textContent = 'Сначала нажмите «Проверить» — так мы не сохраним опечатку в токене.';
+    return;
+  }
+  if(!diskDir || !unlimDir){
+    status.className = 'setup-hint err';
+    status.textContent = 'Укажите обе папки: для Диска и для Безлимита.';
+    return;
+  }
+  btn.disabled = true;
+  status.className = 'setup-hint';
+  status.textContent = 'Сохраняю настройки…';
+  try{
+    const r = await fetch('/api/setup', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token, disk_dir: diskDir, unlim_dir: unlimDir, report_key: reportKey})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.detail || d.error || 'Не удалось сохранить настройки');
+    if(d.token_check && d.token_check.ok === false){
+      status.className = 'setup-hint err';
+      status.textContent = 'Токен сохранён, но Яндекс его не принял: ' + (d.token_check.msg || '');
+      return;
+    }
+    document.getElementById('setup-modal').classList.remove('show');
+    document.getElementById('setup-report-key').value = '';
+    updateReportKeyState(d.status?.report_key_configured);
+    toast('Настройка завершена. Можно запускать выгрузку.', 'ok');
+    refresh();
+  }catch(e){
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function skipSetup(){
+  const btn = document.getElementById('setup-skip-btn');
+  btn.disabled = true;
+  try{
+    await fetch('/api/setup/skip', {method:'POST'});
+    document.getElementById('setup-modal').classList.remove('show');
+    toast('Можно настроить позже на вкладке «Настройки».', 'ok');
+  }catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// ────── диагностика ──────
+function showDiagnostics(data){
+  const out = document.getElementById('diag-output');
+  if(out && data.summary){
+    out.textContent = data.summary;
+    out.style.display = 'block';
+  }
+  if(data.reports) renderReportList(data.reports);
+}
+
+function renderReportList(list){
+  const box = document.getElementById('diag-reports');
+  if(!box) return;
+  if(!list || !list.length){
+    box.textContent = 'Отчётов пока нет.';
+    return;
+  }
+  box.innerHTML = list.map(r => `
+    <div class="diag-report-row">
+      <span>${esc(r.name)}</span>
+      <span class="muted">${r.size_mb} МБ · ${esc(r.modified)}</span>
+    </div>`).join('');
+}
+
+function setDiagBusy(busy, text){
+  const build = document.getElementById('diag-build-btn');
+  const send = document.getElementById('diag-send-btn');
+  if(build) build.disabled = busy;
+  if(send) send.disabled = busy;
+  const status = document.getElementById('diag-status');
+  if(status && text !== undefined){
+    status.className = 'setup-hint';
+    status.textContent = text;
+  }
+}
+
+let lastUpdateUrl = '';
+
+async function checkUpdates(){
+  const btn = document.getElementById('update-check-btn');
+  const status = document.getElementById('update-status');
+  const open = document.getElementById('update-open-btn');
+  const notes = document.getElementById('update-notes');
+  if(!btn || !status || !open || !notes) return;
+  btn.disabled = true;
+  open.style.display = 'none';
+  notes.style.display = 'none';
+  status.className = 'setup-hint';
+  status.textContent = 'Проверяю GitHub…';
+  try{
+    const r = await fetch('/api/updates/check', {cache:'no-store'});
+    const d = await r.json();
+    if(!d.ok){
+      status.className = 'setup-hint err';
+      status.textContent = d.error || 'Не удалось проверить обновления.';
+      return;
+    }
+    if(d.update_available){
+      lastUpdateUrl = d.url || '';
+      status.className = 'setup-hint ok';
+      status.textContent = `Доступна версия ${d.latest} (у вас ${d.current}).`;
+      open.style.display = '';
+      if(d.notes){
+        notes.textContent = d.notes;
+        notes.style.display = '';
+      }
+    }else{
+      status.className = 'setup-hint ok';
+      status.textContent = `У вас последняя версия (${d.current}).`;
+    }
+  }catch(e){
+    status.className = 'setup-hint err';
+    status.textContent = 'Не удалось связаться с GitHub.';
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function openUpdatePage(){
+  if(!lastUpdateUrl) return;
+  try{
+    const r = await fetch('/api/updates/open', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url: lastUpdateUrl})
+    });
+    const d = await r.json();
+    if(!d.ok) toast(d.error || 'Не удалось открыть ссылку', 'err');
+  }catch(e){
+    toast('Не удалось открыть ссылку', 'err');
+  }
+}
+
+async function buildDiagnostics(){
+  setDiagBusy(true, 'Собираю отчёт… Это займёт несколько секунд.');
+  try{
+    const r = await fetch('/api/diagnostics', {method:'POST'});
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || d.detail || 'Не удалось собрать отчёт');
+    showDiagnostics(d);
+    const status = document.getElementById('diag-status');
+    status.className = 'setup-hint ok';
+    status.textContent = `Готово: ${d.report_id} · ${d.size_mb} МБ · ${d.path}`;
+    toast('Отчёт собран и сохранён', 'ok');
+  }catch(e){
+    const status = document.getElementById('diag-status');
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + e.message;
+    toast('Не удалось собрать отчёт', 'err');
+  }finally{
+    setDiagBusy(false);
+  }
+}
+
+async function sendDiagnostics(){
+  if(!confirm('Отправить диагностический отчёт в Telegram? Файл уйдёт через сервер отчётов и будет содержать сведения о компьютере и последние ошибки. Токен и куки в него не включаются.')){
+    return;
+  }
+  setDiagBusy(true, 'Собираю и отправляю отчёт…');
+  try{
+    const r = await fetch('/api/diagnostics/send', {method:'POST'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || d.detail || 'Не удалось отправить отчёт');
+    showDiagnostics(d);
+    const status = document.getElementById('diag-status');
+    if(d.ok){
+      status.className = 'setup-hint ok';
+      status.textContent = `Отправлено в Telegram (сообщение ${d.message_id ?? '—'}). Копия: ${d.saved}`;
+      toast('Отчёт отправлен', 'ok');
+    }else{
+      status.className = 'setup-hint err';
+      status.textContent = (d.error || 'Отправка не удалась') + ` Копия сохранена: ${d.saved}`;
+      toast('Отчёт сохранён, но не отправлен', 'err');
+    }
+  }catch(e){
+    const status = document.getElementById('diag-status');
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + e.message;
+    toast('Не удалось отправить отчёт', 'err');
+  }finally{
+    setDiagBusy(false);
+  }
+}
+
+async function openReportsFolder(){
+  try{
+    const r = await fetch('/api/reports/open', {method:'POST'});
+    const d = await r.json();
+    if(d.ok) toast('Открываю: ' + d.path, 'ok');
+    else toast(d.error || 'Не удалось открыть папку', 'err');
+  }catch(e){ toast('Сеть: ' + e.message, 'err'); }
+}
+
+async function saveReportKey(){
+  const input = document.getElementById('diag-report-key');
+  const key = input.value.trim();
+  if(!key){ toast('Введите ключ или нажмите «Удалить»', 'err'); return; }
+  try{
+    const r = await fetch('/api/diagnostics/key', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || d.detail || 'Ошибка');
+    input.value = '';
+    updateReportKeyState(d.configured);
+    toast('Ключ сохранён — отправка включена', 'ok');
+  }catch(e){ toast('Ошибка: ' + e.message, 'err'); }
+}
+
+async function clearReportKey(){
+  if(!confirm('Удалить ключ отправки? Собирать отчёты можно будет и дальше, но кнопка «Отправить» перестанет работать.')) return;
+  try{
+    const r = await fetch('/api/diagnostics/key', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key: ''})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || d.detail || 'Ошибка');
+    updateReportKeyState(!!d.configured);
+    toast('Ключ удалён', 'ok');
+  }catch(e){ toast('Ошибка: ' + e.message, 'err'); }
+}
+
+async function initDiagnostics(){
+  try{
+    const r = await fetch('/api/diagnostics/reports');
+    const d = await r.json();
+    renderReportList(d.reports || []);
+  }catch(e){ /* не критично */ }
+}
+
+async function initVersion(){
+  try{
+    const r = await fetch('/api/version');
+    const d = await r.json();
+    const el = document.getElementById('app-version');
+    if(el && d.version) el.textContent = 'v' + d.version;
+  }catch(e){ /* не критично */ }
+}
+
+const _setupTokenInput = document.getElementById('setup-token');
+if(_setupTokenInput){
+  _setupTokenInput.addEventListener('input', ()=>{
+    _setupTokenVerified = null;
+    const status = document.getElementById('setup-token-status');
+    status.className = 'setup-hint';
+    status.innerHTML = 'Получить токен: <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener">yandex.ru/dev/disk/poligon</a>. Токен сохранится только на этом компьютере.';
+  });
+}
+
+initVersion();
+initSetup();
+initDiagnostics();
 refresh();
 setInterval(refresh, 1500);
 </script>

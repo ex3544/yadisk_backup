@@ -15,8 +15,10 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -24,24 +26,60 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv, set_key
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-sys.stdout.reconfigure(encoding="utf-8")
+import diagnostics
+import paths
+import updater
+import version
+from utils import auto_workers, ram_info
 
-PROJECT = Path(__file__).resolve().parent
-ENV_FILE = PROJECT / ".env"
+def sqlite_ro_uri(db_path: str | os.PathLike) -> str:
+    path = os.path.abspath(db_path)
+    if sys.platform.startswith("win"):
+        path = path.replace("\\", "/")
+    return f"file:{path}?mode=ro"
+
+IS_FROZEN = paths.IS_FROZEN
+BUNDLE_DIR = paths.BUNDLE_DIR
+PROJECT = paths.APP_DIR
+
+ENV_FILE = paths.ENV_FILE
 load_dotenv(ENV_FILE)
 
-DB_FILE = PROJECT / "state.db"
-UNLIM_DB_FILE = PROJECT / "unlim_state.db"
-COOKIES_FILE = PROJECT / "cookies.json"
-TEMPLATES_DIR = PROJECT / "webui_assets"
+DB_FILE = paths.DB_FILE
+UNLIM_DB_FILE = paths.UNLIM_DB_FILE
+COOKIES_FILE = paths.COOKIES_FILE
+COOKIES_FETCH_STATUS = paths.COOKIES_FETCH_STATUS
+ACTION_LOG = paths.ACTION_LOG
+TEMPLATES_DIR = BUNDLE_DIR / "webui_assets"
+
+
+def log_action(endpoint: str, payload=None, extra: str = "") -> None:
+    """Журнал запусков: какой эндпоинт и с какими параметрами дёрнули.
+
+    Нужен, чтобы разбирать расхождения «нажал одно — запустилось другое»
+    (например, браузер выполнил закэшированный старый JS).
+    """
+    try:
+        if payload is not None and hasattr(payload, "model_dump"):
+            payload = payload.model_dump()
+        body = "" if payload is None else json.dumps(payload, ensure_ascii=False, default=str)
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {endpoint}  {body}"
+        if extra:
+            line += f"  {extra}"
+        ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ACTION_LOG.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 
 def get_config() -> dict:
@@ -49,7 +87,9 @@ def get_config() -> dict:
     load_dotenv(ENV_FILE, override=True)
     return {
         "token": (os.getenv("YA_DISK_TOKEN", "") or "").strip(),
-        "download_dir": (os.getenv("DOWNLOAD_DIR", str(PROJECT / "downloads")) or "").strip(),
+        "download_dir": (os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR)) or "").strip(),
+        "unlim_dir": (os.getenv("UNLIM_DIR", str(paths.DEFAULT_UNLIM_DIR)) or "").strip(),
+        "disk_dir": (os.getenv("DISK_DIR", os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR))) or "").strip(),
         "max_workers": int(os.getenv("MAX_WORKERS", "4") or "4"),
     }
 
@@ -68,7 +108,29 @@ app = FastAPI(title="Yandex.Disk Backup UI")
 
 # ── CSRF защита: блокируем POST с чужих сайтов ─────────────────────────────
 
+# Явный список нужен только для стандартного адреса. Любой другой локальный
+# порт/хост разрешается ниже по принципу same-origin (Origin == Host).
 _ALLOWED_ORIGINS = ("http://localhost:8000", "http://127.0.0.1:8000")
+
+
+def origin_allowed(origin: str, host: str) -> bool:
+    """Разрешает same-origin запросы на любом порту.
+
+    Оконная обёртка может занять 8001/8002, если 8000 занят. Сравнение
+    Origin с заголовком Host не зависит от номера порта и при этом
+    по-прежнему блокирует чужие сайты.
+    """
+    if not origin:
+        return True
+    if origin.rstrip("/") in _ALLOWED_ORIGINS:
+        return True
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return False
+    return bool(host) and parts.netloc.lower() == host.lower()
 
 
 @app.middleware("http")
@@ -78,8 +140,11 @@ async def csrf_guard(request, call_next):
     """
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         origin = request.headers.get("origin") or ""
+        sec_fetch_site = request.headers.get("sec-fetch-site") or ""
+        if sec_fetch_site == "cross-site":
+            return JSONResponse({"detail": "Forbidden cross-site request"}, status_code=403)
         # Блокируем только если Origin явно с чужого сайта
-        if origin and not any(origin.startswith(a) for a in _ALLOWED_ORIGINS):
+        if not origin_allowed(origin, request.headers.get("host") or ""):
             return JSONResponse({"detail": "Forbidden origin"}, status_code=403)
     return await call_next(request)
 
@@ -142,6 +207,12 @@ class Task:
                     self.log.append(line)
         except Exception:
             pass
+        finally:
+            # Забираем код возврата, иначе на Linux/macOS остаётся зомби-процесс
+            try:
+                self.proc.wait(timeout=10)
+            except Exception:
+                pass
 
     def alive(self) -> bool:
         return self.proc.poll() is None
@@ -185,9 +256,19 @@ class TaskManager:
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
             env["PYTHONUNBUFFERED"] = "1"
-            cmd = [sys.executable, "-u", script] + args
+            # Дочерние процессы обязаны писать в тот же каталог данных, даже если
+            # приложение установлено в Program Files.
+            env["YADISK_DATA_DIR"] = str(paths.DATA_DIR)
+            if IS_FROZEN:
+                # Тот же exe разбирает argv и запускает нужный скрипт.
+                cmd = [sys.executable, script] + args
+                # Program Files только для чтения; рабочий каталог — данные.
+                work_dir = paths.DATA_DIR
+            else:
+                cmd = [sys.executable, "-u", script] + args
+                work_dir = PROJECT
             proc = subprocess.Popen(
-                cmd, cwd=str(PROJECT),
+                cmd, cwd=str(work_dir),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
                 env=env,
@@ -412,6 +493,222 @@ class Pipeline:
 pipeline = Pipeline()
 
 
+class AutoRuns:
+    """Повторяет автозапуск «Диск + Безлимит» заданное число раз.
+
+    Один прогон = параллельный запуск download диска и unlim_backup.py
+    (--media all; с галочкой — --target all). Следующий прогон стартует
+    только после завершения обоих процессов предыдущего.
+    """
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._stop = False
+        self._owned_slots: set[str] = set()
+        self.state: str = "idle"  # idle | running | done | stopped | failed
+        self.run_current: int = 0
+        self.runs_total: int = 0
+        self.started_at: Optional[float] = None
+        self.finished_at: Optional[float] = None
+        self.log: deque[str] = deque(maxlen=120)
+
+    def _log(self, msg: str):
+        self.log.append(f"{time.strftime('%H:%M:%S')}  {msg}")
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self, workers: int, retry_skipped: bool, sort_after: bool,
+              runs: int) -> tuple[bool, str]:
+        with self._lock:
+            if self.is_running():
+                return False, "Автопрогоны уже идут"
+            self._stop = False
+            self._owned_slots.clear()
+            self.state = "running"
+            self.run_current = 0
+            self.runs_total = max(1, min(int(runs), 50))
+            self.started_at = time.time()
+            self.finished_at = None
+            self.log.clear()
+            self._workers = workers
+            self._retry_skipped = retry_skipped
+            self._sort_after = sort_after
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            return True, f"Запущено прогонов: {self.runs_total}"
+
+    def stop(self) -> tuple[bool, str]:
+        if not self.is_running():
+            return False, "Автопрогоны не идут"
+        self._stop = True
+        for slot in list(self._owned_slots):
+            tm.stop(slot)
+        self._log("⏹ остановлено")
+        return True, "Остановлено"
+
+    def _wait_finished(self):
+        while not self._stop:
+            with tm._lock:
+                alive = any(
+                    (t := tm._tasks.get(slot)) and t.alive()
+                    for slot in self._owned_slots
+                )
+            if not alive:
+                return
+            time.sleep(2)
+
+    def _run(self):
+        try:
+            for i in range(1, self.runs_total + 1):
+                if self._stop:
+                    break
+                self.run_current = i
+                started = _start_all_tasks(self._workers, self._retry_skipped,
+                                           self._sort_after)
+                ok_slots = [s["slot"] for s in started if s["ok"]]
+                bad = [f"{s['slot']}: {s['msg']}" for s in started if not s["ok"]]
+                self._log(
+                    f"Прогон {i}/{self.runs_total}: запущено "
+                    f"{', '.join(ok_slots) if ok_slots else 'ничего'}"
+                    + (f"; не удалось: {'; '.join(bad)}" if bad else "")
+                )
+                if not ok_slots:
+                    self._log("❌ нечего запускать — останавливаюсь")
+                    self.state = "failed"
+                    return
+                self._owned_slots = set(ok_slots)
+                self._wait_finished()
+                if self._stop:
+                    break
+                # Небольшая пауза, чтобы базы и сервер Яндекс успели «выдохнуть».
+                time.sleep(3)
+            self.state = "stopped" if self._stop else "done"
+        except Exception as e:
+            self.state = "failed"
+            self._log(f"❌ Ошибка автопрогонов: {e}")
+        finally:
+            self.finished_at = time.time()
+
+    def status(self) -> dict:
+        return {
+            "state": self.state,
+            "running": self.is_running(),
+            "run_current": self.run_current,
+            "runs_total": self.runs_total,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "log": list(self.log),
+        }
+
+
+auto_runs = AutoRuns()
+
+
+def _free_gb(paths: list[str]) -> Optional[float]:
+    """Минимум свободного места по указанным папкам (по одному разу на диск)."""
+    frees: list[float] = []
+    seen: set[str] = set()
+    for p in paths:
+        try:
+            if not p or not os.path.exists(p):
+                continue
+            drive = os.path.splitdrive(os.path.abspath(p))[0].lower() or p
+            if drive in seen:
+                continue
+            seen.add(drive)
+            frees.append(shutil.disk_usage(p).free / (1024 ** 3))
+        except Exception:
+            pass
+    return min(frees) if frees else None
+
+
+class DiskWatchdog:
+    """Сторож свободного места: останавливает выгрузку при падении ниже порога."""
+
+    INTERVAL = 30.0
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._stop = False
+        self.state = "idle"  # idle | watching | triggered | stopped
+        self.threshold_gb: float = 50.0
+        self.free_gb: Optional[float] = None
+        self.message: str = ""
+        self.started_at: Optional[float] = None
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self, threshold_gb: float) -> tuple[bool, str]:
+        with self._lock:
+            if self.is_running():
+                return False, "Сторож уже включён"
+            self.threshold_gb = max(1.0, float(threshold_gb))
+            self._stop = False
+            self.state = "watching"
+            self.message = ""
+            self.started_at = time.time()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            return True, f"Сторож включён (порог {self.threshold_gb:g} ГБ)"
+
+    def stop(self) -> tuple[bool, str]:
+        if not self.is_running():
+            self.state = "idle"
+            return False, "Сторож не работает"
+        self._stop = True
+        return True, "Сторож выключен"
+
+    def _watched_paths(self) -> list[str]:
+        cfg = get_config()
+        return [cfg.get("unlim_dir") or "", cfg.get("disk_dir") or cfg.get("download_dir") or ""]
+
+    def _run(self):
+        while not self._stop:
+            free = _free_gb(self._watched_paths())
+            self.free_gb = round(free, 1) if free is not None else None
+            if free is not None and free < self.threshold_gb:
+                self._stop_everything(free)
+                self.state = "triggered"
+                self.message = (
+                    f"Свободно {free:.1f} ГБ — меньше порога {self.threshold_gb:g} ГБ. "
+                    f"Выгрузка остановлена."
+                )
+                return
+            for _ in range(int(self.INTERVAL)):
+                if self._stop:
+                    break
+                time.sleep(1)
+        self.state = "stopped"
+
+    def _stop_everything(self, free: float):
+        auto_runs.stop()
+        pipeline.stop()
+        tm.stop_all()
+        try:
+            with ACTION_LOG.open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  watchdog  "
+                        f"free={free:.2f}GB threshold={self.threshold_gb:g}GB stop_all\n")
+        except Exception:
+            pass
+
+    def status(self) -> dict:
+        return {
+            "state": self.state,
+            "running": self.is_running(),
+            "threshold_gb": self.threshold_gb,
+            "free_gb": self.free_gb,
+            "message": self.message,
+            "started_at": self.started_at,
+        }
+
+
+watchdog = DiskWatchdog()
+
+
 # ── Чтение состояния ────────────────────────────────────────────────────────
 
 
@@ -421,8 +718,9 @@ def db_stats(db_file: Path, table: str = "files",
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0,
                 "bytes_total": 0, "bytes_done": 0, "recent": []}
+    c = None
     try:
-        c = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True, timeout=30)
+        c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0,
@@ -446,15 +744,19 @@ def db_stats(db_file: Path, table: str = "files",
         ))
         out["recent"] = [{"path": r["path"], "status": r["status"],
                           "size": r["size"]} for r in recent]
-        c.close()
         return out
     except sqlite3.Error as e:
         return {"error": str(e)}
+    finally:
+        if c is not None:
+            c.close()
 
 
 # Кэш для тяжёлых операций (polling /api/status каждые 1.5 сек)
 _local_size_cache: dict[str, dict] = {}
-_LOCAL_SIZE_TTL = 10  # секунд
+# 60 сек, а не 10: обход папки — это диск, а по нему в это же время идёт
+# скачивание. /api/status опрашивается каждые 1.5 сек, так что дёшево тут важно.
+_LOCAL_SIZE_TTL = 60  # секунд
 
 
 def local_size(path: str) -> dict:
@@ -475,10 +777,12 @@ def local_size(path: str) -> dict:
         return cached["data"]
 
     n = 0; b = 0
+    partial = False
     deadline = now + 2.0  # макс 2 секунды на обход
     try:
         for dp, _, fns in os.walk(path):
             if time.time() > deadline:
+                partial = True  # не досчитали — честно скажем UI
                 break
             for fn in fns:
                 try:
@@ -489,7 +793,7 @@ def local_size(path: str) -> dict:
     except OSError:
         pass
 
-    data = {"files": n, "bytes": b}
+    data = {"files": n, "bytes": b, "partial": partial}
     # Ограничиваем размер кэша — храним максимум 4 пути
     if len(_local_size_cache) >= 4 and path not in _local_size_cache:
         # удалить самый старый
@@ -555,34 +859,136 @@ def check_cookies() -> dict:
         return {"ok": False, "msg": f"Ошибка: {e}", "count": 0}
 
 
+def cookies_fetch_status() -> dict:
+    """Статус полуавтоматического обновления кук (fetch_cookies.py)."""
+    data: dict = {"state": "idle", "msg": ""}
+    if COOKIES_FETCH_STATUS.exists():
+        try:
+            data = json.loads(COOKIES_FETCH_STATUS.read_text(encoding="utf-8"))
+        except Exception:
+            return {"state": "unknown", "msg": "Ошибка чтения статуса"}
+    # Если файл говорит «running», но сам процесс уже не живой — он оборвался
+    # (отмена/крах), иначе UI висел бы в ожидании входа бесконечно.
+    if data.get("state") == "running":
+        task = tm.status().get("cookies_fetch")
+        if task is not None and not task.get("running"):
+            data = {"state": "stopped", "msg": "Процесс завершён",
+                    "updated_at": data.get("updated_at")}
+    return data
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index():
     html_path = TEMPLATES_DIR / "index.html"
     if not html_path.exists():
         return HTMLResponse("<h1>UI не установлен</h1>")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    # no-store: иначе браузер может выполнять закэшированный старый JS
+    # и слать не те запросы, которые ожидает пользователь.
+    return HTMLResponse(
+        html_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+def unlim_db_summary() -> dict:
+    db_file = UNLIM_DB_FILE
+    if not db_file.exists() or db_file.stat().st_size == 0:
+        return {"exists": False, "total_files": 0, "clusters_total": 0, "clusters_unfetched": 0, "is_ready": False, "size_mb": 0}
+    try:
+        c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=5)
+        tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        total_files = 0
+        clusters_total = 0
+        clusters_unfetched = 0
+        if "unlim_files" in tables:
+            total_files = c.execute("SELECT count(*) FROM unlim_files").fetchone()[0]
+        if "unlim_clusters" in tables:
+            clusters_total = c.execute("SELECT count(*) FROM unlim_clusters").fetchone()[0]
+            clusters_unfetched = c.execute("SELECT count(*) FROM unlim_clusters WHERE fetched = 0").fetchone()[0]
+        c.close()
+        is_ready = (total_files > 0 and (clusters_total == 0 or clusters_unfetched == 0))
+        return {
+            "exists": True,
+            "total_files": total_files,
+            "clusters_total": clusters_total,
+            "clusters_unfetched": clusters_unfetched,
+            "is_ready": is_ready,
+            "size_mb": round(db_file.stat().st_size / (1024 * 1024), 2),
+        }
+    except Exception as e:
+        return {"exists": True, "error": str(e), "total_files": 0, "is_ready": False}
+
+
+def get_last_unlim_log(max_lines: int = 50) -> list[str]:
+    log_file = paths.UNLIM_LOG
+    if not log_file.exists():
+        return []
+    try:
+        # Читаем только хвост файла (последние 256 КБ), а не весь лог целиком:
+        # иначе /api/status (опрашивается каждые 1.5 сек) виснет на сотнях МБ.
+        with log_file.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            read_size = min(size, 256 * 1024)
+            f.seek(size - read_size)
+            tail = f.read(read_size).decode("utf-8", errors="replace")
+        lines = tail.splitlines()
+        return [l.strip() for l in lines if l.strip()][-max_lines:]
+    except Exception:
+        return []
 
 
 @app.get("/api/status")
 def api_status():
     cfg = get_config()
+    status_file = paths.UNLIM_STATUS_FILE
+    download_status = {}
+    download_error = None
+    if status_file.exists():
+        try:
+            st = json.loads(status_file.read_text(encoding="utf-8"))
+            download_error = st.get("error")
+            # Отдаём целиком, без фильтра свежести: UI сам решает по состоянию задачи,
+            # чтобы даже при зависшей сессии был виден последний известный счётчик.
+            download_status = st
+        except Exception:
+            pass
+
+    # Пер-сессионный счётчик обычного диска (скачивание через main.py/downloader.py)
+    disk_status = {}
+    disk_status_file = paths.DISK_STATUS_FILE
+    if disk_status_file.exists():
+        try:
+            disk_status = json.loads(disk_status_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
     return {
         "config": {**cfg, "token_masked": mask_token(cfg["token"])},
         "token": check_token(cfg["token"]),
         "cookies": check_cookies(),
         "disk": {
             "db": db_stats(DB_FILE, "files", "remote_path"),
-            "local": local_size(cfg["download_dir"]),
+            "local": local_size(cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR)),
         },
         "unlim": {
             "db": db_stats(UNLIM_DB_FILE, "unlim_files", "file_id"),
-            "local": local_size(os.path.join(cfg["download_dir"], "_unlim")),
+            "local": local_size(cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)),
+            "summary": unlim_db_summary(),
         },
+        "ram": ram_info(),
+        "auto_runs": auto_runs.status(),
+        "watchdog": watchdog.status(),
         "tasks": tm.status(),
         "pipeline": pipeline.status(),
+        "speed": download_status,
+        "disk_speed": disk_status,
+        "download_error": download_error,
+        "cookies_fetch": cookies_fetch_status(),
+        "last_unlim_log": get_last_unlim_log(),
     }
 
 
@@ -604,6 +1010,197 @@ def api_start(payload: StartPayload):
 def api_start_stop():
     ok, msg = pipeline.stop()
     return {"ok": ok, "msg": msg}
+
+
+class DownloadControlPayload(BaseModel):
+    mode: str = "unlim"  # "unlim" or "disk"
+    media: str = "photos"  # "photos", "videos", "all"
+    target: str = "pending"  # "pending", "skipped"
+    workers: int = 10
+    batch_size: int = 1000
+    batches: int = 0
+    timeout: float = 7.0
+    from_end: bool = True
+    sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
+
+
+@app.post("/api/download/start")
+def api_download_start(payload: DownloadControlPayload):
+    log_action("/api/download/start", payload)
+    cfg = get_config()
+    if payload.mode == "unlim":
+        out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+        args = [
+            "--out-dir", out_dir,
+            "--media", payload.media,
+            "--target", payload.target,
+            "--workers", str(payload.workers),
+            "--timeout", str(payload.timeout),
+            "--batch-size", str(payload.batch_size),
+            "--batches", str(payload.batches),
+        ]
+        if payload.from_end:
+            args.append("--from-end")
+        if payload.sort_after:
+            args.append("--sort-after")
+        ok, msg = tm.start("unlim", "unlim_backup.py", args)
+        return {"ok": ok, "msg": msg, "mode": "unlim"}
+    else:
+        out_dir = cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR)
+        args = ["download", "--workers", str(auto_workers())]
+        if DB_FILE.exists():
+            args.append("--no-scan")
+        ok, msg = tm.start("disk", "main.py", args)
+        return {"ok": ok, "msg": msg, "mode": "disk"}
+
+
+class DownloadAllPayload(BaseModel):
+    workers: int = 10
+    runs: int = 1  # сколько раз повторить весь автопрогон
+    retry_skipped: bool = False  # галочка «сначала новые, затем пропущенные»
+    sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
+
+
+def _start_all_tasks(workers: int, retry_skipped: bool, sort_after: bool) -> list[dict]:
+    """Запускает диск и безлимит параллельно. Возвращает список слотов и статусов."""
+    cfg = get_config()
+    started = []
+
+    # Диск: все файлы. REST-клиент ограничен 5 потоками.
+    disk_workers = auto_workers()
+    disk_args = ["download", "--workers", str(disk_workers)]
+    if DB_FILE.exists():
+        disk_args.append("--no-scan")
+    if retry_skipped:
+        disk_args.append("--retry")
+    ok, msg = tm.start("disk", "main.py", disk_args)
+    started.append({"slot": "disk", "ok": ok, "msg": msg})
+
+    # Безлимит: все медиа, очередь зависит от галочки.
+    out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+    unlim_args = [
+        "--out-dir", out_dir,
+        "--media", "all",
+        "--target", ("all" if retry_skipped else "pending"),
+        "--workers", str(workers),
+    ]
+    if sort_after:
+        unlim_args.append("--sort-after")
+    ok2, msg2 = tm.start("unlim", "unlim_backup.py", unlim_args)
+    started.append({"slot": "unlim", "ok": ok2, "msg": msg2})
+    return started
+
+
+@app.post("/api/download/all")
+def api_download_all(payload: DownloadAllPayload):
+    """Скачивает ВСЁ одновременно: обычный диск + безлимит (все медиа)."""
+    log_action("/api/download/all", payload)
+    runs = max(1, min(int(payload.runs or 1), 50))
+    if runs > 1:
+        ok, msg = auto_runs.start(payload.workers, payload.retry_skipped,
+                                  payload.sort_after, runs)
+        return {"ok": ok, "started": [], "runs": runs, "msg": msg}
+
+    started = _start_all_tasks(payload.workers, payload.retry_skipped,
+                               payload.sort_after)
+    any_ok = any(s["ok"] for s in started)
+    ok_slots = [s["slot"] for s in started if s["ok"]]
+    bad = [f"{s['slot']}: {s['msg']}" for s in started if not s["ok"]]
+    return {"ok": any_ok, "started": started, "runs": 1,
+            "msg": (f"Запущено: {', '.join(ok_slots)}" if ok_slots else "Не удалось запустить") +
+                   (f" ({'; '.join(bad)})" if bad else "")}
+
+
+class WatchdogPayload(BaseModel):
+    threshold_gb: float = 50.0
+
+
+@app.post("/api/watchdog/start")
+def api_watchdog_start(payload: WatchdogPayload):
+    log_action("/api/watchdog/start", payload)
+    ok, msg = watchdog.start(payload.threshold_gb)
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/watchdog/stop")
+def api_watchdog_stop():
+    ok, msg = watchdog.stop()
+    return {"ok": ok, "msg": msg}
+
+
+# ── Сброс статусов обратно в очередь ────────────────────────────────────────
+def _any_task_running(prefixes: tuple[str, ...]) -> bool:
+    try:
+        for slot, info in tm.status().items():
+            if isinstance(info, dict) and info.get("running") and slot.startswith(prefixes):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+class ResetPayload(BaseModel):
+    what: str  # disk_failed | unlim_skipped | unlim_stuck
+
+
+@app.post("/api/reset")
+def api_reset(payload: ResetPayload):
+    """Возвращает файлы из failed/skipped/in_progress обратно в pending.
+
+    Меняются только статусы в БД — уже скачанные файлы на диске не трогаются.
+    Пока идёт соответствующая выгрузка, сброс запрещён: иначе воркеры могут
+    взять один и тот же файл дважды.
+    """
+    log_action("/api/reset", payload)
+    what = payload.what
+
+    if what == "disk_failed":
+        if _any_task_running(("disk",)):
+            return {"ok": False, "msg": "Сначала остановите выгрузку Диска"}
+        db_file, sql = DB_FILE, (
+            "UPDATE files SET status='pending', error=NULL WHERE status='failed'"
+        )
+        done = "ошибочных файлов Диска возвращено в очередь"
+    elif what == "unlim_skipped":
+        if _any_task_running(("unlim",)):
+            return {"ok": False, "msg": "Сначала остановите выгрузку Безлимита"}
+        db_file, sql = UNLIM_DB_FILE, (
+            "UPDATE unlim_files SET status='pending', attempts=0, error=NULL "
+            "WHERE status='skipped'"
+        )
+        done = "пропущенных файлов Безлимита возвращено в очередь"
+    elif what == "unlim_stuck":
+        if _any_task_running(("unlim",)):
+            return {"ok": False, "msg": "Сначала остановите выгрузку Безлимита"}
+        db_file, sql = UNLIM_DB_FILE, (
+            "UPDATE unlim_files SET status='pending' WHERE status='in_progress'"
+        )
+        done = "зависших файлов Безлимита возвращено в очередь"
+    else:
+        return {"ok": False, "msg": f"Неизвестное действие: {what}"}
+
+    if not Path(db_file).exists():
+        return {"ok": False, "msg": "База данных не найдена"}
+
+    con = None
+    try:
+        con = sqlite3.connect(str(db_file), timeout=30)
+        with con:
+            count = con.execute(sql).rowcount
+        return {"ok": True, "count": count, "msg": f"Сброшено {count}: {done}"}
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Ошибка БД: {e}"}
+    finally:
+        if con is not None:
+            con.close()
+
+
+@app.post("/api/download/stop")
+def api_download_stop():
+    auto_runs.stop()
+    n = tm.stop_all()
+    pipeline.stop()
+    return {"ok": True, "stopped": n}
 
 
 class TokenPayload(BaseModel):
@@ -640,8 +1237,116 @@ def api_set_dir(payload: DownloadDirPayload):
     if not ENV_FILE.exists():
         ENV_FILE.write_text("", encoding="utf-8")
     set_key(str(ENV_FILE), "DOWNLOAD_DIR", d, quote_mode="never")
+    set_key(str(ENV_FILE), "DISK_DIR", d, quote_mode="never")
     load_dotenv(ENV_FILE, override=True)
     return {"ok": True, "download_dir": d}
+
+
+class DirsPayload(BaseModel):
+    unlim_dir: str = ""
+    disk_dir: str = ""
+
+
+@app.post("/api/config/dirs")
+def api_set_dirs(payload: DirsPayload):
+    u = (payload.unlim_dir or "").strip()
+    d = (payload.disk_dir or "").strip()
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    if u:
+        set_key(str(ENV_FILE), "UNLIM_DIR", u, quote_mode="never")
+    if d:
+        set_key(str(ENV_FILE), "DISK_DIR", d, quote_mode="never")
+        set_key(str(ENV_FILE), "DOWNLOAD_DIR", d, quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+    return {"ok": True, "unlim_dir": u, "disk_dir": d}
+
+
+class BrowseDirPayload(BaseModel):
+    initial: str = ""
+
+
+def pick_folder_os(initial_dir: str = "") -> str | None:
+    # 1. Linux: kdialog
+    if shutil.which("kdialog"):
+        try:
+            cmd = ["kdialog", "--getexistingdirectory"]
+            if initial_dir and os.path.exists(initial_dir):
+                cmd.append(initial_dir)
+            cmd.extend(["--title", "Выберите папку для сохранения"])
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            p = r.stdout.strip()
+            if p:
+                return p
+        except Exception:
+            pass
+
+    # 2. Linux: zenity
+    if shutil.which("zenity"):
+        try:
+            cmd = ["zenity", "--file-selection", "--directory", "--title=Выберите папку для сохранения"]
+            if initial_dir and os.path.exists(initial_dir):
+                cmd.append(f"--filename={initial_dir}/")
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            p = r.stdout.strip()
+            if p:
+                return p
+        except Exception:
+            pass
+
+    # 3. macOS: osascript
+    if sys.platform == "darwin":
+        try:
+            cmd = ["osascript", "-e", 'POSIX path of (choose folder with prompt "Выберите папку для сохранения:")']
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            p = r.stdout.strip()
+            if p:
+                return p
+        except Exception:
+            pass
+
+    # 4. Windows: PowerShell FolderBrowserDialog
+    if sys.platform.startswith("win"):
+        try:
+            # Показываем диалог поверх всех окон: невидимая TopMost-форма-владелец,
+            # иначе FolderBrowserDialog открывается позади браузера.
+            ps_script = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "$o=New-Object System.Windows.Forms.Form;"
+                "$o.TopMost=$true;"
+                "$o.ShowInTaskbar=$false;"
+                "$o.FormBorderStyle='None';"
+                "$o.StartPosition='CenterScreen';"
+                "$o.Width=1;"
+                "$o.Height=1;"
+                "$o.Show();"
+                "$o.Activate();"
+                "[System.Windows.Forms.Application]::DoEvents();"
+                "Start-Sleep -Milliseconds 150;"
+                "$f=New-Object System.Windows.Forms.FolderBrowserDialog;"
+                "$f.Description='Выберите папку для сохранения';"
+                "$f.ShowNewFolderButton=$true;"
+                + (f"$f.SelectedPath='{initial_dir}';" if initial_dir else "") +
+                "if($f.ShowDialog($o) -eq 'OK'){$f.SelectedPath};"
+                "$o.Close();"
+            )
+            cmd = ["powershell", "-NoProfile", "-Command", ps_script]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            p = r.stdout.strip()
+            if p:
+                return p
+        except Exception:
+            pass
+
+    return None
+
+
+@app.post("/api/browse_dir")
+def api_browse_dir(payload: BrowseDirPayload):
+    chosen = pick_folder_os(payload.initial)
+    if chosen:
+        return {"ok": True, "path": chosen}
+    return {"ok": False, "msg": "Выбор отменён"}
 
 
 class CookiesPayload(BaseModel):
@@ -687,6 +1392,31 @@ def api_clear_cookies():
     return {"ok": True}
 
 
+@app.post("/api/cookies/fetch")
+def api_cookies_fetch():
+    """Запускает полуавтоматическое обновление кук через Playwright."""
+    st = tm.status().get("cookies_fetch")
+    if st and st.get("running"):
+        return {"ok": False, "msg": "Вход уже идёт"}
+    ok, msg = tm.start("cookies_fetch", "fetch_cookies.py", [])
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/cookies/fetch/cancel")
+def api_cookies_fetch_cancel():
+    ok, msg = tm.stop("cookies_fetch")
+    # Явно помечаем статус, чтобы UI сразу показал «отменено»
+    try:
+        COOKIES_FETCH_STATUS.parent.mkdir(parents=True, exist_ok=True)
+        COOKIES_FETCH_STATUS.write_text(
+            json.dumps({"state": "cancelled", "msg": "Отменено пользователем",
+                        "updated_at": time.time()}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+    return {"ok": ok, "msg": msg}
+
+
 @app.post("/api/config/token/clear")
 def api_clear_token():
     if ENV_FILE.exists():
@@ -699,8 +1429,9 @@ def preview_db(db_file: Path, table: str, id_col: str) -> dict:
     """Группирует файлы в БД по категориям."""
     if not db_file.exists():
         return {"empty": True, "categories": {}}
+    c = None
     try:
-        c = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True, timeout=30)
+        c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
         summary: dict[str, dict] = {
             k: {"count": 0, "bytes": 0, "label": CATEGORY_LABELS[k]}
             for k in list(CATEGORY_LABELS.keys())
@@ -714,10 +1445,12 @@ def preview_db(db_file: Path, table: str, id_col: str) -> dict:
             summary[cat]["count"] += 1
             summary[cat]["bytes"] += row[1]
             total += 1
-        c.close()
         return {"empty": total == 0, "total": total, "categories": summary}
     except sqlite3.Error as e:
         return {"empty": True, "error": str(e)}
+    finally:
+        if c is not None:
+            c.close()
 
 
 def filter_to_categories(db_file: Path, table: str, id_col: str,
@@ -805,7 +1538,7 @@ def disk_download_selected(payload: SelectivePayload):
     # Потом отфильтровать заново
     filter_to_categories(DB_FILE, "files", "remote_path", payload.categories)
     # И запустить download
-    workers = max(1, min(payload.workers, 5))
+    workers = auto_workers()
     ok, msg = tm.start("disk", "main.py",
                        ["download", "--workers", str(workers), "--no-scan"])
     return {"ok": ok, "msg": msg}
@@ -834,6 +1567,30 @@ def disk_scan():
     return _resp(tm.start("disk", "main.py", ["scan"]))
 
 
+@app.post("/api/unlim/scan")
+def api_unlim_scan(force: bool = False):
+    args = ["--scan-only"]
+    if force:
+        args.append("--force")
+    return _resp(tm.start("unlim", "unlim_backup.py", args))
+
+
+class ScanPayload(BaseModel):
+    mode: str = "unlim"
+    force: bool = False
+
+
+@app.post("/api/scan")
+def api_scan(payload: ScanPayload):
+    if payload.mode == "unlim":
+        args = ["--scan-only"]
+        if payload.force:
+            args.append("--force")
+        return _resp(tm.start("unlim", "unlim_backup.py", args))
+    else:
+        return _resp(tm.start("disk", "main.py", ["scan"]))
+
+
 class DownloadOpts(BaseModel):
     workers: int = Field(default=4, ge=1, le=5)
 
@@ -841,7 +1598,7 @@ class DownloadOpts(BaseModel):
 @app.post("/api/disk/download")
 def disk_download(opts: DownloadOpts):
     return _resp(tm.start("disk", "main.py",
-                          ["download", "--workers", str(opts.workers), "--no-scan"]))
+                          ["download", "--workers", str(auto_workers()), "--no-scan"]))
 
 
 @app.post("/api/disk/retry")
@@ -929,6 +1686,8 @@ def unlim_stop():
 class OrganizePayload(BaseModel):
     input: str
     action: str = "report-only"  # report-only | move
+    scheme: str = "type-year-month"  # type-year-month | year-month | year
+    quick: bool = False  # быстрый отчёт: без поиска дубликатов (MD5)
 
 
 # Запрещённые пути для organize (нельзя бесконтрольно сортировать систему)
@@ -946,12 +1705,14 @@ def _is_safe_organize_path(path: str) -> tuple[bool, str]:
     except Exception:
         return False, "Невалидный путь"
     norm = abs_path.lower().replace("/", "\\")
+    raw_norm = path.strip().lower().replace("/", "\\")
     # Корень диска (типа C:\ или D:\) — слишком опасно
-    if len(abs_path) <= 3 and abs_path.endswith(":\\"):
+    if (len(abs_path) <= 3 and abs_path.endswith(":\\")) or (len(raw_norm) <= 3 and raw_norm.endswith(":\\")):
         return False, "Нельзя сортировать корень диска целиком"
     for bad in _FORBIDDEN_ORGANIZE_PREFIXES:
         bad_norm = bad.replace("/", "\\")
-        if norm == bad_norm or norm.startswith(bad_norm + "\\"):
+        if (norm == bad_norm or norm.startswith(bad_norm + "\\")
+                or raw_norm == bad_norm or raw_norm.startswith(bad_norm + "\\")):
             return False, f"Системная папка запрещена: {bad}"
     if not os.path.isdir(abs_path):
         return False, "Папка не существует"
@@ -965,9 +1726,14 @@ def organize(payload: OrganizePayload):
         return {"ok": False, "msg": msg}
     if payload.action not in ("report-only", "move"):
         return {"ok": False, "msg": "Неизвестное действие"}
-    return _resp(tm.start("organize", "organize.py",
-                          ["--input", payload.input,
-                           "--action", payload.action]))
+    if payload.scheme not in ("type-year-month", "year-month", "year"):
+        return {"ok": False, "msg": "Неизвестная схема раскладки"}
+    args = ["--input", payload.input,
+            "--action", payload.action,
+            "--scheme", payload.scheme]
+    if payload.quick:
+        args.append("--quick")
+    return _resp(tm.start("organize", "organize.py", args))
 
 
 @app.post("/api/organize/stop")
@@ -993,6 +1759,211 @@ def clear_task_log(slot: str):
     return {"ok": True, "cleared": cleared}
 
 
+# ── Первая настройка и диагностика ──────────────────────────────────────────
+
+
+class SetupPayload(BaseModel):
+    token: str = ""
+    disk_dir: str = ""
+    unlim_dir: str = ""
+    report_key: str = ""
+
+
+def _setup_status() -> dict:
+    cfg = get_config()
+    has_token = bool(cfg.get("token"))
+    has_cookies = paths.COOKIES_FILE.exists()
+    done = paths.SETUP_DONE_FILE.exists()
+    return {
+        "needs_setup": not done and not has_token and not has_cookies,
+        "setup_done": done,
+        "has_token": has_token,
+        "has_cookies": has_cookies,
+        "disk_dir": cfg.get("disk_dir", ""),
+        "unlim_dir": cfg.get("unlim_dir", ""),
+        "report_key_configured": diagnostics.report_key_configured(),
+        "version": version.version_info(),
+    }
+
+
+def _write_setup_dirs(payload: SetupPayload) -> tuple[str, str]:
+    disk_dir = (payload.disk_dir or "").strip()
+    unlim_dir = (payload.unlim_dir or "").strip()
+    for value in (disk_dir, unlim_dir):
+        if not value:
+            continue
+        try:
+            Path(value).expanduser().mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise HTTPException(400, f"Не удалось создать папку {value}: {e}")
+    if disk_dir or unlim_dir:
+        if not ENV_FILE.exists():
+            ENV_FILE.write_text("", encoding="utf-8")
+        if disk_dir:
+            set_key(str(ENV_FILE), "DISK_DIR", disk_dir, quote_mode="never")
+            set_key(str(ENV_FILE), "DOWNLOAD_DIR", disk_dir, quote_mode="never")
+        if unlim_dir:
+            set_key(str(ENV_FILE), "UNLIM_DIR", unlim_dir, quote_mode="never")
+        load_dotenv(ENV_FILE, override=True)
+    return disk_dir, unlim_dir
+
+
+@app.get("/api/version")
+def api_version():
+    return version.version_info()
+
+
+@app.get("/api/setup/status")
+def api_setup_status():
+    return _setup_status()
+
+
+@app.post("/api/setup")
+def api_setup(payload: SetupPayload):
+    """Завершает первичную настройку: токен, папки, ключ отчётов."""
+    # Пароль/ключ не журналируем: в лог попадает только сам факт настройки.
+    log_action("setup/finish")
+    token = (payload.token or "").strip()
+    token_check = None
+    if token:
+        token_check = check_token(token)
+        if not token_check.get("ok"):
+            return JSONResponse(
+                {"ok": False,
+                 "error": f"Токен не принят Яндексом: {token_check.get('msg', '')}",
+                 "token_check": token_check},
+                status_code=400,
+            )
+        if not ENV_FILE.exists():
+            ENV_FILE.write_text("", encoding="utf-8")
+        set_key(str(ENV_FILE), "YA_DISK_TOKEN", token, quote_mode="never")
+        load_dotenv(ENV_FILE, override=True)
+    disk_dir, unlim_dir = _write_setup_dirs(payload)
+    if (payload.report_key or "").strip():
+        diagnostics.save_report_key(payload.report_key)
+    paths.SETUP_DONE_FILE.write_text(
+        time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8"
+    )
+    return {
+        "ok": True,
+        "token_check": token_check,
+        "disk_dir": disk_dir,
+        "unlim_dir": unlim_dir,
+        "status": _setup_status(),
+    }
+
+
+@app.post("/api/setup/skip")
+def api_setup_skip():
+    log_action("setup/skip")
+    paths.SETUP_DONE_FILE.write_text(
+        time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8"
+    )
+    return {"ok": True, "status": _setup_status()}
+
+
+@app.post("/api/diagnostics")
+def api_diagnostics():
+    """Собрать отчёт и сохранить ZIP. Ничего никуда не отправляет."""
+    log_action("diagnostics/build")
+    try:
+        report = diagnostics.build_report(tm.status(), auto_runs.status())
+        path = diagnostics.write_report(report)
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")},
+            status_code=500,
+        )
+    return {
+        "ok": True,
+        "report_id": report.get("report_id"),
+        "path": str(path),
+        "size_mb": round(diagnostics._size_h(path) / (1024 * 1024), 2),
+        "summary": diagnostics.render_summary(report),
+        "reports": diagnostics.latest_reports(),
+    }
+
+
+@app.post("/api/diagnostics/send")
+def api_diagnostics_send():
+    """Собрать отчёт и отправить через Cloudflare Worker в Telegram."""
+    log_action("diagnostics/send")
+    try:
+        report = diagnostics.build_report(tm.status(), auto_runs.status())
+        path = diagnostics.write_report(report)
+        result = diagnostics.send_report(path, report)
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")},
+            status_code=500,
+        )
+    result["summary"] = diagnostics.render_summary(report)
+    result["reports"] = diagnostics.latest_reports()
+    return result
+
+
+class ReportKeyPayload(BaseModel):
+    key: str = ""
+
+
+@app.post("/api/diagnostics/key")
+def api_diagnostics_key(payload: ReportKeyPayload):
+    """Сохраняет ключ отправки. В журнал и отчёт значение не попадает."""
+    log_action("diagnostics/key")
+    diagnostics.save_report_key(payload.key)
+    return {"ok": True,
+            "configured": diagnostics.report_key_configured()}
+
+
+@app.get("/api/diagnostics/reports")
+def api_diagnostics_reports():
+    return {"ok": True, "reports": diagnostics.latest_reports()}
+
+
+class UpdateOpenPayload(BaseModel):
+    url: str = ""
+
+
+@app.get("/api/updates/check")
+def api_updates_check():
+    """Сравнивает версию с последним GitHub Release. Сеть может быть недоступна."""
+    log_action("updates/check")
+    return updater.check_for_updates()
+
+
+@app.post("/api/updates/open")
+def api_updates_open(payload: UpdateOpenPayload):
+    """Открывает страницу релиза в системном браузере (только наш репозиторий)."""
+    if not updater.release_url_allowed(payload.url):
+        return JSONResponse(
+            {"ok": False, "error": "Ссылка не относится к релизам проекта."},
+            status_code=400,
+        )
+    try:
+        import webbrowser
+
+        webbrowser.open(payload.url)
+    except Exception as e:
+        return {"ok": False, "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")}
+    return {"ok": True}
+
+
+@app.post("/api/reports/open")
+def api_open_reports():
+    """Открывает папку с отчётами в проводнике."""
+    try:
+        paths.REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(paths.REPORT_DIR))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(paths.REPORT_DIR)])
+        else:
+            subprocess.Popen(["xdg-open", str(paths.REPORT_DIR)])
+        return {"ok": True, "path": str(paths.REPORT_DIR)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "path": str(paths.REPORT_DIR)}
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -1006,15 +1977,25 @@ if (TEMPLATES_DIR / "static").exists():
               name="static")
 
 
+def _browser_host(host: str) -> str:
+    """0.0.0.0/:: — адреса прослушивания, а не для входа в браузере.
+    Используем 127.0.0.1 явно: на Windows localhost резолвится в IPv6 ::1,
+    а сервер слушает только IPv4, поэтому localhost может не открываться."""
+    if host in ("0.0.0.0", "::", "[::]"):
+        return "127.0.0.1"
+    return host
+
+
 def _open_browser_when_ready(host: str, port: int):
     """Открывает браузер только когда сервер начал отвечать."""
     import http.client
     import webbrowser
-    url = f"http://{host}:{port}"
+    browser_host = _browser_host(host)
+    url = f"http://{browser_host}:{port}"
     for _ in range(60):  # ждём до ~30 сек
         time.sleep(0.5)
         try:
-            conn = http.client.HTTPConnection(host, port, timeout=1)
+            conn = http.client.HTTPConnection(browser_host, port, timeout=1)
             conn.request("GET", "/api/status")
             resp = conn.getresponse()
             if resp.status == 200:
@@ -1029,18 +2010,60 @@ def _open_browser_when_ready(host: str, port: int):
         pass
 
 
+# Скрипты, которые WebUI запускает дочерними процессами. В собранном exe
+# argv[1] содержит имя скрипта: один и тот же exe работает как GUI и как
+# воркер (multi-call binary). Здесь должны быть ВСЕ такие скрипты, иначе
+# frozen-сборка вместо воркера снова поднимет окно приложения.
+WORKER_SCRIPTS = {
+    "main.py": "main",
+    "unlim_backup.py": "unlim_backup",
+    "unlim_download.py": "unlim_download",
+    "unlim_worker.py": "unlim_worker",
+    "organize.py": "organize",
+    "dedupe.py": "dedupe",
+    "fetch_cookies.py": "fetch_cookies",
+    "extract_cookies.py": "extract_cookies",
+    "report_status.py": "report_status",
+    "watch.py": "watch",
+}
+
+
+def dispatch_worker(argv: list[str] | None = None) -> bool:
+    """Выполняет воркер, если argv начинается с имени скрипта.
+
+    Возвращает False для обычного запуска GUI. Для воркера процесс
+    завершается через SystemExit — код возврата скрипта.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or args[0] not in WORKER_SCRIPTS:
+        return False
+    sub_cmd = args[0]
+    sys.argv = [sub_cmd] + args[1:]
+    module = importlib.import_module(WORKER_SCRIPTS[sub_cmd])
+    result = module.main()
+    raise SystemExit(result or 0)
+
+
 def main():
+    # Диспетчер для режима единого скомпилированного EXE (multi-call binary)
+    dispatch_worker()
+
     import uvicorn
-    host = "127.0.0.1"
-    port = 8000
-    url = f"http://{host}:{port}"
-    print("=" * 60)
-    print("  Yandex.Disk Backup — Web UI")
-    print(f"  {url}")
-    print("=" * 60)
+    host = os.getenv("WEBUI_HOST", "0.0.0.0")
+    port = int(os.getenv("WEBUI_PORT", "8000"))
+    url = f"http://{_browser_host(host)}:{port}"
+    print("=" * 64)
+    print("  Yandex.Disk Backup by PUH")
+    print(f"  Дашборд: {url}")
+    print("=" * 64)
+    print("  Быстрые ссылки для настройки:")
+    print("  * Получить OAuth-токен:  https://yandex.ru/dev/disk/poligon/")
+    print("  * Скачать Cookie-Editor: https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm")
+    print("  * Раздел фото (безлимит): https://disk.yandex.ru/client/photo")
+    print("=" * 64)
     print()
     print("  Сервер запускается, браузер откроется автоматически.")
-    print("  Чтобы остановить — закрой это окно или нажми Ctrl+C.")
+    print("  Чтобы остановить — закройте это окно или нажмите Ctrl+C.")
     print()
 
     # Открыть браузер в фоне когда сервер готов

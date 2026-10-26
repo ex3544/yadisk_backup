@@ -1,6 +1,6 @@
 """Пост-обработка state.db после scan'а:
-1) Удаляет все НЕ медиа-файлы (оставляет фото и видео).
-2) Группирует оставшиеся по (md5, size) — дубликаты помечает skipped.
+1) Дедупликация: группирует файлы по (md5, size) — дубликаты помечает skipped.
+2) Опционально (--media-only): удаляет не-медиа файлы из очереди pending.
 
 Запускать ПОСЛЕ scan, ДО download. Идемпотентно — повторный запуск ничего не сломает.
 """
@@ -12,9 +12,11 @@ import sqlite3
 import sys
 from collections import defaultdict
 
+import paths
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-DB = os.path.join(os.path.dirname(__file__), "state.db")
+DB = str(paths.DB_FILE)
 
 # Расширения которые считаем «медиа» — то что хочет пользователь
 MEDIA_EXTS = {
@@ -50,8 +52,26 @@ def is_media(path: str) -> bool:
     return ext in MEDIA_EXTS
 
 
-def main() -> int:
-    conn = sqlite3.connect(DB, timeout=30)
+import argparse
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Дедупликация файлов в state.db по (md5, size). Помечает дубликаты skipped."
+    )
+    parser.add_argument(
+        "--media-only",
+        action="store_true",
+        help="Удалить все не-медиа файлы из очереди pending (по умолчанию не удаляются)",
+    )
+    parser.add_argument(
+        "--db",
+        default=DB,
+        help="Путь к файлу state.db (по умолчанию state.db в папке скрипта)",
+    )
+    args = parser.parse_args(argv)
+
+    conn = sqlite3.connect(args.db, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
 
@@ -69,38 +89,38 @@ def main() -> int:
         bytes_before += r["b"]
     print(f"  {'итого':<12} {total_before:>5} файлов   {bytes_before/1e9:.2f} ГБ\n")
 
-    # ── шаг 1: удалить не-медиа ─────────────────────────────────────────────
-    # Удаляем только из pending — уже скачанное не трогаем (даже если это .docx,
-    # пусть лежит, файл уже на диске)
-    print("=" * 70)
-    print("ШАГ 1: УДАЛЕНИЕ НЕ-МЕДИА ИЗ PENDING")
-    print("=" * 70)
-    rows = conn.execute(
-        "SELECT remote_path, size FROM files WHERE status='pending'"
-    ).fetchall()
-    non_media = [r for r in rows if not is_media(r["remote_path"])]
-    print(f"  pending всего: {len(rows)}")
-    print(f"  из них НЕ медиа: {len(non_media)} файлов "
-          f"({sum(r['size'] or 0 for r in non_media)/1e9:.2f} ГБ)")
-    if non_media:
-        # Покажем примеры
-        from collections import Counter
-        ext_counter = Counter()
-        for r in non_media:
-            ext_counter[os.path.splitext(r["remote_path"])[1].lower() or "<нет>"] += 1
-        print("  топ расширений:")
-        for ext, n in ext_counter.most_common(10):
-            print(f"     {ext or '<нет>'}  {n}")
+    # ── шаг 1: удалить не-медиа (ТОЛЬКО если запрошен флаг --media-only) ────
+    if args.media_only:
+        print("=" * 70)
+        print("ШАГ 1: УДАЛЕНИЕ НЕ-МЕДИА ИЗ PENDING (--media-only)")
+        print("=" * 70)
+        rows = conn.execute(
+            "SELECT remote_path, size FROM files WHERE status='pending'"
+        ).fetchall()
+        non_media = [r for r in rows if not is_media(r["remote_path"])]
+        print(f"  pending всего: {len(rows)}")
+        print(f"  из них НЕ медиа: {len(non_media)} файлов "
+              f"({sum(r['size'] or 0 for r in non_media)/1e9:.2f} ГБ)")
+        if non_media:
+            from collections import Counter
+            ext_counter = Counter()
+            for r in non_media:
+                ext_counter[os.path.splitext(r["remote_path"])[1].lower() or "<нет>"] += 1
+            print("  топ расширений:")
+            for ext, n in ext_counter.most_common(10):
+                print(f"     {ext or '<нет>'}  {n}")
 
-        # Удаляем
-        conn.executemany(
-            "DELETE FROM files WHERE remote_path = ?",
-            [(r["remote_path"],) for r in non_media],
-        )
-        conn.commit()
-        print(f"  ✓ удалено {len(non_media)} записей\n")
+            conn.executemany(
+                "DELETE FROM files WHERE remote_path = ?",
+                [(r["remote_path"],) for r in non_media],
+            )
+            conn.commit()
+            print(f"  ✓ удалено {len(non_media)} записей\n")
+        else:
+            print("  нечего удалять\n")
     else:
-        print("  нечего удалять\n")
+        print("ШАГ 1: Пропуск фильтрации не-медиа (все типы файлов сохраняются).")
+        print("       (Используйте флаг --media-only, если нужно оставить только фото/видео)\n")
 
     # ── шаг 2: дедупликация по (md5, size) ──────────────────────────────────
     print("=" * 70)
@@ -134,8 +154,8 @@ def main() -> int:
                 len(r["remote_path"]),
             )
 
+        # members_sorted[0] — тот, кого оставляем; остальные помечаем дублями
         members_sorted = sorted(members, key=keep_priority)
-        keeper = members_sorted[0]
         for dup in members_sorted[1:]:
             # Помечаем дубль skipped (но только если он pending — downloaded не трогаем)
             if dup["status"] == "pending":

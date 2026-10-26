@@ -10,23 +10,59 @@
 
 from __future__ import annotations
 
+import errno
+import json
 import logging
 import os
+import shutil
+import socket
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional
 
+import urllib3.util.connection as urllib3_cn
+
+# Принудительно отключаем IPv6 (на Linux/VirtualBox IPv6 часто ведёт в таймаут)
+urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
+
+# Ограничение MSS до 1360 помогает против «чёрных дыр» Path MTU на Linux/VPN/PPPoE,
+# но на Windows setsockopt(IPPROTO_TCP, TCP_MAXSEG) не поддерживается и падает
+# с WSAENOPROTOOPT (10042) на каждом соединении. Поэтому включаем патч только там,
+# где эта опция реально работает (проверяем один раз на пробном сокете).
+_TCP_MAXSEG_SUPPORTED = False
+if hasattr(socket, "TCP_MAXSEG"):
+    _probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _probe.setsockopt(socket.IPPROTO_TCP, socket.TCP_MAXSEG, 1360)
+        _TCP_MAXSEG_SUPPORTED = True
+    except OSError:
+        _TCP_MAXSEG_SUPPORTED = False
+    finally:
+        _probe.close()
+
+if _TCP_MAXSEG_SUPPORTED:
+    _orig_create_conn = urllib3_cn.create_connection
+
+    def _patched_create_conn(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, socket_options=None):
+        socket_options = list(socket_options) if socket_options else []
+        socket_options.append((socket.IPPROTO_TCP, socket.TCP_MAXSEG, 1360))
+        return _orig_create_conn(address, timeout=timeout, source_address=source_address, socket_options=socket_options)
+
+    urllib3_cn.create_connection = _patched_create_conn
+
 import yadisk
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 from tqdm import tqdm
 
+import paths
 from state import State
 from utils import (
     avoid_case_collision,
@@ -41,50 +77,47 @@ log = logging.getLogger("yadisk_backup")
 # Скип-листы для путей которые НИКОГДА не качаем
 SKIP_PATH_PREFIXES = ("disk:/Корзина", "disk:/Trash", "/Корзина", "/Trash")
 
-# Какие исключения yadisk считаем "повторяемыми"
-_RETRYABLE_EXC = (
-    yadisk.exceptions.RetriableYaDiskError
-    if hasattr(yadisk.exceptions, "RetriableYaDiskError")
-    else yadisk.exceptions.YaDiskError,
-)
-
 
 # ── retry-обёртка для сетевых вызовов ───────────────────────────────────────
 
 
+# Ошибки, повторять которые бессмысленно: токен не станет валидным,
+# а удалённый файл не появится, сколько ни жди.
+NON_RETRYABLE = (
+    yadisk.exceptions.UnauthorizedError,
+    yadisk.exceptions.ForbiddenError,
+    yadisk.exceptions.PathNotFoundError,
+)
+
+# Пауза при 429 — Яндекс просит подождать, экспонента с 1 секунды тут не поможет
+RATE_LIMIT_WAIT_SEC = 60.0
+
+
 def _is_retryable(exc: BaseException) -> bool:
     """Решает, стоит ли retry-ить исключение."""
-    # Эти точно не имеет смысла повторять
-    non_retryable = (
-        yadisk.exceptions.UnauthorizedError,
-        yadisk.exceptions.ForbiddenError,
-        yadisk.exceptions.PathNotFoundError,
-    )
-    if isinstance(exc, non_retryable):
+    if isinstance(exc, NON_RETRYABLE):
         return False
-    # 429 ловим отдельно — спим минуту
-    if isinstance(exc, yadisk.exceptions.TooManyRequestsError):
-        log.warning("Поймали 429 TooManyRequests — спим 60 секунд")
-        time.sleep(60)
-        return True
     if isinstance(exc, yadisk.exceptions.YaDiskError):
         return True
-    if isinstance(exc, (OSError, ConnectionError, TimeoutError)):
-        return True
-    return False
+    return isinstance(exc, (OSError, ConnectionError, TimeoutError))
+
+
+_wait_exponential = wait_exponential(multiplier=1, min=1, max=10)
+
+
+def _wait_policy(retry_state) -> float:
+    """429 → ждём минуту, остальное → экспонента."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, yadisk.exceptions.TooManyRequestsError):
+        log.warning("Поймали 429 TooManyRequests — жду %.0f сек", RATE_LIMIT_WAIT_SEC)
+        return RATE_LIMIT_WAIT_SEC
+    return _wait_exponential(retry_state)
 
 
 _retry = retry(
-    retry=retry_if_exception_type(
-        (
-            yadisk.exceptions.YaDiskError,
-            OSError,
-            ConnectionError,
-            TimeoutError,
-        )
-    ),
-    wait=wait_exponential(multiplier=1, min=1, max=60),
-    stop=stop_after_attempt(5),
+    retry=retry_if_exception(_is_retryable),
+    wait=_wait_policy,
+    stop=stop_after_attempt(2),
     reraise=True,
 )
 
@@ -272,10 +305,45 @@ def _ensure_local_dirs(local_path: str) -> None:
         ensure_dir(to_long_path(parent))
 
 
-@_retry
-def _download_with_retry(client: yadisk.Client, remote: str, local: str) -> None:
-    """Низкоуровневый вызов download с retry."""
-    client.download(remote, to_long_path(local))
+def _cleanup_failed_file(local_path: str) -> None:
+    """Удаляет недокачанный или пустой файл при сбое, чтобы не мусорить на диске."""
+    try:
+        p = to_long_path(local_path)
+        if os.path.exists(p):
+            os.remove(p)
+    except OSError:
+        pass
+
+
+def _download_file(client: yadisk.Client, remote: str, local: str) -> None:
+    """Низкоуровневый вызов download БЕЗ повторов — одна попытка.
+
+    n_retries=0 отключает внутренние 3 повтора yadisk.
+    Таймаут (10.0, 10.0): 10 сек на коннект, 10 сек между чанками.
+    Внешнего @_retry намеренно нет: мёртвые шарды Яндекса отваливаются за один
+    таймаут (10 сек) и не блокируют поток повторной попыткой. Сбойные файлы
+    помечаются 'failed' и докачиваются позже командой retry-failed.
+    """
+    try:
+        client.download(
+            remote,
+            to_long_path(local),
+            timeout=(10.0, 10.0),
+            n_retries=0,
+            retry_interval=0.0,
+        )
+    except TypeError:
+        # Для моков и тестов, где client.download не принимает kwargs
+        client.download(remote, to_long_path(local))
+
+
+def check_free_space(path: str, required_bytes: int = 0) -> bool:
+    """Проверяет наличие свободного места (требуемый размер + 50 МБ запас)."""
+    try:
+        usage = shutil.disk_usage(path)
+        return usage.free >= (required_bytes + 50 * 1024 * 1024)
+    except OSError:
+        return True
 
 
 def _download_one(
@@ -305,6 +373,18 @@ def _download_one(
             duration_ms=dur,
         )
 
+    # Проверка свободного места перед началом записи
+    if job.size and not check_free_space(download_dir, job.size):
+        dur = int((time.monotonic() - start) * 1000)
+        return DownloadResult(
+            job=job,
+            status="disk_full",
+            local_path=None,
+            bytes_written=0,
+            error="NoSpaceLeft: Недостаточно свободного места на диске",
+            duration_ms=dur,
+        )
+
     # Если файл частично скачан или с другим размером — перезаписываем
     if existing_size is not None:
         try:
@@ -313,16 +393,24 @@ def _download_one(
             pass
 
     try:
-        _download_with_retry(client, job.remote_path, local_path)
+        _download_file(client, job.remote_path, local_path)
     except yadisk.exceptions.TooManyRequestsError as e:
-        # Уже спали в _is_retryable, но если tenacity сдался — фиксируем как fail
         dur = int((time.monotonic() - start) * 1000)
+        _cleanup_failed_file(local_path)
         return DownloadResult(job, "failed", None, 0, f"429 TooManyRequests: {e}", dur)
     except yadisk.exceptions.PathNotFoundError as e:
         dur = int((time.monotonic() - start) * 1000)
+        _cleanup_failed_file(local_path)
         return DownloadResult(job, "failed", None, 0, f"PathNotFound: {e}", dur)
+    except OSError as e:
+        dur = int((time.monotonic() - start) * 1000)
+        _cleanup_failed_file(local_path)
+        if getattr(e, "errno", None) == errno.ENOSPC:
+            return DownloadResult(job, "disk_full", None, 0, f"NoSpaceLeft: {e}", dur)
+        return DownloadResult(job, "failed", None, 0, f"{type(e).__name__}: {e}", dur)
     except Exception as e:
         dur = int((time.monotonic() - start) * 1000)
+        _cleanup_failed_file(local_path)
         return DownloadResult(job, "failed", None, 0, f"{type(e).__name__}: {e}", dur)
 
     bytes_written = file_size_safe(local_path) or 0
@@ -339,6 +427,9 @@ def _download_one(
 
 # Каждому потоку — свой клиент. Шарить yadisk.Client между потоками небезопасно.
 _thread_local = threading.local()
+# Реестр всех созданных клиентов — чтобы закрыть сокеты после остановки пула
+_all_clients: list[yadisk.Client] = []
+_all_clients_lock = threading.Lock()
 
 
 def _get_thread_client(token: str) -> yadisk.Client:
@@ -346,17 +437,50 @@ def _get_thread_client(token: str) -> yadisk.Client:
     if cli is None:
         cli = yadisk.Client(token=token)
         _thread_local.client = cli
+        with _all_clients_lock:
+            _all_clients.append(cli)
     return cli
 
 
-def _close_thread_client() -> None:
-    cli = getattr(_thread_local, "client", None)
-    if cli is not None:
+def _close_all_clients() -> None:
+    """Закрывает клиентов всех воркеров. Вызывать ПОСЛЕ остановки пула —
+    потоки уже мертвы, их thread-local исчез вместе с ними.
+    """
+    with _all_clients_lock:
+        clients = list(_all_clients)
+        _all_clients.clear()
+    for cli in clients:
         try:
             cli.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 — закрытие не должно ронять выход
             pass
-        _thread_local.client = None
+
+
+# Пер-сессионный счётчик скачивания обычного диска: пишется в файл, чтобы веб-UI
+# показывал, сколько файлов успешно скачано в ТЕКУЩЕЙ сессии (обнуляется при каждом
+# запуске download_all). Файл остаётся на диске и после завершения/зависания сессии,
+# поэтому видно, что работа не была напрасной.
+DISK_STATUS_FILE = paths.DISK_STATUS_FILE
+
+
+def _write_disk_status(counters: dict[str, int], total_files: int, total_bytes: int, active: bool) -> None:
+    data = {
+        "active": active,
+        "downloaded": int(counters.get("downloaded", 0)),
+        "skipped": int(counters.get("skipped", 0)),
+        "failed": int(counters.get("failed", 0)),
+        "bytes": int(counters.get("bytes", 0)),
+        "total_files": int(total_files or 0),
+        "total_bytes": int(total_bytes or 0),
+        "updated_at": time.time(),
+    }
+    try:
+        DISK_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = DISK_STATUS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, DISK_STATUS_FILE)
+    except Exception:  # noqa: BLE001 — статус не должен ронять скачивание
+        pass
 
 
 def download_all(
@@ -392,10 +516,12 @@ def download_all(
 
     if not jobs_list:
         log.info("Нет файлов для скачивания.")
+        _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}, 0, 0, False)
         return {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
 
     total_bytes = sum(j.size for j in jobs_list if j.size)
     counters = {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
+    _write_disk_status(counters, len(jobs_list), total_bytes, True)
 
     file_bar = tqdm(total=len(jobs_list), unit="file", desc="Файлы", position=0)
     byte_bar = tqdm(
@@ -411,24 +537,38 @@ def download_all(
         client = _get_thread_client(token)
         return _download_one(job, client, download_dir)
 
+    # Без `with`: его выход дожидается ВСЕЙ очереди, и Ctrl+C выглядит зависанием.
+    pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(worker, j): j for j in jobs_list}
-            try:
-                for fut in as_completed(futures):
-                    res = fut.result()
+        futures = {pool.submit(worker, j): j for j in jobs_list}
+        try:
+            for fut in as_completed(futures):
+                res = fut.result()
+                if res.status == "disk_full":
+                    file_bar.close()
+                    byte_bar.close()
+                    print("\n[ВНИМАНИЕ] Недостаточно свободного места на диске! Прерываю скачивание...", file=sys.stderr)
+                    log.error("Диск заполнен! Прерываю скачивание: %s", res.error)
+                    pool.shutdown(wait=False, cancel_futures=True)
                     _apply_result(state, res, counters, file_bar, byte_bar)
-            except KeyboardInterrupt:
-                log.warning("Ctrl+C — отменяю оставшиеся задачи и закрываю пул...")
-                # Отменяем то что ещё не стартовало
-                for f in futures:
-                    f.cancel()
-                raise
+                    break
+                _apply_result(state, res, counters, file_bar, byte_bar)
+                _write_disk_status(counters, len(jobs_list), total_bytes, True)
+        except KeyboardInterrupt:
+            file_bar.close()
+            byte_bar.close()
+            print("\nCtrl+C — отменяю очередь, дожидаюсь только текущих файлов...",
+                  file=sys.stderr)
+            log.warning("Ctrl+C — отменяю оставшиеся задачи и закрываю пул...")
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+        # Закрываем сокеты только когда воркеры точно остановились
+        _close_all_clients()
     finally:
         file_bar.close()
         byte_bar.close()
-        # Каждый поток должен закрыть свой клиент. Через ThreadPoolExecutor это
-        # не сделаешь напрямую, но ThreadPoolExecutor умирает вместе с воркерами.
+        _write_disk_status(counters, len(jobs_list), total_bytes, False)
 
     return counters
 
@@ -478,29 +618,40 @@ def _apply_result(
 
 
 def check_token(token: str) -> tuple[bool, str]:
-    """Проверяет, валиден ли токен. Возвращает (ok, message)."""
+    """Проверяет, валиден ли токен. Возвращает (ok, message).
+
+    Сеть до Яндекса иногда флапает на уровне сокета (WinError 10042),
+    поэтому временные ошибки соединения повторяем несколько раз с паузой.
+    """
     if not token or token.strip() == "" or token.startswith("AQAAA_paste"):
         return False, (
             "Токен не задан. Открой https://yandex.ru/dev/disk/poligon/, "
             "получи OAuth-токен по кнопке справа вверху и положи его в .env "
             "как YA_DISK_TOKEN=..."
         )
-    try:
-        cli = yadisk.Client(token=token)
-        if not cli.check_token():
+
+    last_error: Exception | None = None
+    for attempt in range(6):
+        try:
+            cli = yadisk.Client(token=token)
+            if not cli.check_token():
+                return False, (
+                    "Токен невалиден (Яндекс ответил, что он не работает). "
+                    "Получи новый на https://yandex.ru/dev/disk/poligon/"
+                )
+            info = cli.get_disk_info()
+            used = getattr(info, "used_space", 0) or 0
+            total = getattr(info, "total_space", 0) or 0
+            cli.close()
+            return True, f"Токен OK. Использовано {used / 1e9:.2f} ГБ из {total / 1e9:.2f} ГБ."
+        except yadisk.exceptions.UnauthorizedError:
             return False, (
-                "Токен невалиден (Яндекс ответил, что он не работает). "
-                "Получи новый на https://yandex.ru/dev/disk/poligon/"
+                "Токен не принят (401 Unauthorized). Получи новый на "
+                "https://yandex.ru/dev/disk/poligon/"
             )
-        info = cli.get_disk_info()
-        used = getattr(info, "used_space", 0) or 0
-        total = getattr(info, "total_space", 0) or 0
-        cli.close()
-        return True, f"Токен OK. Использовано {used / 1e9:.2f} ГБ из {total / 1e9:.2f} ГБ."
-    except yadisk.exceptions.UnauthorizedError:
-        return False, (
-            "Токен не принят (401 Unauthorized). Получи новый на "
-            "https://yandex.ru/dev/disk/poligon/"
-        )
-    except Exception as e:
-        return False, f"Не удалось проверить токен: {type(e).__name__}: {e}"
+        except Exception as e:
+            last_error = e
+            if attempt < 5:
+                time.sleep(2 * (attempt + 1))
+
+    return False, f"Не удалось проверить токен: {type(last_error).__name__}: {last_error}"
