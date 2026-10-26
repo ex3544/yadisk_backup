@@ -64,6 +64,27 @@ def find_iscc() -> Path | None:
     return None
 
 
+def _powershell_candidates() -> list[str]:
+    """powershell.exe может отсутствовать в PATH на CI-раннере — ищем явно."""
+    candidates = [shutil.which("powershell"), shutil.which("pwsh")]
+    system_root = os.getenv("SystemRoot")
+    if system_root:
+        candidates.append(
+            str(
+                Path(system_root)
+                / "System32"
+                / "WindowsPowerShell"
+                / "v1.0"
+                / "powershell.exe"
+            )
+        )
+    result: list[str] = []
+    for exe in candidates:
+        if exe and exe not in result and Path(exe).is_file():
+            result.append(exe)
+    return result
+
+
 def _authenticode_status(path: Path) -> tuple[str, str]:
     """Возвращает (статус подписи, subject) через Get-AuthenticodeSignature."""
     if os.name != "nt":
@@ -75,17 +96,23 @@ def _authenticode_status(path: Path) -> tuple[str, str]:
         + "'; "
         + 'Write-Output ("$($s.Status)|$($s.SignerCertificate.Subject)")'
     )
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", command],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return "", ""
-    status, _, subject = result.stdout.strip().partition("|")
-    return status.strip(), subject.strip()
+    for exe in _powershell_candidates():
+        try:
+            result = subprocess.run(
+                [exe, "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        line = result.stdout.strip()
+        if result.returncode == 0 and line:
+            status, _, subject = line.partition("|")
+            return status.strip(), subject.strip()
+    return "", ""
 
 
 def ensure_webview2_bootstrapper() -> Path:
@@ -107,6 +134,12 @@ def ensure_webview2_bootstrapper() -> Path:
             WEBVIEW2_URL, stream=True, timeout=(15, 120), allow_redirects=True
         ) as response:
             response.raise_for_status()
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            if "octet-stream" not in content_type and "msdownload" not in content_type:
+                raise RuntimeError(
+                    "вместо установщика скачался файл "
+                    f"({content_type or 'без типа'})"
+                )
             with tempfile.NamedTemporaryFile(
                 dir=VENDOR_DIR, prefix=".webview2-", suffix=".part", delete=False
             ) as tmp:
@@ -121,6 +154,9 @@ def ensure_webview2_bootstrapper() -> Path:
                     tmp.write(chunk)
         if total < 100_000:
             raise RuntimeError("WebView2 Bootstrapper скачался не полностью")
+        with open(tmp_path, "rb") as probe:
+            if probe.read(2) != b"MZ":
+                raise RuntimeError("скачанный файл не является exe")
 
         status, subject = _authenticode_status(tmp_path)
         if status != "Valid" or "Microsoft Corporation" not in subject:
