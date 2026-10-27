@@ -502,13 +502,20 @@ class Pipeline:
 pipeline = Pipeline()
 
 
-class AutoRuns:
-    """Повторяет автозапуск «Диск + Безлимит» заданное число раз.
+class FullCycle:
+    """Полный цикл «Скачать всё»: найти новые файлы и докачать сбойные.
 
-    Один прогон = параллельный запуск download диска и unlim_backup.py
-    (--media all; с галочкой — --target all). Следующий прогон стартует
-    только после завершения обоих процессов предыдущего.
+    Диск:     scan → download --no-scan --retry → ещё проходы по failed
+    Безлимит: collect → --target all → ещё проходы по skipped
+
+    Линии идут параллельно. В каждой — до ``passes`` проходов: после прохода
+    смотрим, стало ли сбойных меньше; между проходами пауза PAUSE_AFTER_PASS.
+    Итог по каждой линии считается по базе: сколько добавилось скачанных
+    и сколько сбойных осталось.
     """
+
+    PAUSE_AFTER_PASS = 60.0
+    MAX_PASSES = 5
 
     def __init__(self):
         self._thread: Optional[threading.Thread] = None
@@ -516,11 +523,34 @@ class AutoRuns:
         self._stop = False
         self._owned_slots: set[str] = set()
         self.state: str = "idle"  # idle | running | done | stopped | failed
-        self.run_current: int = 0
-        self.runs_total: int = 0
+        self.step: str = "—"
         self.started_at: Optional[float] = None
         self.finished_at: Optional[float] = None
-        self.log: deque[str] = deque(maxlen=120)
+        self.passes: int = 3
+        self.workers: int = 10
+        self.sort_after: bool = False
+        self.log: deque[str] = deque(maxlen=200)
+        self.lanes: dict[str, dict] = {
+            "disk": self._empty_lane(),
+            "unlim": self._empty_lane(),
+        }
+        self.summary: Optional[dict] = None
+
+    @staticmethod
+    def _empty_lane() -> dict:
+        return {
+            "state": "ожидание",
+            "pass": 0,
+            "passes": 0,
+            "downloaded": 0,
+            "bytes": 0,
+            "errors": None,
+            "error": None,
+        }
+
+    @staticmethod
+    def _lane_title(name: str) -> str:
+        return "Диск" if name == "disk" else "Безлимит"
 
     def _log(self, msg: str):
         self.log.append(f"{time.strftime('%H:%M:%S')}  {msg}")
@@ -528,91 +558,293 @@ class AutoRuns:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, workers: int, retry_skipped: bool, sort_after: bool,
-              runs: int) -> tuple[bool, str]:
+    def start(self, workers: int = 10, passes: int = 3,
+              sort_after: bool = False) -> tuple[bool, str]:
         with self._lock:
             if self.is_running():
-                return False, "Автопрогоны уже идут"
+                return False, "Полный цикл уже идёт"
+            if pipeline.is_running():
+                return False, "Идёт полный прогон (pipeline)"
+            with tm._lock:
+                busy = [slot for slot, t in tm._tasks.items() if t.alive()]
+            if busy:
+                return False, f"Уже идёт другая задача: {', '.join(busy)}"
+
             self._stop = False
             self._owned_slots.clear()
             self.state = "running"
-            self.run_current = 0
-            self.runs_total = max(1, min(int(runs), 50))
+            self.step = "старт"
             self.started_at = time.time()
             self.finished_at = None
+            self.passes = max(1, min(int(passes or 3), self.MAX_PASSES))
+            self.workers = max(1, min(int(workers or 10), 24))
+            self.sort_after = bool(sort_after)
             self.log.clear()
-            self._workers = workers
-            self._retry_skipped = retry_skipped
-            self._sort_after = sort_after
+            self.lanes = {"disk": self._empty_lane(),
+                          "unlim": self._empty_lane()}
+            for lane in self.lanes.values():
+                lane["passes"] = self.passes
+            self.summary = None
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
-            return True, f"Запущено прогонов: {self.runs_total}"
+            return True, f"Полный цикл запущен (до {self.passes} проходов по сбойным)"
 
     def stop(self) -> tuple[bool, str]:
         if not self.is_running():
-            return False, "Автопрогоны не идут"
+            return False, "Полный цикл не идёт"
         self._stop = True
         for slot in list(self._owned_slots):
             tm.stop(slot)
-        self._log("⏹ остановлено")
+        self._log("⏹ остановлено пользователем")
         return True, "Остановлено"
 
-    def _wait_finished(self):
+    # ── служебное ───────────────────────────────────────────────────────
+
+    def _own_start(self, slot: str, script: str, args: list[str]):
+        ok, msg = tm.start(slot, script, args)
+        if ok:
+            self._owned_slots.add(slot)
+            return ok, msg
+        raise RuntimeError(f"{msg}")
+
+    def _wait_task(self, slot: str) -> int:
         while not self._stop:
             with tm._lock:
-                alive = any(
-                    (t := tm._tasks.get(slot)) and t.alive()
-                    for slot in self._owned_slots
-                )
-            if not alive:
-                return
-            time.sleep(2)
+                t = tm._tasks.get(slot)
+            if not t:
+                time.sleep(0.2)
+                continue
+            if not t.alive():
+                code = t.proc.poll()
+                return code if code is not None else 0
+            time.sleep(1.0)
+        return -1
+
+    def _pause(self, seconds: float):
+        end = time.time() + seconds
+        while not self._stop and time.time() < end:
+            time.sleep(1.0)
+
+    @staticmethod
+    def _db_snapshot(db_file: Path, table: str,
+                     error_statuses: tuple[str, ...]) -> dict:
+        """Счётчики из базы: сколько скачано, сколько сбойных, объём скачанного."""
+        if not db_file.exists():
+            return {"downloaded": 0, "errors": 0, "bytes": 0}
+        try:
+            con = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
+            try:
+                out = {"downloaded": 0, "errors": 0, "bytes": 0}
+                for status, n, size in con.execute(
+                    f"SELECT status, COUNT(*), COALESCE(SUM(size), 0) "
+                    f"FROM {table} GROUP BY status"
+                ):
+                    if status == "downloaded":
+                        out["downloaded"] += n
+                        out["bytes"] += size or 0
+                    elif status in error_statuses:
+                        out["errors"] += n
+                return out
+            finally:
+                con.close()
+        except sqlite3.Error as e:
+            raise RuntimeError(f"Не удалось прочитать базу {db_file.name}: {e}")
+
+    def _update_step(self):
+        parts = []
+        for name in ("disk", "unlim"):
+            lane = self.lanes[name]
+            parts.append(f"{self._lane_title(name)}: {lane.get('state') or 'ожидание'}")
+        self.step = " · ".join(parts)
+
+    def _build_summary(self) -> dict:
+        duration = None
+        if self.started_at and self.finished_at:
+            duration = self.finished_at - self.started_at
+        return {
+            "state": self.state,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "duration": duration,
+            "lanes": {name: dict(lane) for name, lane in self.lanes.items()},
+        }
+
+    # ── линии ───────────────────────────────────────────────────────────
 
     def _run(self):
         try:
-            for i in range(1, self.runs_total + 1):
-                if self._stop:
-                    break
-                self.run_current = i
-                started = _start_all_tasks(self._workers, self._retry_skipped,
-                                           self._sort_after)
-                ok_slots = [s["slot"] for s in started if s["ok"]]
-                bad = [f"{s['slot']}: {s['msg']}" for s in started if not s["ok"]]
-                self._log(
-                    f"Прогон {i}/{self.runs_total}: запущено "
-                    f"{', '.join(ok_slots) if ok_slots else 'ничего'}"
-                    + (f"; не удалось: {'; '.join(bad)}" if bad else "")
-                )
-                if not ok_slots:
-                    self._log("❌ нечего запускать — останавливаюсь")
-                    self.state = "failed"
-                    return
-                self._owned_slots = set(ok_slots)
-                self._wait_finished()
-                if self._stop:
-                    break
-                # Небольшая пауза, чтобы базы и сервер Яндекс успели «выдохнуть».
-                time.sleep(3)
-            self.state = "stopped" if self._stop else "done"
-        except Exception as e:
+            disk_t = threading.Thread(target=self._lane_guard,
+                                      args=("disk", self._disk_lane), daemon=True)
+            unlim_t = threading.Thread(target=self._lane_guard,
+                                       args=("unlim", self._unlim_lane), daemon=True)
+            disk_t.start()
+            unlim_t.start()
+            disk_t.join()
+            unlim_t.join()
+            if self._stop:
+                self.state = "stopped"
+            elif any(lane["state"] == "error" for lane in self.lanes.values()):
+                self.state = "failed"
+            else:
+                self.state = "done"
+        except Exception as e:  # noqa: BLE001 — цикл не должен ронять сервер
             self.state = "failed"
-            self._log(f"❌ Ошибка автопрогонов: {e}")
+            self._log(f"❌ Ошибка полного цикла: {e}")
         finally:
             self.finished_at = time.time()
+            if self.state == "running":
+                self.state = "done"
+            self.summary = self._build_summary()
+            self.step = "финиш"
+
+    def _lane_guard(self, name: str, fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            lane = self.lanes[name]
+            lane["state"] = "error"
+            lane["error"] = str(e)
+            self._log(f"❌ {self._lane_title(name)}: {e}")
+
+    def _disk_lane(self):
+        lane = self.lanes["disk"]
+        lane["state"] = "сканирование"
+        self._update_step()
+        self._log("🔍 Диск: сканирую облако (поиск новых файлов)…")
+        self._own_start("disk", "main.py", ["scan"])
+        code = self._wait_task("disk")
+        if self._stop:
+            lane["state"] = "остановлено"
+            return
+        if code != 0:
+            raise RuntimeError(f"сканирование завершилось с кодом {code}")
+
+        disk_workers = auto_workers()
+        for p in range(1, self.passes + 1):
+            if self._stop:
+                lane["state"] = "остановлено"
+                return
+            lane["state"] = f"скачивание, проход {p}"
+            lane["pass"] = p
+            self._update_step()
+            self._log(f"⬇️ Диск: проход {p}/{self.passes} — новые и сбойные файлы…")
+            before = self._db_snapshot(DB_FILE, "files", ("failed",))
+            self._own_start("disk", "main.py",
+                            ["download", "--workers", str(disk_workers),
+                             "--no-scan", "--retry"])
+            code = self._wait_task("disk")
+            if self._stop:
+                lane["state"] = "остановлено"
+                return
+            after = self._db_snapshot(DB_FILE, "files", ("failed",))
+            gained = max(0, after["downloaded"] - before["downloaded"])
+            lane["downloaded"] += gained
+            lane["bytes"] += max(0, after["bytes"] - before["bytes"])
+            lane["errors"] = after["errors"]
+            self._log(f"   Диск: +{gained} скачано, осталось сбойных {after['errors']}")
+            if after["errors"] >= before["errors"]:
+                self._log("   Диск: прогресса нет — проходы прекращены")
+                break
+            if p < self.passes:
+                self._pause(self.PAUSE_AFTER_PASS)
+        lane["state"] = "готово"
+
+    def _unlim_lane(self):
+        lane = self.lanes["unlim"]
+        lane["state"] = "сбор списка"
+        self._update_step()
+
+        cookies = check_cookies()
+        if not cookies.get("ok"):
+            raise RuntimeError(f"cookies не загружены: {cookies.get('msg')}")
+
+        cfg = get_config()
+        out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+
+        self._log("🗂 Безлимит: собираю список файлов из облака…")
+        self._own_start("unlim_collect", "unlim_download.py", ["--collect"])
+        code = self._wait_task("unlim_collect")
+        if self._stop:
+            lane["state"] = "остановлено"
+            return
+        if code != 0:
+            raise RuntimeError(f"сбор списка завершился с кодом {code}")
+
+        for p in range(1, self.passes + 1):
+            if self._stop:
+                lane["state"] = "остановлено"
+                return
+            lane["state"] = f"скачивание, проход {p}"
+            lane["pass"] = p
+            self._update_step()
+            self._log(f"⬇️ Безлимит: проход {p}/{self.passes} — новые и пропущенные…")
+            before = self._db_snapshot(UNLIM_DB_FILE, "unlim_files", ("skipped",))
+            self._own_start("unlim", "unlim_backup.py", [
+                "--out-dir", out_dir,
+                "--media", "all",
+                "--target", "all",
+                "--workers", str(self.workers),
+            ])
+            code = self._wait_task("unlim")
+            if self._stop:
+                lane["state"] = "остановлено"
+                return
+            after = self._db_snapshot(UNLIM_DB_FILE, "unlim_files", ("skipped",))
+            gained = max(0, after["downloaded"] - before["downloaded"])
+            lane["downloaded"] += gained
+            lane["bytes"] += max(0, after["bytes"] - before["bytes"])
+            lane["errors"] = after["errors"]
+            self._log(f"   Безлимит: +{gained} скачано, осталось сбойных {after['errors']}")
+            if after["errors"] >= before["errors"]:
+                self._log("   Безлимит: прогресса нет — проходы прекращены")
+                break
+            if p < self.passes:
+                self._pause(self.PAUSE_AFTER_PASS)
+
+        if self.sort_after and not self._stop:
+            self._sort_unlim()
+        lane["state"] = "готово"
+
+    def _sort_unlim(self):
+        cfg = get_config()
+        out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+        lane = self.lanes["unlim"]
+        lane["state"] = "сортировка"
+        self._update_step()
+        self._log("🗂 Раскладываю скачанное по датам…")
+        ok, msg = tm.start("organize", "organize.py", [
+            "--input", out_dir,
+            "--action", "move",
+            "--scheme", "type-year-month",
+            "--quick",
+        ])
+        if not ok:
+            self._log(f"⚠ сортировка не запущена: {msg}")
+            return
+        self._owned_slots.add("organize")
+        code = self._wait_task("organize")
+        self._log(f"   сортировка завершена (код {code})")
 
     def status(self) -> dict:
+        elapsed = None
+        if self.started_at:
+            end = self.finished_at if self.finished_at else time.time()
+            elapsed = end - self.started_at
         return {
             "state": self.state,
             "running": self.is_running(),
-            "run_current": self.run_current,
-            "runs_total": self.runs_total,
+            "step": self.step,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "elapsed": elapsed,
+            "passes": self.passes,
+            "lanes": {name: dict(lane) for name, lane in self.lanes.items()},
+            "summary": self.summary,
             "log": list(self.log),
         }
 
 
-auto_runs = AutoRuns()
+full_cycle = FullCycle()
 
 
 def _free_gb(paths: list[str]) -> Optional[float]:
@@ -694,7 +926,7 @@ class DiskWatchdog:
         self.state = "stopped"
 
     def _stop_everything(self, free: float):
-        auto_runs.stop()
+        full_cycle.stop()
         pipeline.stop()
         tm.stop_all()
         try:
@@ -989,7 +1221,7 @@ def api_status():
             "summary": unlim_db_summary(),
         },
         "ram": ram_info(),
-        "auto_runs": auto_runs.status(),
+        "full_cycle": full_cycle.status(),
         "watchdog": watchdog.status(),
         "tasks": tm.status(),
         "pipeline": pipeline.status(),
@@ -1065,59 +1297,16 @@ def api_download_start(payload: DownloadControlPayload):
 
 class DownloadAllPayload(BaseModel):
     workers: int = 10
-    runs: int = 1  # сколько раз повторить весь автопрогон
-    retry_skipped: bool = False  # галочка «сначала новые, затем пропущенные»
+    passes: int = 3  # сколько проходов по сбойным делать за запуск (1–5)
     sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
-
-
-def _start_all_tasks(workers: int, retry_skipped: bool, sort_after: bool) -> list[dict]:
-    """Запускает диск и безлимит параллельно. Возвращает список слотов и статусов."""
-    cfg = get_config()
-    started = []
-
-    # Диск: все файлы. REST-клиент ограничен 5 потоками.
-    disk_workers = auto_workers()
-    disk_args = ["download", "--workers", str(disk_workers)]
-    if DB_FILE.exists():
-        disk_args.append("--no-scan")
-    if retry_skipped:
-        disk_args.append("--retry")
-    ok, msg = tm.start("disk", "main.py", disk_args)
-    started.append({"slot": "disk", "ok": ok, "msg": msg})
-
-    # Безлимит: все медиа, очередь зависит от галочки.
-    out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
-    unlim_args = [
-        "--out-dir", out_dir,
-        "--media", "all",
-        "--target", ("all" if retry_skipped else "pending"),
-        "--workers", str(workers),
-    ]
-    if sort_after:
-        unlim_args.append("--sort-after")
-    ok2, msg2 = tm.start("unlim", "unlim_backup.py", unlim_args)
-    started.append({"slot": "unlim", "ok": ok2, "msg": msg2})
-    return started
 
 
 @app.post("/api/download/all")
 def api_download_all(payload: DownloadAllPayload):
-    """Скачивает ВСЁ одновременно: обычный диск + безлимит (все медиа)."""
+    """Полный цикл: проверить облако, скачать новые и докачать сбойные."""
     log_action("/api/download/all", payload)
-    runs = max(1, min(int(payload.runs or 1), 50))
-    if runs > 1:
-        ok, msg = auto_runs.start(payload.workers, payload.retry_skipped,
-                                  payload.sort_after, runs)
-        return {"ok": ok, "started": [], "runs": runs, "msg": msg}
-
-    started = _start_all_tasks(payload.workers, payload.retry_skipped,
-                               payload.sort_after)
-    any_ok = any(s["ok"] for s in started)
-    ok_slots = [s["slot"] for s in started if s["ok"]]
-    bad = [f"{s['slot']}: {s['msg']}" for s in started if not s["ok"]]
-    return {"ok": any_ok, "started": started, "runs": 1,
-            "msg": (f"Запущено: {', '.join(ok_slots)}" if ok_slots else "Не удалось запустить") +
-                   (f" ({'; '.join(bad)})" if bad else "")}
+    ok, msg = full_cycle.start(payload.workers, payload.passes, payload.sort_after)
+    return {"ok": ok, "msg": msg, "state": full_cycle.state}
 
 
 class WatchdogPayload(BaseModel):
@@ -1206,7 +1395,7 @@ def api_reset(payload: ResetPayload):
 
 @app.post("/api/download/stop")
 def api_download_stop():
-    auto_runs.stop()
+    full_cycle.stop()
     n = tm.stop_all()
     pipeline.stop()
     return {"ok": True, "stopped": n}
@@ -2010,7 +2199,7 @@ def api_diagnostics():
     """Собрать отчёт и сохранить ZIP. Ничего никуда не отправляет."""
     log_action("diagnostics/build")
     try:
-        report = diagnostics.build_report(tm.status(), auto_runs.status())
+        report = diagnostics.build_report(tm.status(), full_cycle.status())
         path = diagnostics.write_report(report)
     except Exception as e:
         return JSONResponse(
@@ -2032,7 +2221,7 @@ def api_diagnostics_send():
     """Собрать отчёт и отправить через Cloudflare Worker в Telegram."""
     log_action("diagnostics/send")
     try:
-        report = diagnostics.build_report(tm.status(), auto_runs.status())
+        report = diagnostics.build_report(tm.status(), full_cycle.status())
         path = diagnostics.write_report(report)
         result = diagnostics.send_report(path, report)
     except Exception as e:

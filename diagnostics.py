@@ -392,7 +392,7 @@ def logs_info() -> dict:
 def task_info(task_status: dict | None = None,
               auto_status: dict | None = None) -> dict:
     """Сжимает статусы процессов до безопасного минимума."""
-    out: dict[str, Any] = {"tasks": {}, "auto_runs": {}}
+    out: dict[str, Any] = {"tasks": {}, "full_cycle": {}}
     for slot, data in (task_status or {}).items():
         if not isinstance(data, dict):
             continue
@@ -404,11 +404,22 @@ def task_info(task_status: dict | None = None,
             "log_tail": [redact_text(x) for x in list(tail)[-20:]],
         }
     if isinstance(auto_status, dict):
-        out["auto_runs"] = {
+        lanes = {}
+        for name, lane in (auto_status.get("lanes") or {}).items():
+            if isinstance(lane, dict):
+                lanes[str(name)] = {
+                    "state": lane.get("state"),
+                    "pass": lane.get("pass"),
+                    "downloaded": lane.get("downloaded"),
+                    "errors": lane.get("errors"),
+                    "bytes": lane.get("bytes"),
+                }
+        out["full_cycle"] = {
             "state": auto_status.get("state"),
             "running": auto_status.get("running"),
-            "run_current": auto_status.get("run_current"),
-            "runs_total": auto_status.get("runs_total"),
+            "step": auto_status.get("step"),
+            "passes": auto_status.get("passes"),
+            "lanes": lanes,
             "log_tail": [
                 redact_text(x) for x in list(auto_status.get("log") or [])[-20:]
             ],
@@ -537,9 +548,9 @@ def render_summary(report: dict) -> str:
             )
     else:
         lines.append("  нет данных (задачи не запускались в этом процессе)")
-    auto = (report.get("tasks") or {}).get("auto_runs") or {}
+    auto = (report.get("tasks") or {}).get("full_cycle") or {}
     if auto:
-        lines.append(f"  автопрогоны: {auto.get('state', '?')}")
+        lines.append(f"  полный цикл: {auto.get('state', '?')}")
 
     lines += ["", "ЛОГИ"]
     for name, info in (report.get("logs", {}).get("files") or {}).items():

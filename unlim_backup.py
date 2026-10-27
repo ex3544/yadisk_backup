@@ -854,7 +854,16 @@ def run_backup(
 
     finally:
         if status_file:
-            update_status_file(status_file, active=False, error=fatal_code)
+            # Финальная запись должна сохранять итоги за запуск, иначе Web UI
+            # обнуляет счётчики Безлимита в бейдже сразу после завершения.
+            update_status_file(
+                status_file,
+                active=False,
+                error=fatal_code,
+                success=total_downloaded_files,
+                skipped=total_skipped_files,
+                total_bytes=total_downloaded_bytes,
+            )
 
     if fatal_error:
         print()

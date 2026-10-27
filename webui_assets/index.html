@@ -506,6 +506,7 @@
   .setup-hint.ok{color:var(--green)}
   .setup-hint.err{color:var(--red)}
   .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
+  .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
 
   /* ── Диагностика ── */
@@ -615,7 +616,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.0</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.1</span></div>
     </div>
   </div>
   <div class="pills">
@@ -677,12 +678,9 @@
       </div>
       <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:230px">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer">
-            <input type="checkbox" id="all-retry-skipped" style="width:16px;height:16px;accent-color:var(--accent)">
-            Сначала новые, затем сбойные
-          </label>
           <div class="btn-hint" style="text-align:left;margin-top:4px">
-            Повтор один раз за прогон: ошибки Диска (failed) и пропущенные Безлимита (skipped).
+            Полный цикл: проверка облака на новые файлы → скачивание новых → проходы
+            по сбойным (ошибки Диска и пропущенные Безлимита).
           </div>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;cursor:pointer">
             <input type="checkbox" id="all-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
@@ -692,8 +690,8 @@
             Может занять много времени. Можно не включать: отсортируйте позже на вкладке «Организация», когда всё скачается.
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px">
-            <span style="color:var(--text-secondary)">Прогонов:</span>
-            <input type="number" id="all-runs" value="1" min="1" max="20" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+            <span style="color:var(--text-secondary)">Проходов по сбойным:</span>
+            <input type="number" id="all-runs" value="3" min="1" max="5" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
             <span id="all-runs-status" style="font-size:12px;color:var(--text-secondary)"></span>
           </div>
         </div>
@@ -1284,6 +1282,18 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="cycle-modal">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="cycle-title">
+    <div class="modal-kicker">Yandex.Disk Backup · полный цикл</div>
+    <div class="modal-title" id="cycle-title">Скачивание завершено</div>
+    <div class="modal-sub" id="cycle-sub"></div>
+    <div id="cycle-body"></div>
+    <div class="modal-actions">
+      <button class="primary" onclick="closeCycleSummary()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -1671,19 +1681,18 @@ function toggleModeOpts(){
 }
 
 async function startDownloadAll(){
-  const retry = document.getElementById('all-retry-skipped').checked;
   const sort_after = document.getElementById('all-sort-after').checked;
   const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
-  const runs = Math.max(1, Math.min(parseInt(document.getElementById('all-runs').value, 10) || 1, 20));
+  const passes = Math.max(1, Math.min(parseInt(document.getElementById('all-runs').value, 10) || 3, 5));
   try {
     const r = await fetch('/api/download/all', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ workers: workers, runs: runs, retry_skipped: retry, sort_after: sort_after })
+      body: JSON.stringify({ workers: workers, passes: passes, sort_after: sort_after })
     });
     const d = await r.json();
     if(d.ok){
-      toast(d.msg || 'Запущено: Диск + Безлимит одновременно','ok');
+      toast(d.msg || 'Полный цикл запущен: Диск + Безлимит','ok');
     } else {
       toast(d.msg || 'Не удалось запустить', 'err');
     }
@@ -2313,8 +2322,10 @@ function updateActiveTasksHeader(tasks, pipeline){
 }
 
 function isStopped(code){
-  // Коды, означающие нормальную остановку (SIGTERM/SIGINT), не ошибку
-  return code === -15 || code === -2 || code === 143 || code === 130 || code === 15 || code === 1;
+  // Коды, означающие нормальную остановку (SIGTERM/SIGINT), не ошибку.
+  // Код 1 сюда НЕ входит: main.py возвращает 1, когда часть файлов упала,
+  // и это «завершено с ошибками», а не остановка пользователем.
+  return code === -15 || code === -2 || code === 143 || code === 130 || code === 15;
 }
 
 function updateScanStatus(kind, task, lastTotal){
@@ -2372,17 +2383,17 @@ function renderSessionCounters(s, tasks){
 
   setSessionCounter('pill-session', 'pill-session-text', unlimShow, sp.success, sp.skipped, 'файлов');
   setSessionCounter('session-count-badge', null, unlimShow, sp.success, sp.skipped, 'файлов за сессию', 'Безлимит: ');
-  setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskShow, dsp.downloaded, dsp.skipped, 'файлов');
-  setSessionCounter('disk-session-badge', null, diskShow, dsp.downloaded, dsp.skipped, 'файлов за сессию', 'Диск: ');
+  setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskShow, dsp.downloaded, dsp.failed, 'файлов', '', '⚠');
+  setSessionCounter('disk-session-badge', null, diskShow, dsp.downloaded, dsp.failed, 'файлов за сессию', 'Диск: ', '⚠');
 }
 
-function setSessionCounter(id, textId, show, count, skipped, suffix, prefix){
+function setSessionCounter(id, textId, show, count, extra, suffix, prefix, extraIcon){
   const el = document.getElementById(id);
   if(!el) return;
   if(show && count !== undefined){
     el.style.display = 'inline-flex';
     let label = (prefix || '') + '✅ ' + (+count).toLocaleString('ru') + ' ' + suffix;
-    if(skipped) label += ' · ↷ ' + (+skipped).toLocaleString('ru');
+    if(extra) label += ' · ' + (extraIcon || '↷') + ' ' + (+extra).toLocaleString('ru');
     if(textId) document.getElementById(textId).textContent = label;
     else el.textContent = label;
   } else {
@@ -2398,20 +2409,64 @@ function workersWord(n){
   return 'потоков';
 }
 
-function renderAutoRuns(a){
+function renderFullCycle(fc){
   const el = document.getElementById('all-runs-status');
   if(!el) return;
-  if(!a || !a.running){
-    if(a && a.state === 'done' && a.runs_total > 0){
-      el.textContent = `завершено: ${a.runs_total} прогон(ов)`;
-    } else if(a && a.state === 'stopped'){
-      el.textContent = 'остановлено';
-    } else {
-      el.textContent = '';
-    }
+  if(!fc || fc.state === 'idle'){
+    el.textContent = '';
     return;
   }
-  el.textContent = `выполняется прогон ${a.run_current} из ${a.runs_total}`;
+  if(fc.running){
+    el.textContent = fc.step ? `полный цикл · ${fc.step}` : 'полный цикл идёт';
+    return;
+  }
+  if(fc.state === 'done') el.textContent = 'полный цикл завершён';
+  else if(fc.state === 'stopped') el.textContent = 'остановлено';
+  else el.textContent = 'завершено с ошибками';
+}
+
+function cycleLaneText(name, fc){
+  const lane = (fc && fc.lanes && fc.lanes[name]) || {};
+  const title = name === 'disk' ? 'Диск' : 'Безлимит';
+  if(lane.state === 'error'){
+    return `${title}: ошибка — ${lane.error || 'неизвестная'}`;
+  }
+  if(lane.state === 'ожидание'){
+    return `${title}: не запускался`;
+  }
+  const done = Number(lane.downloaded || 0);
+  const errs = lane.errors == null ? '—' : Number(lane.errors);
+  const errWord = name === 'disk' ? 'с ошибками' : 'пропущено';
+  const passes = lane.pass ? ` · проходов ${lane.pass}/${lane.passes || fc.passes || '—'}` : '';
+  return `${title}: ✅ ${fmtNum(done)} скачано · ⚠ ${typeof errs === 'number' ? fmtNum(errs) : errs} ${errWord}` +
+         ` · ${human(lane.bytes || 0)}${passes}`;
+}
+
+function showCycleSummary(fc){
+  const modal = document.getElementById('cycle-modal');
+  const body = document.getElementById('cycle-body');
+  const sub = document.getElementById('cycle-sub');
+  if(!modal || !body || !fc) return;
+  const lanes = fc.lanes || {};
+  const title = document.getElementById('cycle-title');
+  if(title){
+    title.textContent = fc.state === 'stopped' ? 'Цикл остановлен'
+      : fc.state === 'failed' ? 'Цикл завершён с ошибками'
+      : 'Скачивание завершено';
+  }
+  if(sub){
+    sub.textContent = (fc.summary && fc.summary.duration != null)
+      ? `Время: ${dur(fc.summary.duration)}` : '';
+  }
+  body.innerHTML = '<div class="cycle-rows">' +
+    ['disk','unlim'].map(n => `<div class="cycle-row">${esc(cycleLaneText(n, fc))}</div>`).join('') +
+    '</div>';
+  modal.classList.add('show');
+}
+
+function closeCycleSummary(){
+  const modal = document.getElementById('cycle-modal');
+  if(modal) modal.classList.remove('show');
 }
 
 async function toggleWatchdog(){
@@ -2512,7 +2567,15 @@ async function refresh(){
     const s=await r.json();
     window._lastStatus = s;
     renderRamHint(s.ram);
-    renderAutoRuns(s.auto_runs);
+    renderFullCycle(s.full_cycle);
+    // Итоговое окно показываем один раз — при переходе «идёт → завершён»,
+    // чтобы после F5 старая сводка не всплывала снова.
+    const fc = s.full_cycle || {};
+    if(fc.running) window._cycleWasRunning = true;
+    if(!fc.running && window._cycleWasRunning && fc.summary){
+      window._cycleWasRunning = false;
+      showCycleSummary(fc);
+    }
     renderWatchdog(s.watchdog);
     renderResetCounts(s);
     renderRebuildCounts(s);
@@ -2680,20 +2743,42 @@ async function refresh(){
       if (allWrap) allWrap.style.display = 'flex';
       if (stopWrap) stopWrap.style.display = 'none';
 
+      const fcst = s.full_cycle || {};
       const lastTask = (unlimTask && unlimTask.exit_code !== null) ? unlimTask :
                        ((diskTask && diskTask.exit_code !== null) ? diskTask : null);
-      if (lastTask && lastTask.log_tail && lastTask.log_tail.length > 0) {
+      if (fcst.summary) {
+        // После полного цикла показываем сводку по обоим источникам, а не
+        // лог последней задачи: он затирал результат Диска.
+        if (card) card.style.display = 'block';
+        const partial = fcst.state !== 'done';
+        if (ps) { ps.textContent = partial ? 'с ошибками' : 'готово'; ps.className = partial ? 'badge' : 'badge ok'; }
+        if (pStep) pStep.textContent = 'Полный цикл: Диск + Безлимит';
+        if (pTime) pTime.textContent = dur((fcst.summary || {}).duration);
+        const fcLog = ['🏁 Полный цикл', cycleLaneText('disk', fcst), cycleLaneText('unlim', fcst)];
+        if (fcst.log && fcst.log.length) fcLog.push('', ...fcst.log.slice(-15));
+        setConsole('pipeline-console', fcLog.join('\n'));
+      } else if (lastTask && lastTask.log_tail && lastTask.log_tail.length > 0) {
         if (card) card.style.display = 'block';
         const isDone = lastTask.exit_code === 0;
         const isUserStop = isStopped(lastTask.exit_code);
+        const diskFailed = lastTask === diskTask ? Number((s.disk_speed || {}).failed || 0) : 0;
+        // main.py возвращает 1, когда часть файлов упала (обычно HTTP 500 у Яндекса).
+        // Это не «ошибка программы» и не «остановлено» — показываем честный итог.
+        const isPartial = !isDone && !isUserStop && lastTask === diskTask &&
+                          lastTask.exit_code === 1 && diskFailed > 0;
         const isScanTask = (lastTask.log_tail || []).some(l => /фотосреза|кластер|scan|Обхожу/i.test(l));
         const doneLabel = isScanTask ? 'сканирование завершено (база готова)' : 'скачивание завершено';
         if (ps) {
           if (isDone) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
+          else if (isPartial) { ps.textContent = 'с ошибками'; ps.className = 'badge'; }
           else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge'; }
           else { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
         }
-        if (pStep) pStep.textContent = (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (isDone ? doneLabel : (isUserStop ? 'остановлено' : `ошибка (код ${lastTask.exit_code})`));
+        if (pStep) pStep.textContent = (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (
+          isDone ? doneLabel
+            : isPartial ? `завершено с ошибками (${diskFailed.toLocaleString('ru')} файлов)`
+            : isUserStop ? 'остановлено'
+            : `ошибка (код ${lastTask.exit_code})`);
         if (pTime) pTime.textContent = dur(lastTask.elapsed);
         setConsole('pipeline-console', (lastTask.log_tail || []).join('\n'));
       } else if (s.last_unlim_log && s.last_unlim_log.length > 0 && s.unlim?.summary?.is_ready) {

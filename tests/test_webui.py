@@ -302,3 +302,106 @@ def test_backup_create_returns_item(monkeypatch):
     out = webui.api_backups_create(webui.BackupCreatePayload(scope="disk"))
 
     assert out == {"ok": True, "item": fake}
+
+
+# ── полный цикл «Скачать всё» ───────────────────────────────────────────────
+
+
+def _make_db(path, rows):
+    con = sqlite3.connect(path)
+    try:
+        with con:
+            con.execute(
+                "CREATE TABLE files "
+                "(remote_path TEXT PRIMARY KEY, size INTEGER, status TEXT)"
+            )
+            con.executemany("INSERT INTO files VALUES (?, ?, ?)", rows)
+    finally:
+        con.close()
+
+
+def test_full_cycle_snapshot_counts_downloaded_and_errors(tmp_path):
+    db = tmp_path / "state.db"
+    _make_db(db, [
+        ("a", 10, "downloaded"),
+        ("b", 20, "downloaded"),
+        ("c", 30, "failed"),
+        ("d", 40, "pending"),
+        ("e", 50, "skipped"),
+    ])
+
+    snap = webui.FullCycle._db_snapshot(db, "files", ("failed",))
+
+    assert snap == {"downloaded": 2, "errors": 1, "bytes": 30}
+
+
+def test_full_cycle_snapshot_missing_db_is_empty(tmp_path):
+    snap = webui.FullCycle._db_snapshot(
+        tmp_path / "nope.db", "unlim_files", ("skipped",)
+    )
+
+    assert snap == {"downloaded": 0, "errors": 0, "bytes": 0}
+
+
+def test_full_cycle_refuses_while_task_slot_is_busy():
+    class Alive:
+        def alive(self):
+            return True
+
+    webui.tm._tasks["disk"] = Alive()
+    try:
+        ok, msg = webui.full_cycle.start(workers=4, passes=3)
+    finally:
+        webui.tm._tasks.pop("disk", None)
+
+    assert ok is False
+    assert "Уже идёт" in msg
+    assert webui.full_cycle.is_running() is False
+
+
+def test_full_cycle_clamps_passes_and_workers(monkeypatch):
+    """Значения из формы не могут выйти за границы 1–5 проходов и 1–24 потоков."""
+    captured = {}
+
+    def fake_run(self):
+        captured["passes"] = self.passes
+        captured["workers"] = self.workers
+
+    monkeypatch.setattr(webui.FullCycle, "_run", fake_run)
+    saved = (webui.full_cycle.state, webui.full_cycle.summary,
+             webui.full_cycle._thread)
+    try:
+        ok, _ = webui.full_cycle.start(workers=999, passes=99)
+        thread = webui.full_cycle._thread
+        if thread is not None:
+            thread.join(timeout=5)
+    finally:
+        (webui.full_cycle.state, webui.full_cycle.summary,
+         webui.full_cycle._thread) = saved
+
+    assert ok is True
+    assert captured == {"passes": 5, "workers": 24}
+
+
+def test_download_all_passes_payload_to_full_cycle(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        webui.full_cycle, "start",
+        lambda workers, passes, sort_after: calls.append(
+            (workers, passes, sort_after)) or (True, "ok"),
+    )
+
+    out = webui.api_download_all(
+        webui.DownloadAllPayload(workers=6, passes=2, sort_after=True)
+    )
+
+    assert out["ok"] is True
+    assert calls == [(6, 2, True)]
+
+
+def test_download_all_payload_defaults():
+    payload = webui.DownloadAllPayload()
+
+    assert payload.workers == 10
+    assert payload.passes == 3
+    assert payload.sort_after is False

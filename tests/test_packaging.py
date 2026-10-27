@@ -77,10 +77,11 @@ def test_launch_modes_are_visually_separate_with_button_hints():
     assert "1 клик" in html
     assert "вручную" in html
     assert "Настройки пошагового режима ниже не используются." in html
+    assert "Полный цикл: проверка облака на новые файлы" in html
 
-    # Галочка больше не притворяется общей: объясняем, что повторяются и failed, и skipped.
-    assert "Сначала новые, затем сбойные" in html
-    assert "ошибки Диска (failed) и пропущенные Безлимита (skipped)" in html
+    # Повтор сбойных больше не отдельная галочка — он часть полного цикла.
+    assert "Сначала новые, затем сбойные" not in html
+    assert "по сбойным (ошибки Диска и пропущенные Безлимита)" in html
 
     # Автосортировка доступна в обоих режимах и честно предупреждает о времени.
     assert 'id="all-sort-after"' in html
@@ -175,3 +176,29 @@ def test_backups_block_creates_and_restores_with_warnings():
     assert "fetch('/api/backups')" in html
     assert "function loadBackups()" in html
     assert "if(t.dataset.tab === 'diagnostics') loadBackups();" in html
+
+
+def test_download_all_is_a_full_cycle_in_ui():
+    """«Скачать всё» = проверка облака + проходы по сбойным, без старой галочки."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "all-retry-skipped" not in html
+    assert "renderAutoRuns" not in html
+    assert 'id="all-runs"' in html
+    assert "Проходов по сбойным:" in html
+    assert 'id="cycle-modal"' in html
+    assert "function renderFullCycle(fc)" in html
+    assert "renderFullCycle(s.full_cycle);" in html
+    assert "JSON.stringify({ workers: workers, passes: passes, sort_after: sort_after })" in html
+
+
+def test_exit_code_one_is_not_treated_as_user_stop():
+    """main.py возвращает 1 при сбойных файлах — это не «остановлено»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    marker = html.index("function isStopped(code){")
+    body = html[marker : html.index("}", marker) + 1]
+    import re
+
+    codes = [int(n) for n in re.findall(r"code === (-?\d+)", body)]
+    assert codes == [-15, -2, 143, 130, 15]
