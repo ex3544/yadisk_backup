@@ -36,8 +36,18 @@ def test_iss_script_contract():
     text = (Path(build_installer.PROJECT_DIR) / "installer" / "yadisk_backup.iss").read_text(
         encoding="utf-8"
     )
-    assert "PrivilegesRequired=admin" in text
-    assert "DefaultDirName={autopf}\\YandexDiskBackup" in text
+    # Установка без прав администратора: только для текущего пользователя.
+    assert "PrivilegesRequired=lowest" in text
+    assert "PrivilegesRequired=admin" not in text
+    assert "DefaultDirName={localappdata}\\Programs\\YandexDiskBackup" in text
+    # 64-битный режим установки требует прав администратора.
+    assert "ArchitecturesInstallIn64BitMode" not in text
+    assert 'Name: "{userprograms}\\{#AppName}"' in text
+    assert 'Name: "{userdesktop}\\{#AppName}"' in text
+    assert 'Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"' in text
+    assert "HKLM; Subkey" not in text
+    # Старая system-wide установка должна быть видна пользователю.
+    assert "LegacyInstallDir" in text
     assert "YandexDiskBackup.exe" in text
     assert "dist\\YandexDiskBackup" in text
     assert "ReportKey" in text

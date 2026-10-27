@@ -9,7 +9,7 @@
 ; ReportKey попадает в собранный установщик, но НЕ в репозиторий.
 
 #ifndef AppVersion
-  #define AppVersion "35.5.2"
+  #define AppVersion "35.5.3"
 #endif
 
 #ifndef ReportKey
@@ -32,13 +32,15 @@ VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Setup
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
-DefaultDirName={autopf}\YandexDiskBackup
+; Установка только для текущего пользователя, без прав администратора (UAC).
+; Программа и так держит все данные в %LOCALAPPDATA%, поэтому system-wide
+; установка не нужна — а без UAC установка и обновление проходят молча.
+DefaultDirName={localappdata}\Programs\YandexDiskBackup
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
 Compression=lzma2/ultra64
@@ -77,11 +79,11 @@ Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vendor\MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YandexDiskBackup"; ValueData: """{app}\{#AppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YandexDiskBackup"; ValueData: """{app}\{#AppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Установка Microsoft Edge WebView2..."; Flags: runhidden waituntilterminated; Check: ShouldInstallWebView2; AfterInstall: CheckWebView2Result
@@ -104,9 +106,54 @@ begin
     RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
 end;
 
-function InitializeSetup(): Boolean;
+function LegacyInstallDir(): String;
+var
+  Id, Location: String;
+begin
+  Result := '';
+  Id := '{8E4A3F42-6C1D-4A7E-9F2B-3544A1B2C3D4}_is1';
+  Location := '';
+  if not RegQueryStringValue(HKLM,
+       'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + Id,
+       'InstallLocation', Location) then
+    RegQueryStringValue(HKLM,
+      'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\' + Id,
+      'InstallLocation', Location);
+  Location := RemoveBackslashUnlessRoot(Location);
+  if (Location = '') or (not DirExists(Location)) then
+    Exit;
+  // Своя же папка установки — это не «старая версия».
+  if CompareText(Location, RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0 then
+    Exit;
+  Result := Location;
+end;
+
+function ConfirmLegacyInstall(): Boolean;
+var
+  Legacy: String;
 begin
   Result := True;
+  Legacy := LegacyInstallDir();
+  if Legacy = '' then
+    Exit;
+  if WizardSilent then
+    Exit;
+  Result := SuppressibleMsgBox(
+    'Найдена версия, установленная ранее с правами администратора:' + #13#10 +
+    Legacy + #13#10 + #13#10 +
+    'Новая версия ставится в папку пользователя и прав администратора не требует.' + #13#10 +
+    'Чтобы не осталось двух копий программы, один раз удалите старую версию:' + #13#10 +
+    '«Параметры → Приложения → Yandex.Disk Backup → Удалить».' + #13#10 +
+    'Базы, настройки и скачанные файлы при этом сохранятся.' + #13#10 + #13#10 +
+    'Продолжить установку сейчас?',
+    mbConfirmation, MB_YESNO, IDYES) = IDYES;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := ConfirmLegacyInstall();
+  if not Result then
+    Exit;
   if not WebView2Installed() then
     SuppressibleMsgBox(
       'Компонент Microsoft Edge WebView2 не найден.' + #13#10 +

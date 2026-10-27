@@ -2,7 +2,7 @@
 
 > **КРИТИЧЕСКОЕ ПРАВИЛО:** Общение с пользователем ведётся **СТРОГО НА РУССКОМ ЯЗЫКЕ** без каких-либо исключений.
 >
-> **Обновлено:** 2026-10-28 (v35.5.2: самообновление из «Диагностики» с проверкой SHA-256, подтверждение создания резервных копий, переименование «Сформировать базу данных» → «Обновить список файлов», исправленная автопрокрутка и увеличенная история журнала)
+> **Обновлено:** 2026-10-28 (v35.5.3: установка и самообновление без прав администратора — `%LOCALAPPDATA%\Programs`, HKCU, определение типа сборки по реестру и баннер о старой копии. Ранее в 35.5.2: самообновление с проверкой SHA-256, подтверждение резервных копий, «Обновить список файлов», автопрокрутка журнала)
 
 ---
 
@@ -31,7 +31,7 @@
 
 ### Первый запуск и диагностика (этап 2)
 
-- [`version.py`](./version.py) — единая версия: `35.5.2`, издатель `Sergey Pukhir (ex3544, vovapuh's son)`.
+- [`version.py`](./version.py) — единая версия: `35.5.3`, издатель `Sergey Pukhir (ex3544, vovapuh's son)`.
 - [`diagnostics.py`](./diagnostics.py) — сборка ZIP-отчёта и отправка через Cloudflare Worker. В отчёт попадают система, пути, маскированные настройки, статистика баз, статусы задач, хвосты логов и найденные ошибки. **Токен, куки, содержимое файлов и полные базы не включаются**; все строки проходят через `redact_text()`.
 - Большие логи читаются с конца (`seek`), а не целиком: `unlim_backup.log` бывает в сотни мегабайт.
 - Ключ отправки хранится в `DATA_DIR/.report_key.txt` (или `REPORT_KEY` в окружении) и никогда не выводится в отчёт/лог. Без ключа отчёт сохраняется в `DATA_DIR/reports/`.
@@ -50,7 +50,7 @@
 - В «Организации» кнопка «Остановить» изначально `disabled` и активируется только при запущенной сортировке (`updateOrganizeControls()` в `webui_assets/index.html`).
 - На «Главной» два визуально разных блока запуска: `.launch-card.auto` («Быстрый запуск: скачать всё», Диск + Безлимит, 1 клик) и `.launch-card.manual` («Пошаговый режим», только выбранный раздел). Под каждой кнопкой — `.btn-hint`; при запуске подсказки прячутся вместе с кнопками через обёртки `ctrl-*-wrap`.
 - «Скачать всё» = `webui.FullCycle` (`full_cycle`), `POST /api/download/all` с `{workers, passes, sort_after}`. Две параллельные «полосы»: Диск — `main.py scan` → `main.py download --no-scan --retry`; Безлимит — `unlim_download.py --collect` → `unlim_backup.py --target all`. Затем до `passes` (1–5, по умолчанию 3) проходов по сбойным с паузой 60 с; проходы прекращаются досрочно, если число сбойных не уменьшилось. Счётчики берутся из баз (`_db_snapshot`), а не из status-файлов: Диск — `failed`, Безлимит — `skipped`. Итог уходит в `full_cycle.summary` → всплывающее окно и карточка процесса. Старый `AutoRuns` и галочка «Сначала новые, затем сбойные» удалены.
-- **Самообновление.** `updater.download_asset()` качает файл релиза только с `https://github.com/ex3544/yadisk_backup/releases/download/...`, сверяет SHA-256 из опубликованного `<asset>.sha256` и не оставляет `.part` при ошибке. `webui.UpdateManager` (`update_manager`) ведёт состояние `idle/checking/downloading/ready/error/installing`, отдаёт его в `/api/status` как `update`; эндпоинты — `POST /api/updates/download`, `/api/updates/cancel`, `/api/updates/install`. Установка пишет PowerShell-помощника в `%TEMP%\YandexDiskBackup_update`, который ждёт PID приложения, запускает setup `/SILENT /CLOSEAPPLICATIONS /NOCANCEL` (portable — `Expand-Archive` в папку сборки) и открывает новую версию; `launcher.Application` передаёт `webui.register_shutdown_hook(self.quit_app)`. Установка требует `IS_FROZEN` и свободных задач. Релизный workflow публикует `.sha256` для setup.exe и portable ZIP.
+- **Самообновление.** `updater.download_asset()` качает файл релиза только с `https://github.com/ex3544/yadisk_backup/releases/download/...`, сверяет SHA-256 из опубликованного `<asset>.sha256` и не оставляет `.part` при ошибке. `webui.UpdateManager` (`update_manager`) ведёт состояние `idle/checking/downloading/ready/error/installing`, отдаёт его в `/api/status` как `update`; эндпоинты — `POST /api/updates/download`, `/api/updates/cancel`, `/api/updates/install`. Установка пишет PowerShell-помощника в `%TEMP%\YandexDiskBackup_update`, который ждёт PID приложения, запускает setup `/SILENT /CLOSEAPPLICATIONS /NOCANCEL` (portable — `Expand-Archive` в папку сборки) и открывает новую версию; `launcher.Application` передаёт `webui.register_shutdown_hook(self.quit_app)`. Установка требует `IS_FROZEN` и свободных задач, прав администратора не требует. Релизный workflow публикует `.sha256` для setup.exe и portable ZIP. Тип сборки определяется по реестру удаления (`_read_install_locations()`/`installed_app_dirs()` + `UpdateManager.is_portable()`): совпала папка из реестра с папкой exe — это установка (setup.exe), иначе ZIP; `legacy_install_dir()` находит старую копию в Program Files, её путь отдаётся в `/api/status` как `legacy_install` и показывается баннером.
 - Повторное «Обновить список файлов» безопасно: для Диска `mark_pending()` не перетирает `downloaded/skipped`; для Безлимита `--scan-only` дополняет базу новыми `file_id`, сохраняя статусы и `local_path`.
 - Полное пересоздание базы Безлимита из UI — только «Диагностика» → «Пересоздание базы Безлимита» → `POST /api/unlim/rebuild`. Эндпоинт требует слово `ПЕРЕСОЗДАТЬ`, отказывается работать при живых `unlim*` задачах и перед `--scan-only --force` делает согласованную копию через `sqlite3.Connection.backup()` (`unlim_state.bak-YYYYmmdd-HHMMSS.db`). На главной этой кнопки нет намеренно: после сортировки файлы лежат в подпапках, проверка «уже скачан» их не найдёт и всё скачается заново.
 - [`assets/`](./assets) — `app.ico`, `app.png`, `tray.png`; пересобираются `python tools/make_icons.py`.
@@ -61,7 +61,7 @@
 
 - `python build_exe.py` → `dist/YandexDiskBackup/` (PyInstaller 6.22.3, Python 3.15, ~154 МБ). Проверено: exe запускается без консоли, окно `Yandex.Disk Backup 35.5.1`, трей, `/api/version`, закрытие окна сворачивает в трей, воркер `YandexDiskBackup.exe main.py stats` работает.
 - Секретов разработчика в `dist/` нет: `.env`, куки, базы и ключи не попадают в сборку.
-- [`installer/yadisk_backup.iss`](./installer/yadisk_backup.iss) — установщик Inno Setup 6: admin, `Program Files`, ярлыки, необязательный автозапуск, сохранение данных при удалении.
+- [`installer/yadisk_backup.iss`](./installer/yadisk_backup.iss) — установщик Inno Setup 6 **без прав администратора**: `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\YandexDiskBackup`, ярлыки `{userprograms}`/`{userdesktop}`, автозапуск в `HKCU`, сохранение данных при удалении. `ArchitecturesInstallIn64BitMode` удалён — с `lowest` он недоступен. `LegacyInstallDir()` читает `InstallLocation` ключа `{8E4A3F42-…}_is1` в HKLM и предупреждает о прежней system-wide установке (в тихом режиме вопрос подавляется).
 - Если WebView2 нет, установщик сам запускает официальный Microsoft Edge WebView2 Bootstrapper (`/silent /install`) и проверяет результат в реестре. Нет интернета/не удалось — приложение откроется в браузере.
 - [`build_installer.py`](./build_installer.py) — сборка установщика. Ключ отчётов берётся из `REPORT_KEY` или локального `.report_key.txt`, в git не попадает; `--no-key` отключает встраивание. Bootstrapper WebView2 скачивается с сайта Microsoft в `installer/vendor/` (gitignored) и проверяется по Authenticode-подписи. При отсутствии Inno Setup скрипт завершается с кодом 2 и ничего не устанавливает.
 - [build_portable.py](./build_portable.py) → `dist/YandexDiskBackup-35.5.1-portable.zip` без установки; секреты и рабочие данные не включаются.
@@ -139,7 +139,7 @@
 | `backups.py` | Резервные копии баз со статусами (без файлов): `disk`, `unlim`, `all` (ZIP + manifest), список с датой/счётчиками, восстановление через sqlite backup API с авто-копией текущего состояния, проверка `integrity_check` и `user_version`, ротация авто-копий (5 на базу). Эндпоинты — `/api/backups*` в `webui.py`. |
 | `db_migrations.py` | Версионирование схемы SQLite (`PRAGMA user_version`), резервная копия перед миграцией, атомарное применение. |
 | `unlim_schema.py` | Общая схема и миграции `unlim_state.db` для выгрузчика, сборщика и воркеров. |
-| `version.py` | Название, версия (`35.5.2`) и издатель (`Sergey Pukhir (ex3544, vovapuh's son)`). |
+| `version.py` | Название, версия (`35.5.3`) и издатель (`Sergey Pukhir (ex3544, vovapuh's son)`). |
 | `diagnostics.py` | Диагностический отчёт: безопасный сбор данных, ZIP, отправка через Worker; секреты редактируются. |
 | `state.py` | SQLite-трекер (`state.db`, WAL), соединение на поток. |
 | `utils.py` | Санитизация путей, длинные пути Windows (`\\?\`), `auto_workers()` — подбор числа потоков по ОЗУ. |
@@ -173,7 +173,7 @@ MAX_WORKERS=4
 LOG_LEVEL=INFO
 ```
 
-Пути также задаются в WebUI на вкладке настроек. Начиная с этапа 1 `.env`, базы и куки читаются из `DATA_DIR` (см. таблицу выше), а не обязательно из папки скриптов. Для переноса данных на другой диск можно задать `YADISK_DATA_DIR` — тогда программа останется в `Program Files`, а состояние будет лежать в указанной папке.
+Пути также задаются в WebUI на вкладке настроек. Начиная с этапа 1 `.env`, базы и куки читаются из `DATA_DIR` (см. таблицу выше), а не обязательно из папки скриптов. Для переноса данных на другой диск можно задать `YADISK_DATA_DIR` — тогда состояние будет лежать в указанной папке, а программа останется там, куда её поставил установщик (`%LOCALAPPDATA%\Programs\YandexDiskBackup`).
 
 ### Шаг 2. Запуск окружения
 

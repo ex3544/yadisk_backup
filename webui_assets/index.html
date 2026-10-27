@@ -620,7 +620,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.2</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.3</span></div>
     </div>
   </div>
   <div class="pills">
@@ -647,6 +647,17 @@
   💾 Недостаточно места на диске — скачивание остановлено.<br>
   <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
     Остальные файлы остались в очереди (pending). Освободите место на диске и запустите скачивание заново — оно продолжится с того же места.
+  </span>
+</div>
+
+<div id="legacy-install-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
+  ⚠️ На компьютере осталась старая версия, установленная с правами администратора.<br>
+  <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
+    <span id="legacy-install-path" style="opacity:.9"></span><br>
+    Эта копия работает из папки пользователя и прав администратора не требует. Чтобы на
+    компьютере не было двух версий программы, один раз удалите старую:
+    «Параметры → Приложения → Yandex.Disk Backup → Удалить». Базы, настройки и скачанные
+    файлы при удалении сохраняются.
   </span>
 </div>
 
@@ -1230,8 +1241,8 @@
       <div id="update-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
     </div>
     <div id="update-hint" class="setup-hint" style="margin-top:8px;display:none">
-      Программа закроется, установит новую версию и снова откроется. Windows может
-      запросить подтверждение администратора. Настройки и скачанные файлы не удаляются.
+      Программа закроется, установит новую версию и снова откроется. Права
+      администратора не нужны. Настройки и скачанные файлы не удаляются.
     </div>
     <pre id="update-notes" class="diag-pre" style="display:none"></pre>
   </div>
@@ -2658,6 +2669,17 @@ async function refresh(){
     const dkFullBanner = document.getElementById('disk-full-banner');
     if (dkFullBanner) {
       dkFullBanner.style.display = (s.download_error === 'disk_full') ? 'block' : 'none';
+    }
+
+    // Баннер «рядом осталась старая установка в Program Files»
+    const legacyBanner = document.getElementById('legacy-install-banner');
+    if (legacyBanner) {
+      const legacyPath = s.legacy_install || '';
+      legacyBanner.style.display = legacyPath ? 'block' : 'none';
+      if (legacyPath) {
+        const legacyPathEl = document.getElementById('legacy-install-path');
+        if (legacyPathEl) legacyPathEl.textContent = legacyPath;
+      }
     }
 
     // Полуавтоматическое обновление кук

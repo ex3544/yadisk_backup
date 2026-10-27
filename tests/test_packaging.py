@@ -249,6 +249,25 @@ def test_update_card_can_install_from_the_app():
     assert "Установка из этой сборки недоступна" in html
 
 
+def test_installer_runs_without_admin_rights():
+    """Установка идёт в папку пользователя, без UAC и без 64-битного режима."""
+    iss = (PROJECT_DIR / "installer" / "yadisk_backup.iss").read_text(encoding="utf-8")
+
+    assert "PrivilegesRequired=lowest" in iss
+    assert "PrivilegesRequired=admin" not in iss
+    assert r"{localappdata}\Programs\YandexDiskBackup" in iss
+    assert "ArchitecturesInstallIn64BitMode" not in iss
+    assert "LegacyInstallDir" in iss
+
+
+def test_ui_warns_about_legacy_admin_install():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="legacy-install-banner"' in html
+    assert "s.legacy_install" in html
+    assert "запросить подтверждение администратора" not in html
+
+
 def test_release_workflow_publishes_checksums():
     workflow = (PROJECT_DIR / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"

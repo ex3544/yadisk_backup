@@ -1,5 +1,6 @@
 """Тесты серверной логики дашборда (без запуска uvicorn)."""
 
+import os
 import sqlite3
 
 import pytest
@@ -489,3 +490,83 @@ def test_update_manager_status_defaults():
     for key in ("state", "version", "percent", "can_install", "running"):
         assert key in status
     assert isinstance(status["percent"], float)
+
+
+# ── установка без прав администратора ───────────────────────────────────────
+
+
+def _fake_exe(monkeypatch, tmp_path, subdir="AppData/Programs/YandexDiskBackup"):
+    exe_dir = tmp_path / subdir
+    exe_dir.mkdir(parents=True, exist_ok=True)
+    exe = exe_dir / "YandexDiskBackup.exe"
+    exe.write_bytes(b"MZ")
+    monkeypatch.setattr(webui.paths, "IS_FROZEN", True)
+    monkeypatch.setattr(webui.sys, "executable", str(exe))
+    webui.reset_install_dir_cache()
+    return exe_dir
+
+
+@pytest.mark.skipif(os.name != "nt", reason="реестр Windows")
+def test_per_user_install_updates_with_setup_not_zip(monkeypatch, tmp_path):
+    exe_dir = _fake_exe(monkeypatch, tmp_path)
+    monkeypatch.setattr(webui, "installed_app_dirs", lambda *_a, **_k: [exe_dir])
+    # %LOCALAPPDATA%\Programs — не portable: обновляем установщиком.
+    assert webui.UpdateManager.is_portable() is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="реестр Windows")
+def test_unpacked_zip_copy_is_portable(monkeypatch, tmp_path):
+    exe_dir = _fake_exe(monkeypatch, tmp_path, "Downloads/YandexDiskBackup")
+    monkeypatch.setattr(
+        webui, "installed_app_dirs",
+        lambda *_a, **_k: [tmp_path / "Program Files" / "YandexDiskBackup"],
+    )
+    assert webui.UpdateManager.is_portable() is True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="реестр Windows")
+def test_legacy_install_is_reported_only_for_another_folder(monkeypatch, tmp_path):
+    exe_dir = _fake_exe(monkeypatch, tmp_path)
+    legacy = tmp_path / "Program Files" / "YandexDiskBackup"
+    legacy.mkdir(parents=True)
+    monkeypatch.setattr(webui, "installed_app_dirs", lambda *_a, **_k: [legacy])
+    monkeypatch.setattr(webui, "_in_program_files", lambda _p: True)
+    assert webui.legacy_install_dir() == legacy.resolve()
+    assert webui.legacy_install_status() == str(legacy.resolve())
+
+    # Реестр указывает на нашу же папку — старой копии нет.
+    monkeypatch.setattr(webui, "installed_app_dirs", lambda *_a, **_k: [exe_dir])
+    assert webui.legacy_install_dir() is None
+    assert webui.legacy_install_status() == ""
+
+
+def test_source_run_is_never_portable(monkeypatch):
+    monkeypatch.setattr(webui.paths, "IS_FROZEN", False)
+    assert webui.UpdateManager.is_portable() is False
+    assert webui.legacy_install_dir() is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="реестр Windows")
+def test_legacy_install_found_next_to_per_user_copy(monkeypatch, tmp_path):
+    """Две записи в реестре: своя пер-пользовательская и старая system-wide."""
+    exe_dir = _fake_exe(monkeypatch, tmp_path)
+    legacy = tmp_path / "Program Files" / "YandexDiskBackup"
+    legacy.mkdir(parents=True)
+    monkeypatch.setattr(webui, "installed_app_dirs",
+                        lambda *_a, **_k: [exe_dir, legacy])
+    monkeypatch.setattr(webui, "_in_program_files", lambda _p: True)
+    assert webui.UpdateManager.is_portable() is False
+    assert webui.legacy_install_dir() == legacy.resolve()
+
+
+def test_update_helper_restarts_the_newly_installed_copy(tmp_path):
+    """После setup.exe нельзя запускать старый путь из Program Files."""
+    payload = tmp_path / "YandexDiskBackup-99.0.0-setup.exe"
+    payload.write_bytes(b"x")
+
+    text = webui.write_update_helper(payload, "setup", restart=True).read_text(
+        encoding="utf-8-sig"
+    )
+    assert webui.APP_UNINSTALL_KEY in text
+    assert "InstallLocation" in text
+    assert "Start-Process -FilePath $target" in text

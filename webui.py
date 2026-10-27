@@ -850,6 +850,127 @@ full_cycle = FullCycle()
 
 # ── Обновление программы ─────────────────────────────────────────────────────
 
+# Ключ удаления Inno Setup: {AppId}_is1. Один и тот же для system-wide
+# (HKLM) и пер-пользовательской (HKCU) установки.
+APP_UNINSTALL_KEY = "{8E4A3F42-6C1D-4A7E-9F2B-3544A1B2C3D4}_is1"
+_UNINSTALL_BASES = (
+    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+)
+
+_install_dir_cache: dict[str, object] = {"at": -1e9, "locations": []}
+_INSTALL_DIR_TTL = 60.0  # секунд: /api/status опрашивается каждые 1.5 сек
+
+
+def _read_install_locations() -> list[Path]:
+    """Все InstallLocation ключа удаления Inno Setup (HKCU/HKLM, 32 и 64 бита).
+
+    Записей может быть две: прежняя установка «для всех» в Program Files и
+    новая пер-пользовательская. Нужны обе — по одной свою копию от legacy
+    не отличить.
+    """
+    if os.name != "nt":
+        return []
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover — Windows без winreg не бывает
+        return []
+    views = [getattr(winreg, "KEY_WOW64_64KEY", 0),
+             getattr(winreg, "KEY_WOW64_32KEY", 0)]
+    found: list[Path] = []
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for base in _UNINSTALL_BASES:
+            for view in views:
+                try:
+                    with winreg.OpenKey(root, base + "\\" + APP_UNINSTALL_KEY,
+                                        0, winreg.KEY_READ | view) as key:
+                        value, _ = winreg.QueryValueEx(key, "InstallLocation")
+                except OSError:
+                    continue
+                text = str(value or "").strip()
+                if not text:
+                    continue
+                path = Path(text)
+                if all(str(path).lower() != str(p).lower() for p in found):
+                    found.append(path)
+    return found
+
+
+def installed_app_dirs(max_age: float = _INSTALL_DIR_TTL) -> list[Path]:
+    """Папки установки из реестра, с кэшем на `max_age` секунд."""
+    now = time.monotonic()
+    if now - float(_install_dir_cache.get("at") or 0.0) < max_age:
+        return list(_install_dir_cache.get("locations") or [])
+    locations = _read_install_locations()
+    _install_dir_cache["at"] = now
+    _install_dir_cache["locations"] = locations
+    return list(locations)
+
+
+def installed_app_dir(max_age: float = _INSTALL_DIR_TTL) -> Optional[Path]:
+    """Первая (текущая) папка установки — совместимый одиночный вариант."""
+    locations = installed_app_dirs(max_age)
+    return locations[0] if locations else None
+
+
+def reset_install_dir_cache() -> None:
+    _install_dir_cache["at"] = -1e9
+    _install_dir_cache["locations"] = []
+
+
+def _in_program_files(folder: Path) -> bool:
+    """Папка внутри Program Files — признак старой установки «для всех»."""
+    for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(env)
+        if not base:
+            continue
+        try:
+            base_dir = Path(base).resolve()
+        except OSError:
+            continue
+        if folder == base_dir or base_dir in folder.parents:
+            return True
+    return False
+
+
+def _resolve(path: Path) -> Optional[Path]:
+    try:
+        return path.resolve()
+    except OSError:
+        return None
+
+
+def _exe_dir() -> Optional[Path]:
+    try:
+        return _resolve(Path(sys.executable).parent)
+    except (OSError, ValueError):
+        return None
+
+
+def legacy_install_dir() -> Optional[Path]:
+    r"""Старая установка в Program Files, оставшаяся рядом с текущей копией.
+
+    Установщик с 35.5.3 ставит программу в %LOCALAPPDATA%\Programs без прав
+    администратора. Прежняя копия в Program Files сама не удалится — её нужно
+    один раз снять вручную, иначе на машине живут две версии.
+    """
+    if os.name != "nt" or not paths.IS_FROZEN:
+        return None
+    exe_dir = _exe_dir()
+    for location in installed_app_dirs():
+        resolved = _resolve(location)
+        if resolved is None or resolved == exe_dir:
+            continue  # реестр указывает на нашу же папку — это не «старая» копия
+        if resolved.is_dir() and _in_program_files(resolved):
+            return resolved
+    return None
+
+
+def legacy_install_status() -> str:
+    """Путь старой установки для /api/status (пустая строка — её нет)."""
+    path = legacy_install_dir()
+    return str(path) if path else ""
+
 
 class UpdateManager:
     """Загрузка установщика последнего релиза с проверкой SHA-256.
@@ -876,24 +997,22 @@ class UpdateManager:
 
     @staticmethod
     def is_portable() -> bool:
-        """Portable-сборка лежит вне Program Files — её обновляем ZIP-архивом."""
+        """Portable-сборку обновляем ZIP-архивом, установленную — setup.exe.
+
+        Ориентир — реестр удаления Inno Setup: он есть и у пер-пользовательской
+        установки в %LOCALAPPDATA%\\Programs (её нельзя путать с portable),
+        и у старой установки в Program Files. Если записи нет и exe не в
+        Program Files — это распакованный ZIP.
+        """
         if not paths.IS_FROZEN:
             return False
-        try:
-            exe_dir = Path(sys.executable).resolve().parent
-        except OSError:
+        exe_dir = _exe_dir()
+        if exe_dir is None:
             return False
-        for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
-            base = os.environ.get(env)
-            if not base:
-                continue
-            try:
-                base_dir = Path(base).resolve()
-            except OSError:
-                continue
-            if exe_dir == base_dir or base_dir in exe_dir.parents:
+        for location in installed_app_dirs():
+            if _resolve(location) == exe_dir:
                 return False
-        return True
+        return not _in_program_files(exe_dir)
 
     def start(self) -> tuple[bool, str]:
         with self._lock:
@@ -1022,13 +1141,28 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
             "('код установщика: ' + $setup.ExitCode) | "
             "Out-File -Append -Encoding utf8 " + _ps_quote(log_file)
         )
-    restart_line = ("Start-Process -FilePath " + _ps_quote(exe)) if restart else ""
+    if kind == "portable":
+        restart_lines = ["Start-Process -FilePath " + _ps_quote(exe)] if restart else []
+    else:
+        # Запускаем не старый путь, а свежепоставленную копию: если программа
+        # была установлена «для всех» в Program Files, новая окажется в папке
+        # пользователя, и старый exe запускать нельзя.
+        uninstall_key = ("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion"
+                         "\\Uninstall\\" + APP_UNINSTALL_KEY)
+        restart_lines = [
+            "$loc = (Get-ItemProperty " + _ps_quote(uninstall_key) +
+            " -ErrorAction SilentlyContinue).InstallLocation",
+            "if ($loc) { $target = Join-Path $loc " + _ps_quote(Path(exe).name) +
+            " } else { $target = " + _ps_quote(exe) + " }",
+            "if (Test-Path $target) { Start-Process -FilePath $target } "
+            "else { Start-Process -FilePath " + _ps_quote(exe) + " }",
+        ] if restart else []
     lines = [
         "$ErrorActionPreference = 'Continue'",
         "try { Wait-Process -Id " + str(pid) + " -Timeout 180 -ErrorAction Stop } catch { }",
         "Start-Sleep -Seconds 2",
         action,
-        restart_line,
+        *restart_lines,
         "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force "
         "-ErrorAction SilentlyContinue",
     ]
@@ -1413,6 +1547,7 @@ def api_status():
         "ram": ram_info(),
         "full_cycle": full_cycle.status(),
         "update": update_manager.status(),
+        "legacy_install": legacy_install_status(),
         "watchdog": watchdog.status(),
         "tasks": tm.status(),
         "pipeline": pipeline.status(),
