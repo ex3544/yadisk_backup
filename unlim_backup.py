@@ -254,8 +254,21 @@ def api_call(s: requests.Session, sk: str, uid: str, method: str, params: dict |
     raise RuntimeError(f"Ошибка вызова {method} после 5 попыток")
 
 
-def populate_db_from_cloud(db_path: Path, s: requests.Session, sk: str, uid: str, force: bool = False):
-    """Автоматически наполняет unlim_state.db списком файлов Безлимита через API."""
+def populate_db_from_cloud(
+    db_path: Path,
+    s: requests.Session,
+    sk: str,
+    uid: str,
+    force: bool = False,
+    incremental: bool = False,
+):
+    """Автоматически наполняет unlim_state.db списком файлов Безлимита через API.
+
+    incremental=True дополняет существующую базу: перечитывает кластеры, но
+    добавляет только новые file_id. Статусы уже скачанных/пропущенных файлов
+    и их local_path не меняются. force=True по-прежнему пересоздаёт базу с нуля.
+    """
+    cnt_existing = 0
     if db_path.exists() and db_path.stat().st_size > 0 and not force:
         try:
             con = get_db(db_path)
@@ -264,16 +277,23 @@ def populate_db_from_cloud(db_path: Path, s: requests.Session, sk: str, uid: str
                 cnt = con.execute("SELECT count(*) FROM unlim_files").fetchone()[0]
                 con.close()
                 if cnt > 0:
+                    if not incremental:
+                        print("\n" + "=" * 70)
+                        print(f"  [!] База данных {db_path.name} уже присутствует на диске!")
+                        print(f"  [!] В ней уже зарегистрировано {cnt:,} файлов Безлимита.")
+                        print("  [!] Сканирование пропущено, используется существующая база данных.")
+                        print("  [!] ЧТО ДЕЛАТЬ:")
+                        print("      • Чтобы использовать готовую базу: просто запустите скачивание.")
+                        print("      • Чтобы дополнить базу новыми файлами: запустите повторное сканирование (--scan-only).")
+                        print(f"      • Чтобы пересоздать базу заново с нуля: удалите файл {db_path.name}")
+                        print("        вручную или запустите скрипт с флагом --force.")
+                        print("=" * 70 + "\n", flush=True)
+                        return
+                    cnt_existing = cnt
                     print("\n" + "=" * 70)
-                    print(f"  [!] База данных {db_path.name} уже присутствует на диске!")
-                    print(f"  [!] В ней уже зарегистрировано {cnt:,} файлов Безлимита.")
-                    print("  [!] Сканирование пропущено, используется существующая база данных.")
-                    print("  [!] ЧТО ДЕЛАТЬ:")
-                    print("      • Чтобы использовать готовую базу: просто запустите скачивание.")
-                    print(f"      • Чтобы пересоздать базу заново с нуля: удалите файл {db_path.name}")
-                    print("        вручную или запустите скрипт с флагом --force.")
-                    print("=" * 70 + "\n", flush=True)
-                    return
+                    print(f"  [*] Дополняю существующую базу {db_path.name} ({cnt:,} файлов).")
+                    print("  [*] Статусы скачанных и пропущенных файлов сохраняются.")
+                    print("=" * 70, flush=True)
         except Exception:
             pass
 
@@ -295,6 +315,12 @@ def populate_db_from_cloud(db_path: Path, s: requests.Session, sk: str, uid: str
     init_db(db_path)
     con = get_db(db_path)
 
+    if incremental and cnt_existing:
+        # Перечитываем только кластеры из текущего слепка. Старые кластеры,
+        # которых больше нет в облаке, не трогаем — их файлы остаются в истории.
+        with con:
+            con.execute("UPDATE unlim_clusters SET fetched = 1")
+
     print("[1/3] Инициализация слепка Безлимита (photo-init-snapshot)...", flush=True)
     res = api_call(s, sk, uid, "intapi/photo-init-snapshot")
     psid = res.get("photoslice_id")
@@ -310,8 +336,13 @@ def populate_db_from_cloud(db_path: Path, s: requests.Session, sk: str, uid: str
 
     with con:
         for it in clusters:
+            # size обновляем: кластер мог вырасти с момента прошлого сканирования.
             con.execute(
-                "INSERT OR IGNORE INTO unlim_clusters (cluster_id, size) VALUES (?, ?)",
+                """INSERT INTO unlim_clusters (cluster_id, size, fetched)
+                   VALUES (?, ?, 0)
+                   ON CONFLICT(cluster_id) DO UPDATE SET
+                       size = excluded.size,
+                       fetched = 0""",
                 (it.get("id"), int(it.get("size", 0) or 0)),
             )
 
@@ -364,7 +395,13 @@ def populate_db_from_cloud(db_path: Path, s: requests.Session, sk: str, uid: str
 
     cnt_total = con.execute("SELECT count(*) FROM unlim_files").fetchone()[0]
     con.close()
-    print(f"\n[✓] Сбор базы данных завершён! Всего в базе: {cnt_total:,} файлов (статус: pending).\n", flush=True)
+    if cnt_existing:
+        new_count = max(0, cnt_total - cnt_existing)
+        print(f"\n[✓] База дополнена! Новых файлов: {new_count:,}. Всего в базе: {cnt_total:,}.\n", flush=True)
+        if new_count == 0:
+            print("[i] Новых файлов в облаке не найдено — база актуальна.\n", flush=True)
+    else:
+        print(f"\n[✓] Сбор базы данных завершён! Всего в базе: {cnt_total:,} файлов (статус: pending).\n", flush=True)
 
 
 def recover_stuck(db_path: Path):
@@ -896,7 +933,7 @@ def main():
     parser.add_argument("--use-proxy", action="store_true", help="Скачивать через локальный прокси")
     parser.add_argument("--proxy-url", type=str, default="http://127.0.0.1:10808", help="URL прокси (по умолчанию 127.0.0.1:10808)")
     parser.add_argument("--reset-skipped", action="store_true", help="Сбросить все skipped файлы обратно в pending и выйти")
-    parser.add_argument("--scan-only", action="store_true", help="Только сформировать/обновить базу данных из облака без скачивания файлов")
+    parser.add_argument("--scan-only", action="store_true", help="Только сформировать или дополнить базу данных из облака без скачивания файлов")
     parser.add_argument("--force", action="store_true", help="Принудительно пересоздать базу данных с нуля, даже если unlim_state.db уже существует на диске")
     parser.add_argument("--sort-after", action="store_true", help="После скачивания сразу разложить файлы по датам (organize.py, быстрый режим без MD5)")
     parser.add_argument("--web", action="store_true", help="Запустить веб-интерфейс дашборда (http://127.0.0.1:8000)")
@@ -936,8 +973,10 @@ def main():
         cookies = load_cookies(cookies_path)
         s = make_session(cookies, use_proxy=args.use_proxy, proxy_url=args.proxy_url)
         sk, uid = get_sk_uid(s)
-        populate_db_from_cloud(db_path, s, sk, uid, force=args.force)
-        print("\n[✓] Сканирование облака успешно завершено! База unlim_state.db сформирована.")
+        populate_db_from_cloud(
+            db_path, s, sk, uid, force=args.force, incremental=not args.force
+        )
+        print("\n[✓] Сканирование облака успешно завершено.")
         return
 
     if args.reset_skipped:

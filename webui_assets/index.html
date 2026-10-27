@@ -703,7 +703,8 @@
       <div class="launch-title">🧭 Пошаговый режим <span class="launch-badge">вручную</span></div>
       <div class="launch-desc">
         Скачивает только выбранный раздел по настройкам ниже. «Сформировать базу данных»
-        лишь обновляет список файлов в облаке и ничего не скачивает.
+        лишь обновляет список файлов в облаке и ничего не скачивает. Если в облаке
+        появились новые файлы, база дополнится — статусы уже скачанных сохранятся.
       </div>
 
     <!-- 1. Что скачиваем -->
@@ -1665,35 +1666,24 @@ async function stopCustomDownload(){
 async function startCustomScan(){
   const mode = document.querySelector('input[name="ctrl-mode"]:checked').value;
   const label = mode === 'unlim' ? 'Безлимита (фото/видео)' : 'обычного Диска';
-  let force = false;
-
   if (mode === 'unlim') {
     const totalFiles = window._lastStatus?.unlim?.db?.total || 0;
     if (totalFiles > 0) {
-      const choice = confirm(
-        `База данных Безлимита (unlim_state.db) уже существует на диске и содержит ${totalFiles.toLocaleString('ru')} файлов!\n\n` +
-        `• Чтобы использовать готовую базу — нажмите «Отмена» и затем «Запустить скачивание».\n` +
-        `• Чтобы ПЕРЕСОЗДАТЬ базу заново с нуля (займёт ~2-3 минуты) — нажмите «OK».\n\n` +
-        `ВНИМАНИЕ: пересоздание удалит историю статусов (что уже скачано) и пути к файлам. Сами файлы на диске останутся, но программа может скачивать их повторно.`
-      );
-      if (!choice) {
-        toast(`Используется существующая база (${totalFiles.toLocaleString('ru')} файлов). Можно запускать скачивание.`, 'ok');
+      if (!confirm(
+        `База Безлимита уже существует: ${totalFiles.toLocaleString('ru')} файлов.\n\n` +
+        `Дополнить её новыми файлами из облака (займёт ~2-3 минуты)?\n\n` +
+        `Статусы уже скачанных и пропущенных файлов сохранятся — заново скачивать их не придётся.`
+      )) {
+        toast(`База не изменена (${totalFiles.toLocaleString('ru')} файлов). Можно запускать скачивание.`, 'ok');
         return;
       }
-      if (!confirm(
-        `Точно пересоздать базу Безлимита?\n\n` +
-        `Будут потеряны статусы ${totalFiles.toLocaleString('ru')} файлов: какие уже скачаны и где они лежат. ` +
-        `Файлы на диске не удаляются.\n\n` +
-        `Если не уверены — нажмите «Отмена».`
-      )) return;
-      force = true;
     } else {
       if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
     }
   } else {
     const totalFiles = window._lastStatus?.disk?.db?.total || 0;
     if (totalFiles > 0) {
-      if (!confirm(`База данных обычного Диска (state.db) уже существует на диске (${totalFiles.toLocaleString('ru')} файлов).\n\nЗапустить повторное сканирование для обновления списка?`)) return;
+      if (!confirm(`База данных обычного Диска (state.db) уже существует (${totalFiles.toLocaleString('ru')} файлов).\n\nОбновить список из облака? Новые файлы добавятся, статусы уже скачанных сохранятся.`)) return;
     } else {
       if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.`)) return;
     }
@@ -1711,7 +1701,7 @@ async function startCustomScan(){
     const r = await fetch('/api/scan', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ mode: mode, force: force })
+      body: JSON.stringify({ mode: mode, force: false })
     });
     const d = await r.json();
     if(d.ok){

@@ -87,9 +87,11 @@ def test_launch_modes_are_visually_separate_with_button_hints():
     assert "document.getElementById('all-sort-after').checked" in html
     assert html.count("Может занять много времени. Можно не включать") == 2
 
-    # Пересоздание базы Безлимита не должно выглядеть безобидным обновлением.
-    assert "Будут потеряны статусы" in html
-    assert "Файлы на диске не удаляются." in html
+    # Повторное сканирование Безлимита должно дополнять базу, а не пересоздавать.
+    assert "Дополнить её новыми файлами из облака" in html
+    assert "Статусы уже скачанных и пропущенных файлов сохранятся" in html
+    assert "база дополнится — статусы уже скачанных сохранятся" in html
+    assert "JSON.stringify({ mode: mode, force: false })" in html
 
     for wrapper in (
         "ctrl-all-wrap",

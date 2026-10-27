@@ -2,7 +2,7 @@
 
 > **КРИТИЧЕСКОЕ ПРАВИЛО:** Общение с пользователем ведётся **СТРОГО НА РУССКОМ ЯЗЫКЕ** без каких-либо исключений.
 >
-> **Обновлено:** 2026-10-27 (v35.4.9: разделение «быстрого запуска» и «пошагового режима», подсказки у кнопок, повтор старых failed у Диска)
+> **Обновлено:** 2026-10-27 (v35.4.9: разделение «быстрого запуска» и «пошагового режима», подсказки у кнопок, повтор старых failed у Диска, безопасное дополнение базы Безлимита)
 
 ---
 
@@ -49,6 +49,7 @@
 - Стандартное контекстное меню WebView2 включается точечным патчем `launcher.enable_webview_context_menu()`: pywebview отключает его в не-debug режиме, из-за чего в полях ввода не работала вставка правой кнопкой. Devtools и горячие клавиши браузера при этом остаются выключенными.
 - В «Организации» кнопка «Остановить» изначально `disabled` и активируется только при запущенной сортировке (`updateOrganizeControls()` в `webui_assets/index.html`).
 - На «Главной» два визуально разных блока запуска: `.launch-card.auto` («Быстрый запуск: скачать всё», Диск + Безлимит, 1 клик) и `.launch-card.manual` («Пошаговый режим», только выбранный раздел). Под каждой кнопкой — `.btn-hint`; при запуске подсказки прячутся вместе с кнопками через обёртки `ctrl-*-wrap`.
+- Повторное «Сформировать базу данных» безопасно: для Диска `mark_pending()` не перетирает `downloaded/skipped`; для Безлимита `--scan-only` дополняет базу новыми `file_id`, сохраняя статусы и `local_path`.
 - [`assets/`](./assets) — `app.ico`, `app.png`, `tray.png`; пересобираются `python tools/make_icons.py`.
 - `webui.WORKER_SCRIPTS` + `webui.dispatch_worker()` — multi-call режим: `<exe> main.py scan`, `<exe> unlim_backup.py ...` и т.п. В frozen-режиме `TaskManager` запускает тот же exe с именем скрипта и рабочим каталогом `DATA_DIR` (Program Files только для чтения).
 - [`yadisk_backup.spec`](./yadisk_backup.spec) собирает **onedir** `dist/YandexDiskBackup/YandexDiskBackup.exe`, `console=False`, с иконкой и ресурсами WebView2.
@@ -128,7 +129,7 @@
 | `webui_assets/` | Фронтенд WebUI (чистый HTML/CSS/JS, без внешних CDN). |
 | `webui.bat` / `webui.sh` / `setup.bat` | Запуск в один клик: проверка Python, установка зависимостей, старт к сервера. |
 | `downloader.py` | Движок обычного диска: обход дерева + многопоточное скачивание через `yadisk.Client`. Принудительный IPv4, MSS clamp (см. `README`/`PROJECT_DOCUMENTATION`), `n_retries=0`, таймауты `(10, 10)`, проверка свободного места перед файлом (`check_free_space`), автоочистка недокачанных файлов. |
-| `unlim_backup.py` | Автономный выгрузчик «Безлимита» напрямую с CDN по `file_id`. Дедлайн на каждый файл `max(120, timeout*60)` сек против «сочащихся» шардов; статусы `pending / in_progress / downloaded / skipped`; `--target all` = сначала `pending`, затем один проход по `skipped`. |
+| `unlim_backup.py` | Автономный выгрузчик «Безлимита» напрямую с CDN по `file_id`. Дедлайн на каждый файл `max(120, timeout*60)` сек против «сочащихся» шардов; статусы `pending / in_progress / downloaded / skipped`; `--target all` = сначала `pending`, затем один проход по `skipped`. `--scan-only` дополняет существующую базу новыми файлами (`INSERT ... DO NOTHING`), не меняя статусы; полное пересоздание — только `--scan-only --force`. |
 | `unlim_direct.py` | Низкоуровневый клиент photoslice (`mpfs/url`, direct CDN), принудительный IPv4, нулевые повторы. |
 | `main.py` | CLI: `check`, `scan`, `scan-media`, `download`, `retry-failed`, `stats`, `verify`. `retry-failed` сбрасывает `failed → pending` и сразу качает. `download --retry` делает один повторный проход, поднимая и старые failed, даже если в текущем проходе новых ошибок не было. |
 | `paths.py` | Единая точка правды для путей: `APP_DIR`/`BUNDLE_DIR` (программа) и `DATA_DIR` (изменяемые данные), `YADISK_DATA_DIR`. |
