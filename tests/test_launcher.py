@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+from types import SimpleNamespace
 
 import pytest
 
@@ -118,6 +119,75 @@ def test_tray_image_falls_back_without_assets(monkeypatch, tmp_path):
     image = launcher.tray_image()
     assert image is not None
     assert image.mode == "RGBA"
+
+
+def test_edge_context_menu_patch_enables_default_menu():
+    calls = []
+
+    class FakeEdgeChrome:
+        def on_webview_ready(self, sender, args):
+            calls.append("original")
+
+    class FakeSettings:
+        def __init__(self):
+            self.AreDefaultContextMenusEnabled = False
+
+    class FakeCore:
+        def __init__(self):
+            self.Settings = FakeSettings()
+
+    class FakeSender:
+        def __init__(self):
+            self.CoreWebView2 = FakeCore()
+
+    class FakeArgs:
+        IsSuccess = True
+
+    module = SimpleNamespace(EdgeChrome=FakeEdgeChrome)
+    assert launcher._patch_edgechromium_context_menu(module) is True
+    sender = FakeSender()
+    FakeEdgeChrome().on_webview_ready(sender, FakeArgs())
+    assert calls == ["original"]
+    assert sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled is True
+
+
+def test_edge_context_menu_patch_is_idempotent():
+    class FakeEdgeChrome:
+        def on_webview_ready(self, sender, args):
+            pass
+
+    module = SimpleNamespace(EdgeChrome=FakeEdgeChrome)
+    assert launcher._patch_edgechromium_context_menu(module) is True
+    patched = FakeEdgeChrome.on_webview_ready
+    assert launcher._patch_edgechromium_context_menu(module) is True
+    assert FakeEdgeChrome.on_webview_ready is patched
+
+
+def test_edge_context_menu_patch_skips_failed_initialization():
+    class FakeSettings:
+        def __init__(self):
+            self.AreDefaultContextMenusEnabled = False
+
+    class FakeCore:
+        def __init__(self):
+            self.Settings = FakeSettings()
+
+    class FakeSender:
+        def __init__(self):
+            self.CoreWebView2 = FakeCore()
+
+    class FakeArgs:
+        IsSuccess = False
+
+    class FakeEdgeChrome:
+        def on_webview_ready(self, sender, args):
+            pass
+
+    module = SimpleNamespace(EdgeChrome=FakeEdgeChrome)
+    launcher._patch_edgechromium_context_menu(module)
+    sender = FakeSender()
+    FakeEdgeChrome().on_webview_ready(sender, FakeArgs())
+    assert sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled is False
 
 
 class _FakeWindow:

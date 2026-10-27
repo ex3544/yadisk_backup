@@ -266,6 +266,44 @@ def tray_image():
         return None
 
 
+def _patch_edgechromium_context_menu(edgechromium) -> bool:
+    """Включает стандартное контекстное меню WebView2.
+
+    pywebview по умолчанию отключает его в не-debug режиме, из-за чего в
+    полях ввода не работают «Копировать/Вставить» по правой кнопке.
+    Патч точечный: включаем только меню, devtools и горячие клавиши браузера
+    остаются выключенными.
+    """
+    original = edgechromium.EdgeChrome.on_webview_ready
+    if getattr(original, "_yadisk_context_menu_patch", False):
+        return True
+
+    def on_webview_ready(self, sender, args):
+        original(self, sender, args)
+        if getattr(args, "IsSuccess", False):
+            try:
+                sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled = True
+                log.info("Контекстное меню WebView2 включено")
+            except Exception:
+                log.debug("Не удалось включить контекстное меню WebView2", exc_info=True)
+
+    on_webview_ready._yadisk_context_menu_patch = True
+    edgechromium.EdgeChrome.on_webview_ready = on_webview_ready
+    return True
+
+
+def enable_webview_context_menu() -> bool:
+    """Применяет патч контекстного меню, если доступен Edge WebView2."""
+    if os.name != "nt":
+        return False
+    try:
+        from webview.platforms import edgechromium
+    except Exception:
+        log.debug("Edge WebView2 недоступен — контекстное меню не включено", exc_info=True)
+        return False
+    return _patch_edgechromium_context_menu(edgechromium)
+
+
 class Application:
     """Связывает окно, трей и сервер; владеет корректным завершением."""
 
@@ -297,6 +335,7 @@ class Application:
     def _run_window(self) -> None:
         import webview
 
+        enable_webview_context_menu()
         self.window = webview.create_window(
             APP_TITLE,
             self.url,
