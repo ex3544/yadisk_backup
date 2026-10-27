@@ -1139,7 +1139,15 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
             " -ArgumentList '/SILENT','/CLOSEAPPLICATIONS','/NOCANCEL',"
             "'/SUPPRESSMSGBOXES' -Wait -PassThru; "
             "('код установщика: ' + $setup.ExitCode) | "
-            "Out-File -Append -Encoding utf8 " + _ps_quote(log_file)
+            "Out-File -Append -Encoding utf8 " + _ps_quote(log_file) + "; "
+            # Молчаливый сбой обновления выглядел как «нажал — ничего не произошло»,
+            # поэтому о ненулевом коде установщика сообщаем окном поверх остальных.
+            "if ($setup.ExitCode -ne 0) { try { "
+            "Add-Type -AssemblyName PresentationFramework; "
+            "[System.Windows.MessageBox]::Show("
+            "'Не удалось установить обновление (код ' + $setup.ExitCode + "
+            "'). Программа осталась прежней версии.', "
+            "'Yandex.Disk Backup') } catch { } }"
         )
     if kind == "portable":
         restart_lines = ["Start-Process -FilePath " + _ps_quote(exe)] if restart else []
@@ -1159,6 +1167,10 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
         ] if restart else []
     lines = [
         "$ErrorActionPreference = 'Continue'",
+        # След в логе: если помощник вообще не запустился, файла не будет —
+        # это первое, что надо смотреть при «обновление не сработало».
+        "('помощник запущен ' + (Get-Date -Format s)) | "
+        "Out-File -Append -Encoding utf8 " + _ps_quote(log_file),
         "try { Wait-Process -Id " + str(pid) + " -Timeout 180 -ErrorAction Stop } catch { }",
         "Start-Sleep -Seconds 2",
         action,
@@ -2643,7 +2655,12 @@ def api_updates_install(payload: UpdateInstallPayload):
         return {"ok": False, "msg": "Сначала остановите скачивание."}
     try:
         helper = write_update_helper(payload_path, update_manager.kind, payload.restart)
-        flags = (getattr(subprocess, "DETACHED_PROCESS", 0) |
+        # DETACHED_PROCESS здесь использовать нельзя: powershell.exe без консоли
+        # стартует и молча завершается с кодом 0, не выполнив скрипт — программа
+        # закрывалась, а обновление не ставилось. CREATE_NO_WINDOW даёт скрытое
+        # окно без консоли, и потомок переживает выход родителя (проверено на
+        # Windows 10: с DETACHED_PROCESS install_update.log не появлялся вообще).
+        flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0) |
                  getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",

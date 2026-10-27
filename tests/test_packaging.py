@@ -358,6 +358,20 @@ def test_ui_warns_about_legacy_admin_install():
     assert "запросить подтверждение администратора" not in html
 
 
+def test_update_helper_is_not_started_detached():
+    """DETACHED_PROCESS заставлял powershell.exe выйти, не выполнив скрипт.
+
+    Симптом: нажали «Перезапустить и установить», программа закрылась,
+    а версия осталась прежней и install_update.log не появлялся.
+    """
+    text = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    start = text.index("def api_updates_install")
+    body = text[start : text.index('@app.post("/api/reports/open")', start)]
+
+    assert 'getattr(subprocess, "CREATE_NO_WINDOW", 0)' in body
+    assert 'getattr(subprocess, "DETACHED_PROCESS", 0)' not in body
+
+
 def test_release_workflow_publishes_checksums():
     workflow = (PROJECT_DIR / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"

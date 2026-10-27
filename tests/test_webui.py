@@ -424,6 +424,10 @@ def test_write_update_helper_waits_and_runs_silent_setup(tmp_path):
     assert "/SILENT" in text
     assert "Start-Process -FilePath" in text
     assert "Remove-Item" in text
+    # След в логе — по нему видно, что помощник вообще запустился.
+    assert "помощник запущен" in text
+    # Ошибка установщика не должна проходить молча.
+    assert "MessageBox" in text
 
 
 def test_write_update_helper_portable_expands_archive(tmp_path):
