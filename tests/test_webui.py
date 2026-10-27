@@ -183,3 +183,73 @@ def test_local_size_marks_partial_scan(tmp_path):
     out = webui.local_size(str(tmp_path))
     assert out["bytes"] == 5
     assert out["partial"] is False
+
+
+# ── пересоздание базы Безлимита ─────────────────────────────────────────────
+
+
+def _make_unlim_db(path):
+    con = sqlite3.connect(path)
+    with con:
+        con.execute("CREATE TABLE unlim_files (file_id TEXT PRIMARY KEY)")
+        con.execute("INSERT INTO unlim_files VALUES ('f1')")
+    con.close()
+
+
+def test_rebuild_requires_confirm_word(monkeypatch, tmp_path):
+    db = tmp_path / "unlim_state.db"
+    _make_unlim_db(db)
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", db)
+    started = []
+    monkeypatch.setattr(webui.tm, "start",
+                        lambda *a, **k: started.append(a) or (True, "ok"))
+
+    out = webui.unlim_rebuild(webui.RebuildPayload(confirm="да"))
+
+    assert out["ok"] is False
+    assert started == []
+    assert db.exists()
+
+
+def test_rebuild_saves_backup_and_forces_rescan(monkeypatch, tmp_path):
+    db = tmp_path / "unlim_state.db"
+    _make_unlim_db(db)
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", db)
+    started = []
+    monkeypatch.setattr(webui.tm, "start",
+                        lambda *a, **k: started.append(a) or (True, "ok"))
+
+    out = webui.unlim_rebuild(webui.RebuildPayload(confirm=" пересоздать "))
+
+    assert out["ok"] is True
+    assert started == [("unlim", "unlim_backup.py", ["--scan-only", "--force"])]
+    backups = list(tmp_path.glob("unlim_state.bak-*.db"))
+    assert len(backups) == 1
+    assert out["backup"] == str(backups[0])
+    con = sqlite3.connect(backups[0])
+    rows = con.execute("SELECT file_id FROM unlim_files").fetchall()
+    con.close()
+    assert rows == [("f1",)]
+
+
+def test_rebuild_refuses_when_unlim_running(monkeypatch, tmp_path):
+    db = tmp_path / "unlim_state.db"
+    _make_unlim_db(db)
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", db)
+    started = []
+
+    class Alive:
+        def alive(self):
+            return True
+
+    monkeypatch.setitem(webui.tm._tasks, "unlim_w1", Alive())
+    try:
+        monkeypatch.setattr(webui.tm, "start",
+                            lambda *a, **k: started.append(a) or (True, "ok"))
+        out = webui.unlim_rebuild(webui.RebuildPayload(confirm="ПЕРЕСОЗДАТЬ"))
+    finally:
+        webui.tm._tasks.pop("unlim_w1", None)
+
+    assert out["ok"] is False
+    assert started == []
+    assert list(tmp_path.glob("unlim_state.bak-*.db")) == []

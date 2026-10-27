@@ -120,3 +120,32 @@ def test_readme_offers_ready_build_before_python_source():
     assert readme.index("Вариант A — готовый установщик") < readme.index(
         "Вариант C — из исходников"
     )
+
+
+def test_unlim_rebuild_lives_in_diagnostics_with_warning_and_backup():
+    """Полное пересоздание базы — только в «Диагностике», с предупреждением."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    # Кнопка не на главной: ищем её внутри панели диагностики.
+    diag_start = html.index('<div class="panel" data-panel="diagnostics">')
+    diag_end = html.index("<!-- =============", diag_start) if "<!-- =============" in html[diag_start:] else len(html)
+    diag_html = html[diag_start:diag_end]
+    assert 'data-panel="launch"' not in diag_html
+    assert "Пересоздание базы Безлимита" in diag_html
+    assert 'id="rebuild-btn"' in diag_html
+
+    # Последствия описаны прямо в окне.
+    assert "файлы на диске" in diag_html and "не удаляются" in diag_html
+    assert "будут <strong>скачаны заново</strong>" in diag_html
+    assert "копия текущей базы сохраняется автоматически" in diag_html
+
+    # Подтверждение словом и защита от случайного нажатия.
+    assert "ПЕРЕСОЗДАТЬ" in diag_html
+    assert "oninput=\"updateRebuildBtn()\"" in diag_html
+    assert "inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ'" in html
+    assert "/api/unlim/rebuild" in html
+    assert "updateRebuildBtn();" in html
+
+    # Счётчики в предупреждении берутся из живого статуса.
+    assert "function renderRebuildCounts(s)" in html
+    assert "renderRebuildCounts(s);" in html

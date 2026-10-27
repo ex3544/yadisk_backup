@@ -1132,6 +1132,39 @@
   </div>
 
   <div class="card">
+    <div class="card-title">Пересоздание базы Безлимита</div>
+    <div class="card-sub">Крайняя мера. Нужна, только если база повреждена и «Сформировать базу данных» не помогает.</div>
+
+    <div class="diag-note" style="background:rgba(255,69,58,.07);border-color:rgba(255,69,58,.35)">
+      ⚠️ База удаляется и собирается из облака заново. <strong>Последствия:</strong>
+      <br>
+      • <span id="rebuild-downloaded">—</span> скачанных и <span id="rebuild-skipped">—</span> пропущенных
+      файлов снова станут «в очереди» — их статусы и история ошибок пропадут;
+      <br>
+      • сами файлы на диске <strong>не удаляются</strong>;
+      <br>
+      • программа ищет скачанное только по исходному пути «папка загрузки / имя файла».
+      Если сортировка уже применялась, файлы лежат в подпапках «Фото/…», «Видео/…» —
+      они не найдутся и будут <strong>скачаны заново</strong>;
+      <br>
+      • копия текущей базы сохраняется автоматически рядом с ней до начала работы.
+    </div>
+
+    <div class="setup-hint" style="margin-bottom:10px">
+      Сначала остановите скачивание Безлимита на главной — иначе кнопка не сработает.
+    </div>
+    <label class="field-label">Введите ПЕРЕСОЗДАТЬ, чтобы включить кнопку</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="rebuild-confirm" placeholder="ПЕРЕСОЗДАТЬ" autocomplete="off"
+             oninput="updateRebuildBtn()" style="flex:1;min-width:180px">
+      <button class="danger" id="rebuild-btn" disabled onclick="rebuildUnlimDb()">
+        Пересоздать базу Безлимита
+      </button>
+    </div>
+    <div id="rebuild-status" class="setup-hint" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
     <div class="card-title">Обновления</div>
     <div class="card-sub">Сравнение с последним релизом на GitHub. Программа не обновляется сама — установщик скачивается вручную.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -2432,6 +2465,7 @@ async function refresh(){
     renderAutoRuns(s.auto_runs);
     renderWatchdog(s.watchdog);
     renderResetCounts(s);
+    renderRebuildCounts(s);
 
     // Pills
     const pt=document.getElementById('pill-token');
@@ -3010,6 +3044,56 @@ async function sendDiagnostics(){
     toast('Не удалось отправить отчёт', 'err');
   }finally{
     setDiagBusy(false);
+  }
+}
+
+function renderRebuildCounts(s){
+  const db = (s && s.unlim && s.unlim.db) || {};
+  const d = document.getElementById('rebuild-downloaded');
+  const k = document.getElementById('rebuild-skipped');
+  if(d) d.textContent = (db.downloaded || 0).toLocaleString('ru');
+  if(k) k.textContent = ((db.skipped || 0) + (db.failed || 0)).toLocaleString('ru');
+}
+
+function updateRebuildBtn(){
+  const inp = document.getElementById('rebuild-confirm');
+  const btn = document.getElementById('rebuild-btn');
+  if(!inp || !btn) return;
+  btn.disabled = inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ';
+}
+
+async function rebuildUnlimDb(){
+  const inp = document.getElementById('rebuild-confirm');
+  const btn = document.getElementById('rebuild-btn');
+  const status = document.getElementById('rebuild-status');
+  if(!inp || inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ') return;
+  if(!confirm('Пересоздать базу Безлимита с нуля?\n\nСтатусы скачанных и пропущенных файлов будут потеряны, история ошибок исчезнет. Сами файлы на диске останутся.')){
+    return;
+  }
+  btn.disabled = true;
+  status.className = 'setup-hint';
+  status.textContent = 'Сохраняю копию базы…';
+  try{
+    const r = await fetch('/api/unlim/rebuild', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({confirm: inp.value})
+    });
+    const d = await r.json();
+    if(!d.ok){
+      status.className = 'setup-hint err';
+      status.textContent = d.msg || 'Не удалось пересоздать базу';
+      updateRebuildBtn();
+      return;
+    }
+    status.className = 'setup-hint ok';
+    status.textContent = `Копия сохранена: ${d.backup}. База пересоздаётся — прогресс на главной.`;
+    inp.value = '';
+    toast('База Безлимита пересоздаётся. Копия сохранена.', 'ok');
+  }catch(e){
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + e.message;
+    updateRebuildBtn();
   }
 }
 

@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
@@ -1652,6 +1653,49 @@ def unlim_clear():
         return {"ok": True, "msg": "БД безлимита очищена"}
     except OSError as e:
         return {"ok": False, "msg": str(e)}
+
+
+class RebuildPayload(BaseModel):
+    confirm: str = ""
+
+
+@app.post("/api/unlim/rebuild")
+def unlim_rebuild(payload: RebuildPayload):
+    """Полное пересоздание базы Безлимита (аналог --scan-only --force).
+
+    Вызывается только из «Диагностики»: статусы скачанных файлов теряются,
+    поэтому перед удалением таблиц сохраняем согласованную копию базы через
+    sqlite backup API (копирование файла при WAL может дать битый снимок).
+    """
+    if payload.confirm.strip().upper() != "ПЕРЕСОЗДАТЬ":
+        return {"ok": False, "msg": "Введите слово ПЕРЕСОЗДАТЬ для подтверждения"}
+    with tm._lock:
+        for slot, t in list(tm._tasks.items()):
+            if slot.startswith("unlim") and t.alive():
+                return {"ok": False, "msg": "Сначала остановите скачивание Безлимита"}
+    if not UNLIM_DB_FILE.exists():
+        return {"ok": False,
+                "msg": "Базы Безлимита ещё нет — сначала нажмите «Сформировать базу данных»"}
+    backup = UNLIM_DB_FILE.with_name(
+        f"{UNLIM_DB_FILE.stem}.bak-{datetime.now():%Y%m%d-%H%M%S}{UNLIM_DB_FILE.suffix}"
+    )
+    try:
+        src = sqlite3.connect(UNLIM_DB_FILE, timeout=30)
+        try:
+            dst = sqlite3.connect(backup)
+            try:
+                with dst:
+                    src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {e}"}
+    ok, msg = tm.start("unlim", "unlim_backup.py", ["--scan-only", "--force"])
+    if not ok:
+        return {"ok": False, "msg": msg}
+    return {"ok": True, "msg": "База пересоздаётся", "backup": str(backup)}
 
 
 # Photoslice (безлимит)
