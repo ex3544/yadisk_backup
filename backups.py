@@ -55,24 +55,39 @@ class BackupError(Exception):
 
 
 def _snapshot(src: Path, dst: Path) -> None:
-    """Консистентная копия src → dst через sqlite backup API."""
+    """Консистентная копия src → dst через sqlite backup API.
+
+    Копию переводим в journal_mode=DELETE: иначе SQLite создаёт рядом
+    `-wal`/`-shm` при каждом чтении, и одиночный файл копии перестаёт быть
+    самодостаточным.
+    """
     src_con = sqlite3.connect(str(src), timeout=30)
     try:
         dst_con = sqlite3.connect(str(dst))
         try:
             src_con.backup(dst_con)
             dst_con.commit()
+            try:
+                dst_con.execute("PRAGMA journal_mode=DELETE")
+            except sqlite3.Error:
+                pass
         finally:
             dst_con.close()
     finally:
         src_con.close()
 
 
-def _counts(db_path: Path, key: str) -> dict:
+def _immutable_uri(path: Path) -> str:
+    """URI для чтения готовой копии без создания -wal/-shm рядом с ней."""
+    return sqlite_ro_uri(path) + "&immutable=1"
+
+
+def _counts(db_path: Path, key: str, *, immutable: bool = False) -> dict:
     out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
            "failed": 0, "in_progress": 0}
+    uri = _immutable_uri(db_path) if immutable else sqlite_ro_uri(db_path)
     try:
-        con = sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=10)
+        con = sqlite3.connect(uri, uri=True, timeout=10)
     except sqlite3.Error:
         return out
     try:
@@ -92,7 +107,7 @@ def _counts(db_path: Path, key: str) -> dict:
 def _describe(db_path: Path, key: str) -> dict:
     return {
         "file": f"{key}.db",
-        "counts": _counts(db_path, key),
+        "counts": _counts(db_path, key, immutable=True),
         "size_bytes": db_path.stat().st_size,
     }
 
@@ -275,8 +290,14 @@ def list_backups(data_dir: Path) -> list[dict]:
 
     for key, prefix in LEGACY_PREFIXES.items():
         for path in data_dir.glob(prefix + "*"):
-            if path.is_file():
-                items.append(_legacy_item(path, key))
+            if not path.is_file():
+                continue
+            # SQLite может оставить рядом служебные файлы — это не копии.
+            if path.name.endswith(("-wal", "-shm", "-journal")):
+                continue
+            if path.stat().st_size == 0:
+                continue
+            items.append(_legacy_item(path, key))
 
     items.sort(key=lambda x: x["created_at"], reverse=True)
     return items
@@ -288,6 +309,8 @@ def list_backups(data_dir: Path) -> list[dict]:
 def _find_backup(data_dir: Path, backup_id: str) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", backup_id or ""):
         raise BackupError("Некорректное имя копии")
+    if backup_id.endswith(("-wal", "-shm", "-journal")):
+        raise BackupError("Это служебный файл SQLite, а не копия базы")
     data_dir = Path(data_dir).resolve()
 
     folder = (data_dir / "backups").resolve()
@@ -305,7 +328,7 @@ def _find_backup(data_dir: Path, backup_id: str) -> Path:
 
 def _check_source(path: Path, key: str) -> None:
     try:
-        con = sqlite3.connect(sqlite_ro_uri(path), uri=True, timeout=10)
+        con = sqlite3.connect(_immutable_uri(path), uri=True, timeout=10)
     except sqlite3.Error as e:
         raise BackupError(f"Не удалось открыть копию: {e}") from e
     try:
@@ -331,7 +354,7 @@ def _check_source(path: Path, key: str) -> None:
 
 
 def _copy_into(src: Path, target: Path) -> None:
-    src_con = sqlite3.connect(sqlite_ro_uri(src), uri=True, timeout=30)
+    src_con = sqlite3.connect(_immutable_uri(src), uri=True, timeout=30)
     try:
         dst_con = sqlite3.connect(str(target), timeout=30)
         try:

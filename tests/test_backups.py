@@ -73,7 +73,11 @@ def test_create_single_backup_and_list(tmp_path):
     assert item["counts"]["downloaded"] == 1
     assert item["counts"]["pending"] == 1
     assert item["app_version"] == "35.5.0"
-    assert (tmp_path / "backups" / item["id"]).is_file()
+    path = tmp_path / "backups" / item["id"]
+    assert path.is_file()
+    # Копия самодостаточна: рядом не должно быть -wal/-shm.
+    assert not path.with_name(path.name + "-wal").exists()
+    assert not path.with_name(path.name + "-shm").exists()
 
     listed = backups.list_backups(tmp_path)
     assert [x["id"] for x in listed] == [item["id"]]
@@ -229,6 +233,9 @@ def test_auto_backups_are_pruned_but_manual_kept(tmp_path):
 def test_legacy_migration_backup_is_listed(tmp_path):
     legacy = tmp_path / "state.db.bak_v0_20261027_031703"
     _make_disk_db(legacy)
+    # SQLite мог оставить рядом служебные файлы — они не копии.
+    (tmp_path / (legacy.name + "-wal")).write_bytes(b"")
+    (tmp_path / (legacy.name + "-shm")).write_bytes(b"x" * 32)
 
     items = backups.list_backups(tmp_path)
 
@@ -236,6 +243,10 @@ def test_legacy_migration_backup_is_listed(tmp_path):
     assert items[0]["legacy"] is True
     assert items[0]["reason"] == "migration"
     assert items[0]["counts"]["total"] == 2
+    # Чтение списка не создаёт новых служебных файлов.
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([
+        legacy.name, legacy.name + "-wal", legacy.name + "-shm"
+    ])
 
 
 def test_delete_removes_only_known_backup(tmp_path):
