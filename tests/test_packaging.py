@@ -51,6 +51,21 @@ def test_report_key_hint_is_visible_in_both_places():
     assert html.count(REPORT_KEY_HINT) >= 2
 
 
+def test_organize_stop_button_disabled_until_sorting_runs():
+    """Кнопка «Остановить» не должна выглядеть активной без запущенной задачи."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    marker = html.index('id="organize-stop-btn"')
+    tag_start = html.rindex("<button", 0, marker)
+    button_tag = html[tag_start : html.index(">", tag_start) + 1]
+    assert "disabled" in button_tag
+
+    assert "function updateOrganizeControls(task)" in html
+    assert "btn.disabled = !(task && task.running)" in html
+    assert "updateOrganizeControls(tasks.organize);" in html
+    assert ".big-btn.danger:disabled" in html
+
+
 def test_readme_offers_ready_build_before_python_source():
     readme = (PROJECT_DIR / "README.md").read_text(encoding="utf-8")
     assert "Python устанавливать не нужно" in readme

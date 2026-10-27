@@ -189,7 +189,8 @@
   .big-btn:active{transform:translateY(0)}
   .big-btn:disabled{opacity:.4;cursor:not-allowed;background:var(--surface2)}
   .big-btn.danger{background:var(--red);box-shadow:0 8px 24px rgba(255,69,58,.35)}
-  .big-btn.danger:hover{background:#ff5a4f}
+  .big-btn.danger:hover:not(:disabled){background:#ff5a4f}
+  .big-btn.danger:disabled{background:var(--surface2);box-shadow:none;color:var(--text-tertiary)}
 
   .opts{display:flex;justify-content:center;gap:8px;margin-top:18px;flex-wrap:wrap}
   .opt-pill{
@@ -578,7 +579,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.7</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.8</span></div>
     </div>
   </div>
   <div class="pills">
@@ -860,7 +861,7 @@
       <button class="big-btn" onclick="organize('move', this)" style="flex:1">
         <svg class="ico"><use href="#i-play"/></svg>Применить сортировку
       </button>
-      <button class="big-btn danger" onclick="action('organize_stop')" style="flex:0 0 auto">
+      <button id="organize-stop-btn" class="big-btn danger" onclick="action('organize_stop')" style="flex:0 0 auto" disabled>
         <svg class="ico"><use href="#i-stop"/></svg>Остановить
       </button>
     </div>
@@ -1720,6 +1721,8 @@ async function organize(actionType, btn){
       ? `Папка: <code>${esc(inp)}</code> · без MD5, раскладываю сразу`
       : `Папка: <code>${esc(inp)}</code> · подсчёт MD5 может занять минуты`;
   document.getElementById('organize-time').textContent = '0с';
+  const stopBtn = document.getElementById('organize-stop-btn');
+  if(stopBtn) stopBtn.disabled = false;
   setTimeout(()=>banner.scrollIntoView({behavior:'smooth', block:'center'}), 50);
 
   if(btn){
@@ -1733,6 +1736,7 @@ async function organize(actionType, btn){
     const r=await fetch('/api/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:inp, action:action, scheme:scheme, quick:quick})});
     const d=await r.json();
     toast(d.msg, d.ok===false?'err':'ok');
+    if(d.ok===false && stopBtn) stopBtn.disabled = true;
   } catch(e){
     toast('Сеть: '+e.message,'err');
   }
@@ -2071,6 +2075,11 @@ function updateUnlimBanner(tasks){
       sub.textContent = `проверь консоль`;
     }
   }
+}
+
+function updateOrganizeControls(task){
+  const btn = document.getElementById('organize-stop-btn');
+  if(btn) btn.disabled = !(task && task.running);
 }
 
 function updateOrganizeBanner(task){
@@ -2637,6 +2646,7 @@ async function refresh(){
     }
 
     // Организация файлов (сортировка по датам)
+    updateOrganizeControls(tasks.organize);
     updateOrganizeBanner(tasks.organize);
 
     // Header active indicator
