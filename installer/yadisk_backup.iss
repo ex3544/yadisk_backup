@@ -9,7 +9,7 @@
 ; ReportKey попадает в собранный установщик, но НЕ в репозиторий.
 
 #ifndef AppVersion
-  #define AppVersion "35.4.9"
+  #define AppVersion "35.5.0"
 #endif
 
 #ifndef ReportKey

@@ -36,6 +36,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import backups
 import diagnostics
 import paths
 import updater
@@ -1696,6 +1697,97 @@ def unlim_rebuild(payload: RebuildPayload):
     if not ok:
         return {"ok": False, "msg": msg}
     return {"ok": True, "msg": "База пересоздаётся", "backup": str(backup)}
+
+
+# Резервные копии баз (только статусы, сами файлы не копируются)
+def _backup_sources() -> dict[str, Path]:
+    return {"disk": DB_FILE, "unlim": UNLIM_DB_FILE}
+
+
+def _tasks_busy() -> bool:
+    with tm._lock:
+        return any(t.alive() for t in tm._tasks.values())
+
+
+class BackupCreatePayload(BaseModel):
+    scope: str = "all"
+
+
+class BackupRestorePayload(BaseModel):
+    id: str
+    scopes: list[str] = []
+    confirm: str = ""
+
+
+@app.get("/api/backups")
+def api_backups():
+    items = backups.list_backups(paths.DATA_DIR)
+    sources = _backup_sources()
+    return {
+        "items": items,
+        "total_bytes": sum(i["size_bytes"] for i in items),
+        "busy": _tasks_busy(),
+        "available": {k: Path(v).exists() for k, v in sources.items()},
+        "auto_keep": backups.AUTO_KEEP,
+    }
+
+
+@app.post("/api/backups/create")
+def api_backups_create(payload: BackupCreatePayload):
+    try:
+        item = backups.create_backup(
+            paths.DATA_DIR,
+            payload.scope,
+            _backup_sources(),
+            version.APP_VERSION,
+        )
+    except (backups.BackupError, OSError, sqlite3.Error) as e:
+        return {"ok": False, "msg": str(e)}
+    return {"ok": True, "item": item}
+
+
+@app.post("/api/backups/restore")
+def api_backups_restore(payload: BackupRestorePayload):
+    if payload.confirm.strip().upper() != "ВОССТАНОВИТЬ":
+        return {"ok": False, "msg": "Введите слово ВОССТАНОВИТЬ для подтверждения"}
+    if _tasks_busy():
+        return {"ok": False,
+                "msg": "Сначала остановите скачивание и сортировку, затем повторите"}
+    try:
+        result = backups.restore_backup(
+            paths.DATA_DIR,
+            payload.id,
+            payload.scopes or list(backups.SCOPES),
+            _backup_sources(),
+            version.APP_VERSION,
+        )
+    except (backups.BackupError, OSError, sqlite3.Error) as e:
+        return {"ok": False, "msg": str(e)}
+    return {"ok": True, **result}
+
+
+@app.delete("/api/backups/{backup_id}")
+def api_backups_delete(backup_id: str):
+    try:
+        backups.delete_backup(paths.DATA_DIR, backup_id)
+    except (backups.BackupError, OSError) as e:
+        return {"ok": False, "msg": str(e)}
+    return {"ok": True, "msg": "Копия удалена"}
+
+
+@app.post("/api/backups/open")
+def api_backups_open():
+    try:
+        folder = backups.backups_dir(paths.DATA_DIR)
+        if os.name == "nt":
+            os.startfile(str(folder))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+        return {"ok": True, "path": str(folder)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # Photoslice (безлимит)

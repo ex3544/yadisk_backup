@@ -149,3 +149,29 @@ def test_unlim_rebuild_lives_in_diagnostics_with_warning_and_backup():
     # Счётчики в предупреждении берутся из живого статуса.
     assert "function renderRebuildCounts(s)" in html
     assert "renderRebuildCounts(s);" in html
+
+
+def test_backups_block_creates_and_restores_with_warnings():
+    """Копии баз: создание по отдельности и вместе, восстановление с подтверждением."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    diag_start = html.index('<div class="panel" data-panel="diagnostics">')
+    diag_html = html[diag_start:]
+    assert "Резервные копии баз" in diag_html
+    assert "Сами файлы не копируются" in diag_html
+
+    for scope in ("disk", "unlim", "all"):
+        assert f"createBackup('{scope}')" in diag_html
+    assert 'id="backups-list"' in diag_html
+    assert 'id="backup-restore-panel"' in diag_html
+
+    assert "Введите ВОССТАНОВИТЬ" in diag_html
+    assert "Файлы на дисках не удаляются" in diag_html
+    assert "программа сама сохранит её копию" in diag_html
+    assert "разложенные сортировкой — скачаются заново" in diag_html
+
+    assert "inp.value.trim().toUpperCase() !== 'ВОССТАНОВИТЬ'" in html
+    assert "/api/backups/restore" in html
+    assert "fetch('/api/backups')" in html
+    assert "function loadBackups()" in html
+    assert "if(t.dataset.tab === 'diagnostics') loadBackups();" in html

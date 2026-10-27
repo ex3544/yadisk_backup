@@ -253,3 +253,52 @@ def test_rebuild_refuses_when_unlim_running(monkeypatch, tmp_path):
     assert out["ok"] is False
     assert started == []
     assert list(tmp_path.glob("unlim_state.bak-*.db")) == []
+
+
+# ── резервные копии баз ─────────────────────────────────────────────────────
+
+
+def test_backup_restore_requires_confirm_word(monkeypatch):
+    calls = []
+    monkeypatch.setattr(webui.backups, "restore_backup",
+                        lambda *a, **k: calls.append((a, k)) or {})
+
+    out = webui.api_backups_restore(
+        webui.BackupRestorePayload(id="disk-20261027-153000-manual.db", confirm="да")
+    )
+
+    assert out["ok"] is False
+    assert calls == []
+
+
+def test_backup_restore_refuses_while_tasks_run(monkeypatch):
+    class Alive:
+        def alive(self):
+            return True
+
+    calls = []
+    monkeypatch.setattr(webui.backups, "restore_backup",
+                        lambda *a, **k: calls.append((a, k)) or {})
+    monkeypatch.setitem(webui.tm._tasks, "unlim_w1", Alive())
+    try:
+        out = webui.api_backups_restore(
+            webui.BackupRestorePayload(
+                id="disk-20261027-153000-manual.db", confirm="ВОССТАНОВИТЬ"
+            )
+        )
+    finally:
+        webui.tm._tasks.pop("unlim_w1", None)
+
+    assert out["ok"] is False
+    assert "остановите" in out["msg"]
+    assert calls == []
+
+
+def test_backup_create_returns_item(monkeypatch):
+    fake = {"id": "disk-20261027-153000-manual.db", "scope": "disk"}
+    monkeypatch.setattr(webui.backups, "create_backup",
+                        lambda *a, **k: fake)
+
+    out = webui.api_backups_create(webui.BackupCreatePayload(scope="disk"))
+
+    assert out == {"ok": True, "item": fake}
