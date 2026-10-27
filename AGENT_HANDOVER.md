@@ -2,7 +2,7 @@
 
 > **КРИТИЧЕСКОЕ ПРАВИЛО:** Общение с пользователем ведётся **СТРОГО НА РУССКОМ ЯЗЫКЕ** без каких-либо исключений.
 >
-> **Обновлено:** 2026-10-27 (v35.5.1: резервные копии баз с восстановлением из «Диагностики», пересоздание базы Безлимита с бэкапом, разделение «быстрого запуска» и «пошагового режима», безопасное дополнение базы Безлимита)
+> **Обновлено:** 2026-10-28 (v35.5.2: самообновление из «Диагностики» с проверкой SHA-256, подтверждение создания резервных копий, переименование «Сформировать базу данных» → «Обновить список файлов», исправленная автопрокрутка и увеличенная история журнала)
 
 ---
 
@@ -31,7 +31,7 @@
 
 ### Первый запуск и диагностика (этап 2)
 
-- [`version.py`](./version.py) — единая версия: `35.5.1`, издатель `Sergey Pukhir (ex3544, vovapuh's son)`.
+- [`version.py`](./version.py) — единая версия: `35.5.2`, издатель `Sergey Pukhir (ex3544, vovapuh's son)`.
 - [`diagnostics.py`](./diagnostics.py) — сборка ZIP-отчёта и отправка через Cloudflare Worker. В отчёт попадают система, пути, маскированные настройки, статистика баз, статусы задач, хвосты логов и найденные ошибки. **Токен, куки, содержимое файлов и полные базы не включаются**; все строки проходят через `redact_text()`.
 - Большие логи читаются с конца (`seek`), а не целиком: `unlim_backup.log` бывает в сотни мегабайт.
 - Ключ отправки хранится в `DATA_DIR/.report_key.txt` (или `REPORT_KEY` в окружении) и никогда не выводится в отчёт/лог. Без ключа отчёт сохраняется в `DATA_DIR/reports/`.
@@ -50,7 +50,8 @@
 - В «Организации» кнопка «Остановить» изначально `disabled` и активируется только при запущенной сортировке (`updateOrganizeControls()` в `webui_assets/index.html`).
 - На «Главной» два визуально разных блока запуска: `.launch-card.auto` («Быстрый запуск: скачать всё», Диск + Безлимит, 1 клик) и `.launch-card.manual` («Пошаговый режим», только выбранный раздел). Под каждой кнопкой — `.btn-hint`; при запуске подсказки прячутся вместе с кнопками через обёртки `ctrl-*-wrap`.
 - «Скачать всё» = `webui.FullCycle` (`full_cycle`), `POST /api/download/all` с `{workers, passes, sort_after}`. Две параллельные «полосы»: Диск — `main.py scan` → `main.py download --no-scan --retry`; Безлимит — `unlim_download.py --collect` → `unlim_backup.py --target all`. Затем до `passes` (1–5, по умолчанию 3) проходов по сбойным с паузой 60 с; проходы прекращаются досрочно, если число сбойных не уменьшилось. Счётчики берутся из баз (`_db_snapshot`), а не из status-файлов: Диск — `failed`, Безлимит — `skipped`. Итог уходит в `full_cycle.summary` → всплывающее окно и карточка процесса. Старый `AutoRuns` и галочка «Сначала новые, затем сбойные» удалены.
-- Повторное «Сформировать базу данных» безопасно: для Диска `mark_pending()` не перетирает `downloaded/skipped`; для Безлимита `--scan-only` дополняет базу новыми `file_id`, сохраняя статусы и `local_path`.
+- **Самообновление.** `updater.download_asset()` качает файл релиза только с `https://github.com/ex3544/yadisk_backup/releases/download/...`, сверяет SHA-256 из опубликованного `<asset>.sha256` и не оставляет `.part` при ошибке. `webui.UpdateManager` (`update_manager`) ведёт состояние `idle/checking/downloading/ready/error/installing`, отдаёт его в `/api/status` как `update`; эндпоинты — `POST /api/updates/download`, `/api/updates/cancel`, `/api/updates/install`. Установка пишет PowerShell-помощника в `%TEMP%\YandexDiskBackup_update`, который ждёт PID приложения, запускает setup `/SILENT /CLOSEAPPLICATIONS /NOCANCEL` (portable — `Expand-Archive` в папку сборки) и открывает новую версию; `launcher.Application` передаёт `webui.register_shutdown_hook(self.quit_app)`. Установка требует `IS_FROZEN` и свободных задач. Релизный workflow публикует `.sha256` для setup.exe и portable ZIP.
+- Повторное «Обновить список файлов» безопасно: для Диска `mark_pending()` не перетирает `downloaded/skipped`; для Безлимита `--scan-only` дополняет базу новыми `file_id`, сохраняя статусы и `local_path`.
 - Полное пересоздание базы Безлимита из UI — только «Диагностика» → «Пересоздание базы Безлимита» → `POST /api/unlim/rebuild`. Эндпоинт требует слово `ПЕРЕСОЗДАТЬ`, отказывается работать при живых `unlim*` задачах и перед `--scan-only --force` делает согласованную копию через `sqlite3.Connection.backup()` (`unlim_state.bak-YYYYmmdd-HHMMSS.db`). На главной этой кнопки нет намеренно: после сортировки файлы лежат в подпапках, проверка «уже скачан» их не найдёт и всё скачается заново.
 - [`assets/`](./assets) — `app.ico`, `app.png`, `tray.png`; пересобираются `python tools/make_icons.py`.
 - `webui.WORKER_SCRIPTS` + `webui.dispatch_worker()` — multi-call режим: `<exe> main.py scan`, `<exe> unlim_backup.py ...` и т.п. В frozen-режиме `TaskManager` запускает тот же exe с именем скрипта и рабочим каталогом `DATA_DIR` (Program Files только для чтения).
@@ -138,7 +139,7 @@
 | `backups.py` | Резервные копии баз со статусами (без файлов): `disk`, `unlim`, `all` (ZIP + manifest), список с датой/счётчиками, восстановление через sqlite backup API с авто-копией текущего состояния, проверка `integrity_check` и `user_version`, ротация авто-копий (5 на базу). Эндпоинты — `/api/backups*` в `webui.py`. |
 | `db_migrations.py` | Версионирование схемы SQLite (`PRAGMA user_version`), резервная копия перед миграцией, атомарное применение. |
 | `unlim_schema.py` | Общая схема и миграции `unlim_state.db` для выгрузчика, сборщика и воркеров. |
-| `version.py` | Название, версия (`35.5.1`) и издатель (`Sergey Pukhir (ex3544, vovapuh's son)`). |
+| `version.py` | Название, версия (`35.5.2`) и издатель (`Sergey Pukhir (ex3544, vovapuh's son)`). |
 | `diagnostics.py` | Диагностический отчёт: безопасный сбор данных, ZIP, отправка через Worker; секреты редактируются. |
 | `state.py` | SQLite-трекер (`state.db`, WAL), соединение на поток. |
 | `utils.py` | Санитизация путей, длинные пути Windows (`\\?\`), `auto_workers()` — подбор числа потоков по ОЗУ. |

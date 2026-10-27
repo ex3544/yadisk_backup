@@ -405,3 +405,83 @@ def test_download_all_payload_defaults():
     assert payload.workers == 10
     assert payload.passes == 3
     assert payload.sort_after is False
+
+
+# ── обновление программы ────────────────────────────────────────────────────
+
+
+def test_write_update_helper_waits_and_runs_silent_setup(tmp_path):
+    import os
+
+    payload = tmp_path / "YandexDiskBackup-99.0.0-setup.exe"
+    payload.write_bytes(b"x")
+
+    helper = webui.write_update_helper(payload, "setup", restart=True)
+    text = helper.read_text(encoding="utf-8-sig")
+
+    assert f"Wait-Process -Id {os.getpid()}" in text
+    assert "/SILENT" in text
+    assert "Start-Process -FilePath" in text
+    assert "Remove-Item" in text
+
+
+def test_write_update_helper_portable_expands_archive(tmp_path):
+    payload = tmp_path / "YandexDiskBackup-99.0.0-portable.zip"
+    payload.write_bytes(b"x")
+
+    helper = webui.write_update_helper(payload, "portable", restart=False)
+    text = helper.read_text(encoding="utf-8-sig")
+
+    assert "Expand-Archive" in text
+    assert "/SILENT" not in text
+
+
+def test_update_install_refuses_when_not_frozen(monkeypatch):
+    monkeypatch.setattr(webui.paths, "IS_FROZEN", False)
+    out = webui.api_updates_install(webui.UpdateInstallPayload())
+    assert out["ok"] is False
+    assert "исходников" in out["msg"]
+
+
+def test_update_install_requires_downloaded_file(monkeypatch, tmp_path):
+    import os
+
+    if os.name != "nt":
+        pytest.skip("установка обновлений только для Windows")
+    monkeypatch.setattr(webui.paths, "IS_FROZEN", True)
+    monkeypatch.setattr(webui.update_manager, "state", "idle")
+    out = webui.api_updates_install(webui.UpdateInstallPayload())
+    assert out["ok"] is False
+    assert "не загружено" in out["msg"]
+
+
+def test_update_install_refuses_while_tasks_run(monkeypatch, tmp_path):
+    import os
+
+    if os.name != "nt":
+        pytest.skip("установка обновлений только для Windows")
+
+    class Alive:
+        def alive(self):
+            return True
+
+    payload = tmp_path / "setup.exe"
+    payload.write_bytes(b"x")
+    monkeypatch.setattr(webui.paths, "IS_FROZEN", True)
+    monkeypatch.setattr(webui.update_manager, "state", "ready")
+    monkeypatch.setattr(webui.update_manager, "path", payload)
+    monkeypatch.setitem(webui.tm._tasks, "disk", Alive())
+    try:
+        out = webui.api_updates_install(webui.UpdateInstallPayload())
+    finally:
+        webui.tm._tasks.pop("disk", None)
+
+    assert out["ok"] is False
+    assert "остановите" in out["msg"]
+
+
+def test_update_manager_status_defaults():
+    status = webui.update_manager.status()
+    for key in ("state", "version", "percent", "can_install", "running"):
+        assert key in status
+    assert isinstance(status["percent"], float)

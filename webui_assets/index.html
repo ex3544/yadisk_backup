@@ -323,10 +323,14 @@
     border-radius:10px;padding:14px;
     font-family:'SF Mono','Menlo','Consolas',monospace;
     font-size:12px;color:#e5e5e7;
-    height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    height:320px;min-height:140px;max-height:70vh;resize:vertical;
+    overflow-y:auto;white-space:pre-wrap;word-break:break-word;
   }
   .console::-webkit-scrollbar{width:6px}
   .console::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:3px}
+  /* Консоль получает фокус по клику, чтобы журнал листался клавиатурой. */
+  .console:focus{outline:none;border-color:var(--hairline-strong)}
+  .console:focus-visible{outline:1px solid var(--hairline-strong)}
   .console-empty{color:var(--text-tertiary);font-style:italic}
 
   /* ── Recent items ── */
@@ -616,7 +620,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.1</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.2</span></div>
     </div>
   </div>
   <div class="pills">
@@ -708,9 +712,9 @@
     <div class="card launch-card manual">
       <div class="launch-title">🧭 Пошаговый режим <span class="launch-badge">вручную</span></div>
       <div class="launch-desc">
-        Скачивает только выбранный раздел по настройкам ниже. «Сформировать базу данных»
-        лишь обновляет список файлов в облаке и ничего не скачивает. Если в облаке
-        появились новые файлы, база дополнится — статусы уже скачанных сохранятся.
+        Скачивает только выбранный раздел по настройкам ниже. «Обновить список файлов»
+        лишь обходит облако и ничего не скачивает. Если появились новые файлы, база
+        дополнится — статусы уже скачанных сохранятся.
       </div>
 
     <!-- 1. Что скачиваем -->
@@ -799,9 +803,9 @@
     <div class="launch-actions">
       <div id="ctrl-scan-wrap" class="launch-action">
         <button id="ctrl-scan-btn" class="big-btn ghost" onclick="startCustomScan()" title="Собрать список всех файлов из облака в базу данных без скачивания">
-          <svg class="ico"><use href="#i-search"/></svg>Сформировать базу данных
+          <svg class="ico"><use href="#i-search"/></svg>Обновить список файлов
         </button>
-        <div class="btn-hint">Обновляет список файлов в облаке. Ничего не скачивает.</div>
+        <div class="btn-hint">Обходит облако и добавляет новые файлы. Ничего не скачивает.</div>
       </div>
       <div id="ctrl-start-wrap" class="launch-action" style="flex:1.2">
         <button id="ctrl-start-btn" class="big-btn" onclick="startCustomDownload()">
@@ -868,7 +872,7 @@
     <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
     <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
     <hr>
-    <div class="console" id="pipeline-console"><div class="console-empty">жду запуска…</div></div>
+    <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
 
   <div class="grid-2 home-stats">
@@ -1150,7 +1154,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <button id="backup-create-disk" onclick="createBackup('disk')">Копия Диска</button>
       <button id="backup-create-unlim" onclick="createBackup('unlim')">Копия Безлимита</button>
-      <button id="backup-create-all" class="primary" onclick="createBackup('all')">Общая копия (оба)</button>
+      <button id="backup-create-all" onclick="createBackup('all')">Общая копия (оба)</button>
       <button class="ghost" onclick="openBackupsFolder()">Открыть папку</button>
     </div>
     <div id="backup-status" class="setup-hint" style="margin-bottom:10px"></div>
@@ -1180,7 +1184,7 @@
 
   <div class="card">
     <div class="card-title">Пересоздание базы Безлимита</div>
-    <div class="card-sub">Крайняя мера. Нужна, только если база повреждена и «Сформировать базу данных» не помогает.</div>
+    <div class="card-sub">Крайняя мера. Нужна, только если база повреждена и «Обновить список файлов» не помогает.</div>
 
     <div class="diag-note" style="background:rgba(255,69,58,.07);border-color:rgba(255,69,58,.35)">
       ⚠️ База удаляется и собирается из облака заново. <strong>Последствия:</strong>
@@ -1213,11 +1217,21 @@
 
   <div class="card">
     <div class="card-title">Обновления</div>
-    <div class="card-sub">Сравнение с последним релизом на GitHub. Программа не обновляется сама — установщик скачивается вручную.</div>
+    <div class="card-sub">Проверка последнего релиза и обновление прямо из программы. Установщик скачивается с GitHub, сверяется SHA-256 и запускается после закрытия приложения.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <button id="update-check-btn" onclick="checkUpdates()">Проверить обновления</button>
+      <button id="update-install-btn" style="display:none" onclick="startUpdateDownload()">Обновить</button>
+      <button id="update-apply-btn" class="primary" style="display:none" onclick="applyUpdate()">Перезапустить и установить</button>
+      <button id="update-cancel-btn" class="ghost" style="display:none" onclick="cancelUpdateDownload()">Отменить</button>
       <span id="update-status" class="setup-hint" style="margin:0">—</span>
-      <button id="update-open-btn" class="ghost" style="display:none" onclick="openUpdatePage()">Скачать</button>
+      <button id="update-open-btn" class="ghost" style="display:none" onclick="openUpdatePage()">Скачать вручную</button>
+    </div>
+    <div id="update-progress" style="display:none;margin-top:10px;height:6px;border-radius:3px;background:var(--surface2);overflow:hidden">
+      <div id="update-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
+    </div>
+    <div id="update-hint" class="setup-hint" style="margin-top:8px;display:none">
+      Программа закроется, установит новую версию и снова откроется. Windows может
+      запросить подтверждение администратора. Настройки и скачанные файлы не удаляются.
     </div>
     <pre id="update-notes" class="diag-pre" style="display:none"></pre>
   </div>
@@ -1634,7 +1648,7 @@ function updateDbStatusBanner(s){
     } else {
       if (dbIcon) dbIcon.textContent = '⚠️';
       if (dbTitle) dbTitle.textContent = 'База Безлимита ещё не создана';
-      if (dbSub) dbSub.textContent = 'Нажмите «Сформировать базу данных», чтобы опросить облако (~2 мин).';
+      if (dbSub) dbSub.textContent = 'Нажмите «Обновить список файлов», чтобы опросить облако (~2 мин).';
       if (dbBadge) { dbBadge.textContent = 'нет базы'; dbBadge.className = 'badge err'; }
       banner.style.borderColor = 'var(--hairline)';
     }
@@ -1658,7 +1672,7 @@ function updateDbStatusBanner(s){
     } else {
       if (dbIcon) dbIcon.textContent = '⚠️';
       if (dbTitle) dbTitle.textContent = 'База обычного Диска ещё не создана';
-      if (dbSub) dbSub.textContent = 'Нажмите «Сформировать базу данных», чтобы собрать структуру папок через API.';
+      if (dbSub) dbSub.textContent = 'Нажмите «Обновить список файлов», чтобы собрать структуру папок через API.';
       if (dbBadge) { dbBadge.textContent = 'нет базы'; dbBadge.className = 'badge err'; }
       banner.style.borderColor = 'var(--hairline)';
     }
@@ -1770,14 +1784,14 @@ async function startCustomScan(){
         return;
       }
     } else {
-      if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
+      if(!confirm(`Обновить список файлов для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
     }
   } else {
     const totalFiles = window._lastStatus?.disk?.db?.total || 0;
     if (totalFiles > 0) {
       if (!confirm(`База данных обычного Диска (state.db) уже существует (${totalFiles.toLocaleString('ru')} файлов).\n\nОбновить список из облака? Новые файлы добавятся, статусы уже скачанных сохранятся.`)) return;
     } else {
-      if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.`)) return;
+      if(!confirm(`Обновить список файлов для ${label}?\n\nСкрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.`)) return;
     }
   }
 
@@ -2058,14 +2072,48 @@ async function downloadSelected(kind, btn){
 
 // ────── Refresh ──────
 let _lastConsole = {};
+// Автопрокрутка консоли прилипает к низу только пока пользователь сам там
+// находится. Иначе обновление раз в 1.5 секунды возвращало бы журнал в конец,
+// стоило отпустить ползунок или нажать PageUp.
+const CONSOLE_STICK_PX = 24;
+const _consoleStick = {};
+
+function consoleNearBottom(el){
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= CONSOLE_STICK_PX;
+}
+
+function initConsoleStick(id, el){
+  if(el.dataset.stickReady) return;
+  el.dataset.stickReady = '1';
+  _consoleStick[id] = true;
+  el.addEventListener('scroll', () => {
+    // Программная прокрутка в самый низ тоже вызывает событие — так
+    // прилипание восстанавливается само, когда пользователь вернулся вниз.
+    _consoleStick[id] = consoleNearBottom(el);
+  }, {passive:true});
+}
+
 function setConsole(id, text){
   const el = document.getElementById(id);
   if(!el) return;
   if(_lastConsole[id] === text) return;
   _lastConsole[id] = text;
+  initConsoleStick(id, el);
+  const stick = _consoleStick[id] !== false;
+  const prevTop = el.scrollTop;
   el.textContent = text || '';
-  if(!text) el.innerHTML = '<div class="console-empty">жду запуска…</div>';
-  el.scrollTop = el.scrollHeight;
+  if(!text){
+    el.innerHTML = '<div class="console-empty">жду запуска…</div>';
+    _consoleStick[id] = true;
+    return;
+  }
+  if(stick){
+    el.scrollTop = el.scrollHeight;
+  }else{
+    // Пользователь читает выше — оставляем его место (с поправкой на
+    // изменившуюся высоту текста).
+    el.scrollTop = Math.min(prevTop, Math.max(0, el.scrollHeight - el.clientHeight));
+  }
 }
 
 // Отслеживание состояний задач — для авто-refreshPreview когда scan закончится
@@ -2568,6 +2616,7 @@ async function refresh(){
     window._lastStatus = s;
     renderRamHint(s.ram);
     renderFullCycle(s.full_cycle);
+    renderUpdate(s.update);
     // Итоговое окно показываем один раз — при переходе «идёт → завершён»,
     // чтобы после F5 старая сводка не всплывала снова.
     const fc = s.full_cycle || {};
@@ -2724,7 +2773,7 @@ async function refresh(){
         if (pTime) pTime.textContent = dur(Math.max(...runningSlots.map(s => tasks[s].elapsed || 0)));
         const body = runningSlots.map(s => {
           const t = tasks[s];
-          const log = (t.log_tail || []).slice(-25).join('\n');
+          const log = (t.log_tail || []).slice(-200).join('\n');
           return `▶ ${taskLabel(s)} · ${taskKind(s, t.log_tail)} · ${dur(t.elapsed)}\n${log}`;
         }).join('\n\n');
         setConsole('pipeline-console', body);
@@ -2755,7 +2804,7 @@ async function refresh(){
         if (pStep) pStep.textContent = 'Полный цикл: Диск + Безлимит';
         if (pTime) pTime.textContent = dur((fcst.summary || {}).duration);
         const fcLog = ['🏁 Полный цикл', cycleLaneText('disk', fcst), cycleLaneText('unlim', fcst)];
-        if (fcst.log && fcst.log.length) fcLog.push('', ...fcst.log.slice(-15));
+        if (fcst.log && fcst.log.length) fcLog.push('', ...fcst.log.slice(-300));
         setConsole('pipeline-console', fcLog.join('\n'));
       } else if (lastTask && lastTask.log_tail && lastTask.log_tail.length > 0) {
         if (card) card.style.display = 'block';
@@ -3081,10 +3130,12 @@ async function checkUpdates(){
   const status = document.getElementById('update-status');
   const open = document.getElementById('update-open-btn');
   const notes = document.getElementById('update-notes');
+  const install = document.getElementById('update-install-btn');
   if(!btn || !status || !open || !notes) return;
   btn.disabled = true;
   open.style.display = 'none';
   notes.style.display = 'none';
+  if(install) install.style.display = 'none';
   status.className = 'setup-hint';
   status.textContent = 'Проверяю GitHub…';
   try{
@@ -3100,6 +3151,10 @@ async function checkUpdates(){
       status.className = 'setup-hint ok';
       status.textContent = `Доступна версия ${d.latest} (у вас ${d.current}).`;
       open.style.display = '';
+      if(install && (d.installer || d.portable)){
+        install.textContent = `Обновить до ${d.latest}`;
+        install.style.display = '';
+      }
       if(d.notes){
         notes.textContent = d.notes;
         notes.style.display = '';
@@ -3113,6 +3168,104 @@ async function checkUpdates(){
     status.textContent = 'Не удалось связаться с GitHub.';
   }finally{
     btn.disabled = false;
+  }
+}
+
+let _lastUpdate = {};
+
+async function startUpdateDownload(){
+  const btn = document.getElementById('update-install-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch('/api/updates/download', {method:'POST'});
+    const d = await r.json();
+    if(!d.ok) toast(d.msg || 'Не удалось начать загрузку', 'err');
+  }catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function cancelUpdateDownload(){
+  try{
+    const r = await fetch('/api/updates/cancel', {method:'POST'});
+    const d = await r.json();
+    if(!d.ok) toast(d.msg || 'Загрузка уже завершена', 'err');
+  }catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+}
+
+async function applyUpdate(){
+  const u = _lastUpdate || {};
+  if(!confirm(`Установить версию ${u.version || ''}?
+
+Программа закроется, установит обновление и снова откроется. Настройки и скачанные файлы не затрагиваются.`)) return;
+  try{
+    const r = await fetch('/api/updates/install', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({restart: true})
+    });
+    const d = await r.json();
+    if(!d.ok){ toast(d.msg || 'Не удалось установить обновление', 'err'); return; }
+    toast(d.msg || 'Устанавливаю обновление…', 'ok');
+  }catch(e){
+    toast('Сеть: ' + e.message, 'err');
+  }
+}
+
+function renderUpdate(u){
+  u = u || {};
+  _lastUpdate = u;
+  const apply = document.getElementById('update-apply-btn');
+  const cancel = document.getElementById('update-cancel-btn');
+  const status = document.getElementById('update-status');
+  const progress = document.getElementById('update-progress');
+  const bar = document.getElementById('update-progress-bar');
+  const hint = document.getElementById('update-hint');
+  if(!status || !progress || !bar) return;
+  const state = u.state || 'idle';
+  if(state === 'checking' || state === 'downloading'){
+    progress.style.display = 'block';
+    bar.style.width = (u.percent || 0) + '%';
+    status.className = 'setup-hint';
+    status.textContent = state === 'checking'
+      ? 'Проверяю релиз…'
+      : `Скачиваю ${human(u.done_bytes || 0)} из ${human(u.total_bytes || 0)} · ${u.percent || 0}%`;
+    if(cancel) cancel.style.display = u.running ? '' : 'none';
+    if(apply) apply.style.display = 'none';
+    if(hint) hint.style.display = 'none';
+  }else if(state === 'ready'){
+    progress.style.display = 'block';
+    bar.style.width = '100%';
+    status.className = 'setup-hint ok';
+    status.textContent = `Версия ${u.version} скачана и проверена по SHA-256.`;
+    if(cancel) cancel.style.display = 'none';
+    if(apply) apply.style.display = u.can_install ? '' : 'none';
+    if(hint) hint.style.display = u.can_install ? 'block' : 'none';
+    if(!u.can_install){
+      status.textContent += ' Установка из этой сборки недоступна — скачайте вручную.';
+    }
+  }else if(state === 'installing'){
+    progress.style.display = 'none';
+    status.className = 'setup-hint ok';
+    status.textContent = 'Устанавливаю обновление — программа сейчас закроется.';
+    if(apply) apply.style.display = 'none';
+    if(cancel) cancel.style.display = 'none';
+    if(hint) hint.style.display = 'none';
+  }else if(state === 'error'){
+    progress.style.display = 'none';
+    status.className = 'setup-hint err';
+    status.textContent = u.error || 'Не удалось скачать обновление.';
+    if(apply) apply.style.display = 'none';
+    if(cancel) cancel.style.display = 'none';
+    if(hint) hint.style.display = 'none';
+  }else{
+    progress.style.display = 'none';
+    if(apply) apply.style.display = 'none';
+    if(cancel) cancel.style.display = 'none';
+    if(hint) hint.style.display = 'none';
   }
 }
 
@@ -3244,6 +3397,14 @@ function renderBackups(data){
 async function createBackup(scope){
   const status = document.getElementById('backup-status');
   const titles = {disk:'Копия Диска', unlim:'Копия Безлимита', all:'Общая копия'};
+  const what = {disk:'копию базы Диска', unlim:'копию базы Безлимита',
+                all:'общую копию обеих баз'}[scope] || 'копию';
+  if(!confirm(`Создать ${what}?
+
+Копия сохранится в папку данных приложения. Файлы на дисках и рабочие базы не изменяются.`)) return;
+  const buttons = ['backup-create-disk','backup-create-unlim','backup-create-all']
+    .map(id => document.getElementById(id)).filter(Boolean);
+  buttons.forEach(b => { b.disabled = true; });
   status.className = 'setup-hint';
   status.textContent = 'Создаю копию…';
   try{
@@ -3264,6 +3425,8 @@ async function createBackup(scope){
   }catch(e){
     status.className = 'setup-hint err';
     status.textContent = 'Ошибка: ' + e.message;
+  }finally{
+    buttons.forEach(b => { b.disabled = false; });
   }
 }
 

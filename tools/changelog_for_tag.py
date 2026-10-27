@@ -2,7 +2,7 @@
 
 Используется в GitHub Actions перед публикацией релиза:
 
-    python tools/changelog_for_tag.py v35.5.1 release_notes.md
+    python tools/changelog_for_tag.py v35.5.2 release_notes.md
 
 Если раздела нет, пишет запасной текст, чтобы релиз всё равно опубликовался.
 """

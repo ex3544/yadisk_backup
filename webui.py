@@ -22,6 +22,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -204,7 +205,7 @@ class Task:
         self.name = name
         self.proc = proc
         self.started_at = time.time()
-        self.log: deque[str] = deque(maxlen=300)
+        self.log: deque[str] = deque(maxlen=2000)
         self._t = threading.Thread(target=self._read, daemon=True)
         self._t.start()
 
@@ -310,7 +311,7 @@ class TaskManager:
                     "running": t.alive(),
                     "elapsed": time.time() - t.started_at,
                     "exit_code": t.proc.poll(),
-                    "log_tail": list(t.log)[-80:],
+                    "log_tail": list(t.log)[-500:],
                 }
         return out
 
@@ -333,7 +334,7 @@ class Pipeline:
         self._owned_slots: set[str] = set()  # слоты которые pipeline сам запустил
         self.state: str = "idle"  # idle | running | done | failed
         self.step: str = "—"
-        self.log: deque[str] = deque(maxlen=120)
+        self.log: deque[str] = deque(maxlen=600)
         self.started_at: Optional[float] = None
         self.finished_at: Optional[float] = None
         self.skip_disk: bool = False
@@ -529,7 +530,7 @@ class FullCycle:
         self.passes: int = 3
         self.workers: int = 10
         self.sort_after: bool = False
-        self.log: deque[str] = deque(maxlen=200)
+        self.log: deque[str] = deque(maxlen=600)
         self.lanes: dict[str, dict] = {
             "disk": self._empty_lane(),
             "unlim": self._empty_lane(),
@@ -845,6 +846,195 @@ class FullCycle:
 
 
 full_cycle = FullCycle()
+
+
+# ── Обновление программы ─────────────────────────────────────────────────────
+
+
+class UpdateManager:
+    """Загрузка установщика последнего релиза с проверкой SHA-256.
+
+    Сама ничего не устанавливает: install() пишет помощника PowerShell, который
+    ждёт выхода приложения, запускает установщик и снова открывает программу.
+    """
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._cancel = threading.Event()
+        self.state = "idle"  # idle | checking | downloading | ready | error | installing
+        self.version = ""
+        self.percent = 0.0
+        self.done_bytes = 0
+        self.total_bytes = 0
+        self.error = ""
+        self.path: Optional[Path] = None
+        self.kind = ""  # setup | portable
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    @staticmethod
+    def is_portable() -> bool:
+        """Portable-сборка лежит вне Program Files — её обновляем ZIP-архивом."""
+        if not paths.IS_FROZEN:
+            return False
+        try:
+            exe_dir = Path(sys.executable).resolve().parent
+        except OSError:
+            return False
+        for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+            base = os.environ.get(env)
+            if not base:
+                continue
+            try:
+                base_dir = Path(base).resolve()
+            except OSError:
+                continue
+            if exe_dir == base_dir or base_dir in exe_dir.parents:
+                return False
+        return True
+
+    def start(self) -> tuple[bool, str]:
+        with self._lock:
+            if self.is_running():
+                return False, "Загрузка обновления уже идёт"
+            self._cancel.clear()
+            self.state = "checking"
+            self.version = ""
+            self.percent = 0.0
+            self.done_bytes = 0
+            self.total_bytes = 0
+            self.error = ""
+            self.path = None
+            self.kind = ""
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            return True, "Проверяю последний релиз…"
+
+    def cancel(self) -> tuple[bool, str]:
+        if not self.is_running():
+            return False, "Загрузка не идёт"
+        self._cancel.set()
+        return True, "Загрузка отменяется"
+
+    def _progress(self, done: int, total: int):
+        with self._lock:
+            self.done_bytes = done
+            if total:
+                self.total_bytes = total
+            if self.total_bytes:
+                self.percent = min(100.0, done * 100.0 / self.total_bytes)
+
+    def _run(self):
+        try:
+            release = updater.check_for_updates()
+            if not release.get("ok"):
+                raise RuntimeError(release.get("error") or "не удалось проверить обновления")
+            if not release.get("update_available"):
+                with self._lock:
+                    self.state = "idle"
+                    self.version = release.get("latest") or ""
+                return
+            portable = self.is_portable()
+            asset = release.get("portable") if portable else release.get("installer")
+            if not asset:
+                raise RuntimeError("в релизе нет файла обновления")
+            if not asset.get("sha256_url"):
+                raise RuntimeError(
+                    "у релиза нет контрольной суммы — скачайте установщик со страницы релиза"
+                )
+            expected = updater.fetch_sha256(asset["sha256_url"])
+            dest = (Path(tempfile.gettempdir()) / "YandexDiskBackup_update" /
+                    str(asset["name"]))
+            with self._lock:
+                self.state = "downloading"
+                self.version = release.get("latest") or ""
+                self.kind = "portable" if portable else "setup"
+                self.total_bytes = int(asset.get("size") or 0)
+                self.path = dest
+            updater.download_asset(asset["url"], dest, expected,
+                                   progress=self._progress, cancel=self._cancel)
+            with self._lock:
+                self.state = "ready"
+                self.percent = 100.0
+        except Exception as e:  # noqa: BLE001
+            with self._lock:
+                self.state = "error"
+                self.error = f"{type(e).__name__}: {e}"[:500]
+
+    def status(self) -> dict:
+        with self._lock:
+            return {"state": self.state, "version": self.version,
+                    "percent": round(self.percent, 1),
+                    "done_bytes": self.done_bytes, "total_bytes": self.total_bytes,
+                    "error": self.error, "kind": self.kind,
+                    "running": self.is_running(),
+                    "can_install": bool(paths.IS_FROZEN and os.name == "nt")}
+
+
+update_manager = UpdateManager()
+
+_shutdown_hook = None
+
+
+def register_shutdown_hook(func) -> None:
+    """launcher передаёт сюда свой quit_app, чтобы установка могла закрыть программу."""
+    global _shutdown_hook
+    _shutdown_hook = func
+
+
+def _quit_application() -> None:
+    hook = _shutdown_hook
+    if hook is None:
+        os._exit(0)
+    try:
+        hook()
+    except Exception:  # noqa: BLE001
+        os._exit(0)
+
+
+def _ps_quote(value) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
+    """Помощник, который дождётся выхода приложения и поставит обновление."""
+    work = Path(payload).parent
+    work.mkdir(parents=True, exist_ok=True)
+    helper = work / "install_update.ps1"
+    log_file = work / "install_update.log"
+    pid = os.getpid()
+    exe = sys.executable
+    if kind == "portable":
+        action = (
+            "try { Expand-Archive -LiteralPath " + _ps_quote(payload) +
+            " -DestinationPath " + _ps_quote(Path(exe).parent.parent) +
+            " -Force -ErrorAction Stop } "
+            "catch { ('распаковка не удалась: ' + $_) | "
+            "Out-File -Append -Encoding utf8 " + _ps_quote(log_file) + " }"
+        )
+    else:
+        action = (
+            "$setup = Start-Process -FilePath " + _ps_quote(payload) +
+            " -ArgumentList '/SILENT','/CLOSEAPPLICATIONS','/NOCANCEL',"
+            "'/SUPPRESSMSGBOXES' -Wait -PassThru; "
+            "('код установщика: ' + $setup.ExitCode) | "
+            "Out-File -Append -Encoding utf8 " + _ps_quote(log_file)
+        )
+    restart_line = ("Start-Process -FilePath " + _ps_quote(exe)) if restart else ""
+    lines = [
+        "$ErrorActionPreference = 'Continue'",
+        "try { Wait-Process -Id " + str(pid) + " -Timeout 180 -ErrorAction Stop } catch { }",
+        "Start-Sleep -Seconds 2",
+        action,
+        restart_line,
+        "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force "
+        "-ErrorAction SilentlyContinue",
+    ]
+    script = chr(10).join(line for line in lines if line) + chr(10)
+    helper.write_text(script, encoding="utf-8-sig")
+    return helper
 
 
 def _free_gb(paths: list[str]) -> Optional[float]:
@@ -1163,7 +1353,7 @@ def unlim_db_summary() -> dict:
         return {"exists": True, "error": str(e), "total_files": 0, "is_ready": False}
 
 
-def get_last_unlim_log(max_lines: int = 50) -> list[str]:
+def get_last_unlim_log(max_lines: int = 300) -> list[str]:
     log_file = paths.UNLIM_LOG
     if not log_file.exists():
         return []
@@ -1222,6 +1412,7 @@ def api_status():
         },
         "ram": ram_info(),
         "full_cycle": full_cycle.status(),
+        "update": update_manager.status(),
         "watchdog": watchdog.status(),
         "tasks": tm.status(),
         "pipeline": pipeline.status(),
@@ -1865,7 +2056,7 @@ def unlim_rebuild(payload: RebuildPayload):
                 return {"ok": False, "msg": "Сначала остановите скачивание Безлимита"}
     if not UNLIM_DB_FILE.exists():
         return {"ok": False,
-                "msg": "Базы Безлимита ещё нет — сначала нажмите «Сформировать базу данных»"}
+                "msg": "Базы Безлимита ещё нет — сначала нажмите «Обновить список файлов»"}
     backup = UNLIM_DB_FILE.with_name(
         f"{UNLIM_DB_FILE.stem}.bak-{datetime.now():%Y%m%d-%H%M%S}{UNLIM_DB_FILE.suffix}"
     )
@@ -2278,6 +2469,58 @@ def api_updates_open(payload: UpdateOpenPayload):
     except Exception as e:
         return {"ok": False, "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")}
     return {"ok": True}
+
+
+class UpdateInstallPayload(BaseModel):
+    restart: bool = True
+
+
+@app.post("/api/updates/download")
+def api_updates_download():
+    """Загружает установщик последнего релиза с проверкой SHA-256."""
+    log_action("updates/download")
+    ok, msg = update_manager.start()
+    return {"ok": ok, "msg": msg, "state": update_manager.state}
+
+
+@app.post("/api/updates/cancel")
+def api_updates_cancel():
+    ok, msg = update_manager.cancel()
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/updates/install")
+def api_updates_install(payload: UpdateInstallPayload):
+    """Запускает помощника, который поставит обновление после закрытия программы."""
+    log_action("updates/install")
+    if os.name != "nt":
+        return {"ok": False, "msg": "Установка обновлений поддерживается только в Windows."}
+    if not paths.IS_FROZEN:
+        return {"ok": False, "msg": "Запущено из исходников — обновитесь через git."}
+    if update_manager.state != "ready" or not update_manager.path:
+        return {"ok": False, "msg": "Обновление ещё не загружено."}
+    payload_path = Path(update_manager.path)
+    if not payload_path.is_file():
+        return {"ok": False, "msg": "Файл обновления пропал из временной папки."}
+    with tm._lock:
+        busy = [slot for slot, task in tm._tasks.items() if task.alive()]
+    if busy or pipeline.is_running() or full_cycle.is_running():
+        return {"ok": False, "msg": "Сначала остановите скачивание."}
+    try:
+        helper = write_update_helper(payload_path, update_manager.kind, payload.restart)
+        flags = (getattr(subprocess, "DETACHED_PROCESS", 0) |
+                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-WindowStyle", "Hidden", "-File", str(helper)],
+            cwd=str(helper.parent), close_fds=True, creationflags=flags,
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "msg": f"Не удалось запустить установку: {e}"}
+    update_manager.state = "installing"
+    threading.Timer(1.5, _quit_application).start()
+    version_text = update_manager.version or "новую версию"
+    return {"ok": True, "msg": f"Программа закроется и установит {version_text}."}
 
 
 @app.post("/api/reports/open")

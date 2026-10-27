@@ -319,6 +319,8 @@ class Application:
         self._shutdown_done = False
         self._shutdown_lock = threading.Lock()
         self._tray_hint_shown = False
+        # Кнопка «Обновить» ставит обновление после закрытия приложения.
+        webui.register_shutdown_hook(self.quit_app)
 
     # -- запуск ------------------------------------------------------------
 

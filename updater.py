@@ -1,22 +1,33 @@
-"""Проверка обновлений через GitHub Releases.
+"""Обновления через GitHub Releases.
 
-Приложение не устанавливает обновления само: оно сравнивает свою версию с
-последним релизом и даёт пользователю ссылку на страницу загрузки. Так мы не
-выполняем неподписанный код автоматически.
+Проверка версии, а по запросу пользователя — загрузка установщика с проверкой
+SHA-256. Сам по себе код ничего не запускает: установку запускает webui только
+после явного подтверждения в интерфейсе.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import version
 
 API_URL = f"https://api.github.com/repos/{version.APP_REPO}/releases/latest"
 MAX_RESPONSE_BYTES = 1_000_000
+MAX_ASSET_BYTES = 400 * 1024 * 1024
+DOWNLOAD_CHUNK = 256 * 1024
 TIMEOUT = 8
+
+ASSET_URL_PREFIX = f"https://github.com/{version.APP_REPO}/releases/download/"
+
+_INSTALLER_RE = re.compile(r"^YandexDiskBackup-(\d+(?:\.\d+)*)-setup\.exe$")
+_PORTABLE_RE = re.compile(r"^YandexDiskBackup-(\d+(?:\.\d+)*)-portable\.zip$")
+_SHA_RE = re.compile(r"^([0-9a-fA-F]{64})\b")
 
 _VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)*)$")
 
@@ -59,6 +70,110 @@ def release_url_allowed(url: str) -> bool:
     return bool(version.APP_REPO) and str(url or "").startswith(prefix)
 
 
+def asset_url_allowed(url: str) -> bool:
+    """Скачиваем файлы только из раздела загрузок нашего репозитория."""
+    return bool(version.APP_REPO) and str(url or "").startswith(ASSET_URL_PREFIX)
+
+
+def release_assets(data: dict) -> dict:
+    """Файлы релиза, у которых адрес ведёт в наш репозиторий."""
+    out = {}
+    for asset in data.get("assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "")
+        url = str(asset.get("browser_download_url") or "")
+        if not name or not asset_url_allowed(url):
+            continue
+        if asset.get("state") and asset.get("state") != "uploaded":
+            continue
+        out[name] = {"name": name, "url": url,
+                     "size": int(asset.get("size") or 0)}
+    return out
+
+
+def pick_assets(data: dict, latest: tuple[int, ...]):
+    """Возвращает (setup.exe, portable.zip) именно этой версии."""
+    assets = release_assets(data)
+    setup = portable = None
+    for name, asset in assets.items():
+        match = _INSTALLER_RE.match(name)
+        if match and parse_version(match.group(1)) == latest:
+            setup = dict(asset)
+            sha = assets.get(name + ".sha256")
+            setup["sha256_url"] = sha["url"] if sha else ""
+        match = _PORTABLE_RE.match(name)
+        if match and parse_version(match.group(1)) == latest:
+            portable = dict(asset)
+            sha = assets.get(name + ".sha256")
+            portable["sha256_url"] = sha["url"] if sha else ""
+    return setup, portable
+
+
+def _request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(
+        url, headers={"User-Agent": f"{version.APP_NAME}/{version.APP_VERSION}"}
+    )
+
+
+def fetch_sha256(url: str) -> str:
+    """Читает опубликованную контрольную сумму ('<hex>  <файл>')."""
+    if not asset_url_allowed(url):
+        raise ValueError("недопустимый адрес контрольной суммы")
+    with urllib.request.urlopen(_request(url), timeout=TIMEOUT * 2) as response:
+        raw = response.read(4096)
+    match = _SHA_RE.match(raw.decode("utf-8", errors="replace").strip())
+    if not match:
+        raise ValueError("контрольная сумма в неизвестном формате")
+    return match.group(1).lower()
+
+
+def download_asset(url: str, dest, expected_sha256: str = "",
+                   progress=None, cancel=None) -> str:
+    """Скачивает файл релиза во временный путь и сверяет SHA-256.
+
+    progress(done_bytes, total_bytes) вызывается по ходу загрузки.
+    Возвращает фактический хеш. При любой ошибке .part-файл удаляется.
+    """
+    if not asset_url_allowed(url):
+        raise ValueError("недопустимый адрес загрузки")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    digest = hashlib.sha256()
+    done = 0
+    try:
+        with urllib.request.urlopen(_request(url), timeout=60) as response:
+            total = int(response.headers.get("Content-Length") or 0)
+            if total > MAX_ASSET_BYTES:
+                raise ValueError("файл обновления слишком большой")
+            with part.open("wb") as handle:
+                while True:
+                    if cancel is not None and cancel.is_set():
+                        raise RuntimeError("загрузка отменена")
+                    chunk = response.read(DOWNLOAD_CHUNK)
+                    if not chunk:
+                        break
+                    done += len(chunk)
+                    if done > MAX_ASSET_BYTES:
+                        raise ValueError("файл обновления слишком большой")
+                    handle.write(chunk)
+                    digest.update(chunk)
+                    if progress is not None:
+                        progress(done, total)
+        actual = digest.hexdigest()
+        if expected_sha256 and actual != expected_sha256.lower():
+            raise ValueError("контрольная сумма не совпала — файл не установлен")
+        os.replace(part, dest)
+        return actual
+    except Exception:
+        try:
+            part.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def check_for_updates() -> dict:
     """Возвращает статус проверки. Сетевые ошибки не считаются сбоем программы."""
     current_raw = version.APP_VERSION
@@ -72,6 +187,8 @@ def check_for_updates() -> dict:
         "published_at": "",
         "notes": "",
         "error": "",
+        "installer": None,
+        "portable": None,
     }
 
     current = parse_version(current_raw)
@@ -112,8 +229,11 @@ def check_for_updates() -> dict:
         url = result["url"]
 
     notes = str(data.get("body") or "")
+    installer, portable = pick_assets(data, latest)
     result.update(
         ok=True,
+        installer=installer,
+        portable=portable,
         latest=".".join(str(part) for part in latest),
         update_available=is_newer(latest, current),
         url=url,

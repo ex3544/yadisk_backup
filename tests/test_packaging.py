@@ -91,7 +91,7 @@ def test_launch_modes_are_visually_separate_with_button_hints():
     # Повторное сканирование Безлимита должно дополнять базу, а не пересоздавать.
     assert "Дополнить её новыми файлами из облака" in html
     assert "Статусы уже скачанных и пропущенных файлов сохранятся" in html
-    assert "база дополнится — статусы уже скачанных сохранятся" in html
+    assert "дополнится — статусы уже скачанных сохранятся" in html
     assert "JSON.stringify({ mode: mode, force: false })" in html
 
     for wrapper in (
@@ -104,7 +104,7 @@ def test_launch_modes_are_visually_separate_with_button_hints():
 
     for hint in (
         "Диск + Безлимит сразу, без ручной настройки.",
-        "Обновляет список файлов в облаке. Ничего не скачивает.",
+        "Обходит облако и добавляет новые файлы. Ничего не скачивает.",
         "Скачивает только выбранный раздел по настройкам выше.",
         "Прерывает скачивание. Прогресс и очередь сохраняются.",
     ):
@@ -202,3 +202,58 @@ def test_exit_code_one_is_not_treated_as_user_stop():
 
     codes = [int(n) for n in re.findall(r"code === (-?\d+)", body)]
     assert codes == [-15, -2, 143, 130, 15]
+
+
+def test_console_scroll_sticks_only_when_user_is_at_bottom():
+    """Журнал не должен прыгать вниз, пока пользователь читает выше."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="pipeline-console" tabindex="0"' in html
+    assert "const CONSOLE_STICK_PX = 24;" in html
+    assert "_consoleStick[id] = consoleNearBottom(el);" in html
+
+    marker = html.index("function setConsole(id, text){")
+    body = html[marker : html.index("\n}\n", marker)]
+    assert "const stick = _consoleStick[id] !== false;" in body
+    assert "if(stick)" in body
+
+
+def test_backup_buttons_are_equal_and_ask_confirmation():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    marker = html.index('id="backup-create-all"')
+    tag_start = html.rindex("<button", 0, marker)
+    tag = html[tag_start : html.index(">", tag_start) + 1]
+    assert "primary" not in tag
+
+    assert "if(!confirm(`Создать ${what}?" in html
+    assert "backup-create-disk','backup-create-unlim','backup-create-all'" in html
+    assert "buttons.forEach(b => { b.disabled = false; });" in html
+
+
+def test_cloud_sync_button_is_called_update_file_list():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "Сформировать базу данных" not in html
+    assert "Обновить список файлов" in html
+    assert "Обходит облако и добавляет новые файлы. Ничего не скачивает." in html
+
+
+def test_update_card_can_install_from_the_app():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    for marker in ('id="update-install-btn"', 'id="update-apply-btn"',
+                   'id="update-progress-bar"', 'id="update-cancel-btn"'):
+        assert marker in html
+    assert "renderUpdate(s.update);" in html
+    assert "Установка из этой сборки недоступна" in html
+
+
+def test_release_workflow_publishes_checksums():
+    workflow = (PROJECT_DIR / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Get-FileHash -Algorithm SHA256" in workflow
+    assert "installer_output/YandexDiskBackup-*-setup.exe.sha256" in workflow
+    assert "dist/YandexDiskBackup-*-portable.zip.sha256" in workflow

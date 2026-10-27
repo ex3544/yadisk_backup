@@ -64,6 +64,16 @@ jobs:
       - name: Build portable ZIP
         run: python build_portable.py
 
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path installer_output/YandexDiskBackup-*-setup.exe, dist/YandexDiskBackup-*-portable.zip
+          foreach ($f in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $f.FullName).Hash.ToLower()
+            "$hash  $($f.Name)" | Out-File -Encoding ascii -NoNewline "$($f.FullName).sha256"
+            Write-Host "$($f.Name): $hash"
+          }
+
       - name: Extract release notes from CHANGELOG
         run: python tools/changelog_for_tag.py "${{ github.ref_name }}" release_notes.md
 
@@ -72,6 +82,8 @@ jobs:
         with:
           files: |
             installer_output/YandexDiskBackup-*-setup.exe
+            installer_output/YandexDiskBackup-*-setup.exe.sha256
             dist/YandexDiskBackup-*-portable.zip
+            dist/YandexDiskBackup-*-portable.zip.sha256
           body_path: release_notes.md
           fail_on_unmatched_files: true
