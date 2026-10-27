@@ -437,6 +437,10 @@ def test_write_update_helper_portable_expands_archive(tmp_path):
 
 
 def test_update_install_refuses_when_not_frozen(monkeypatch):
+    import os
+
+    if os.name != "nt":
+        pytest.skip("установка обновлений только для Windows")
     monkeypatch.setattr(webui.paths, "IS_FROZEN", False)
     out = webui.api_updates_install(webui.UpdateInstallPayload())
     assert out["ok"] is False
