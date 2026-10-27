@@ -71,6 +71,22 @@
   .pill.run .dot{background:var(--yellow);animation:pulse 1.4s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
+  /* Описание пилюли при наведении: мгновенное, в цветах приложения */
+  .pill{position:relative}
+  .pill[data-tip]{cursor:help}
+  .pill[data-tip]:hover::after{
+    content:attr(data-tip);
+    position:absolute;top:calc(100% + 8px);right:0;z-index:900;
+    width:max-content;max-width:300px;min-width:180px;
+    padding:9px 11px;border-radius:10px;
+    background:var(--surface2);color:var(--text);
+    border:0.5px solid var(--hairline-strong);
+    box-shadow:0 14px 36px rgba(0,0,0,.55);
+    font-size:12.5px;font-weight:400;line-height:1.45;
+    text-align:left;white-space:normal;
+    pointer-events:none;
+  }
+
   /* ── Tabs (segmented control) ── */
   .tabs{
     display:flex;gap:2px;
@@ -256,6 +272,8 @@
     .panel[data-panel="setup"] .card:nth-child(2){grid-column:1;grid-row:2}
     .panel[data-panel="setup"] .card:nth-child(3){grid-column:2;grid-row:2}
     .panel[data-panel="setup"] .card:nth-child(4){grid-column:2;grid-row:1}
+    /* Сторож свободного места — на всю ширину под папками */
+    .panel[data-panel="setup"] .card:nth-child(5){grid-column:1 / -1;grid-row:3}
   }
 
   .stat{
@@ -513,6 +531,31 @@
   .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
 
+  /* ── Подтверждение действия ──
+     Компактное окно в цветах приложения, чуть ниже центра экрана.
+     Flex-центрирование учитывает margin, поэтому сдвиг вниз — половина margin. */
+  .confirm-box{
+    max-width:430px;padding:20px 22px;margin-top:14vh;
+    animation:confirmin .16s ease;
+  }
+  @keyframes confirmin{from{opacity:0}to{opacity:1}}
+  .confirm-box .modal-title{font-size:19px;margin-bottom:6px}
+  .confirm-box .modal-sub{font-size:14px;margin-bottom:0;white-space:pre-line}
+  .confirm-box .modal-actions{margin-top:18px;justify-content:flex-end}
+  .confirm-box .modal-actions button{min-width:120px;justify-content:center}
+
+  /* Кнопки сброса очереди: подпись и счётчик в две строки, без вылета вправо */
+  .reset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+  .reset-btn{
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+    padding:9px 14px;border-radius:14px;
+    font-size:13px;line-height:1.25;text-align:center;
+    white-space:normal;min-width:0;word-break:break-word;
+  }
+  .reset-btn .reset-count{font-weight:700;font-size:13px;opacity:.85}
+
+  #ctrl-workers-hint.warn{color:var(--yellow)}
+
   /* ── Диагностика ── */
   .diag-pre{
     display:none;white-space:pre-wrap;word-break:break-word;
@@ -620,7 +663,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.3</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.4</span></div>
     </div>
   </div>
   <div class="pills">
@@ -628,11 +671,12 @@
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
     </span>
-    <span class="pill" id="pill-token"><span class="dot"></span><span id="pill-token-text">токен</span></span>
-    <span class="pill" id="pill-cookies"><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
-    <span class="pill ok" id="pill-speed" style="display:none"><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
-    <span class="pill ok" id="pill-session" style="display:none"><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
-    <span class="pill ok" id="pill-disk-session" style="display:none"><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
+    <span class="pill" id="pill-token" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Задать: «Настройки» → OAuth-токен."><span class="dot"></span><span id="pill-token-text">токен</span></span>
+    <span class="pill" id="pill-cookies" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Обновить: «Настройки» → Cookies браузера."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
+    <span class="pill ok" id="pill-speed" style="display:none" data-tip="Скорость скачивания Безлимита в этом запуске."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
+    <span class="pill ok" id="pill-session" style="display:none" data-tip="Итог текущего запуска Безлимита: скачано успешно / пропущено."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
+    <span class="pill ok" id="pill-disk-session" style="display:none" data-tip="Итог текущего запуска обычного Диска: скачано успешно / с ошибкой."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
+    <span class="pill" id="pill-watchdog" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Включить и задать порог: «Настройки» → Сторож свободного места."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
   </div>
 </header>
 
@@ -779,10 +823,10 @@
     <!-- 3. Настройки батчей и потоков -->
     <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:10px">
       <div>
-        <label class="field-label">Потоков:</label>
-        <input type="number" id="ctrl-workers" value="10" min="1" max="24" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+        <label class="field-label" title="Сколько файлов Безлимита скачивать одновременно. Обычный Диск и сортировка число потоков подбирают сами по свободной памяти.">Потоков (Безлимит):</label>
+        <input type="number" id="ctrl-workers" value="10" min="1" max="24" title="Касается только Безлимита: обычный Диск и сортировка подбирают потоки сами по свободной памяти." style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
         <div id="ctrl-workers-hint" class="field-label" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);line-height:1.3">
-          Рекомендуется: —
+          Выбрано: — · рекомендую —
         </div>
       </div>
       <div>
@@ -833,46 +877,6 @@
     </div>
     </div><!-- /launch-card manual -->
 
-    <!-- Сторож свободного места -->
-    <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <div style="flex:1;min-width:240px">
-        <div style="font-weight:700;font-size:15px;color:var(--text)">🛡 Сторож свободного места</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">
-          Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога.
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <label class="field-label" style="margin:0">Порог:</label>
-        <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-          <option value="10">10 ГБ</option>
-          <option value="20">20 ГБ</option>
-          <option value="30">30 ГБ</option>
-          <option value="50" selected>50 ГБ</option>
-          <option value="100">100 ГБ</option>
-        </select>
-        <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
-        <span id="watchdog-status" class="badge">—</span>
-      </div>
-    </div>
-
-    <!-- Сброс статусов обратно в очередь -->
-    <div class="card" style="padding:14px 16px">
-      <div style="font-weight:700;font-size:15px;color:var(--text)">♻ Сброс очереди</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-top:3px;margin-bottom:10px">
-        Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('disk_failed')">
-          Ошибочные Диска (<span id="reset-disk-failed">0</span>)
-        </button>
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_skipped')">
-          Пропущенные Безлимита (<span id="reset-unlim-skipped">0</span>)
-        </button>
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_stuck')">
-          Зависшие Безлимита (<span id="reset-unlim-stuck">0</span>)
-        </button>
-      </div>
-    </div>
   </div><!-- /home-control -->
 
   <div class="card" id="pipeline-card" style="margin-bottom:12px">
@@ -1104,6 +1108,23 @@
     </div>
   </div>
 
+  <div class="card" id="watchdog-card">
+    <div class="card-title">🛡 Сторож свободного места</div>
+    <div class="card-sub">Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога. Состояние всегда видно в шапке окна.</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <label class="field-label" style="margin:0">Порог:</label>
+      <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+        <option value="10">10 ГБ</option>
+        <option value="20">20 ГБ</option>
+        <option value="30">30 ГБ</option>
+        <option value="50" selected>50 ГБ</option>
+        <option value="100">100 ГБ</option>
+      </select>
+      <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
+      <span id="watchdog-status" class="badge">—</span>
+    </div>
+  </div>
+
 </div>
 
 <!-- ============= ДИАГНОСТИКА ============= -->
@@ -1193,6 +1214,22 @@
     </div>
   </div>
 
+  <div class="card" id="reset-queue-card">
+    <div class="card-title">♻ Сброс очереди</div>
+    <div class="card-sub">Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
+    <div class="reset-grid">
+      <button class="reset-btn" onclick="resetStatus('disk_failed')">
+        <span>Ошибочные Диска</span><span class="reset-count" id="reset-disk-failed">0</span>
+      </button>
+      <button class="reset-btn" onclick="resetStatus('unlim_skipped')">
+        <span>Пропущенные Безлимита</span><span class="reset-count" id="reset-unlim-skipped">0</span>
+      </button>
+      <button class="reset-btn" onclick="resetStatus('unlim_stuck')">
+        <span>Зависшие Безлимита</span><span class="reset-count" id="reset-unlim-stuck">0</span>
+      </button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">Пересоздание базы Безлимита</div>
     <div class="card-sub">Крайняя мера. Нужна, только если база повреждена и «Обновить список файлов» не помогает.</div>
@@ -1256,6 +1293,18 @@
   </div>
 </footer>
 
+</div>
+
+<!-- ============= ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ ============= -->
+<div class="modal-backdrop confirm-backdrop" id="confirm-modal" onclick="if(event.target===this) askConfirmClose(false)">
+  <div class="modal-box confirm-box" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="modal-title" id="confirm-title">Подтверждение</div>
+    <div class="modal-sub" id="confirm-text"></div>
+    <div class="modal-actions">
+      <button class="ghost" id="confirm-cancel-btn" onclick="askConfirmClose(false)">Отмена</button>
+      <button class="primary" id="confirm-ok-btn" onclick="askConfirmClose(true)">Подтвердить</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============= ПЕРВЫЙ ЗАПУСК ============= -->
@@ -1345,6 +1394,53 @@ function toast(msg, type='ok'){
   setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
+// ────── Подтверждение действия ──────
+// Замена системному confirm(): окно в цветах приложения, чуть ниже центра.
+// Возвращает Promise<boolean>; Enter — подтвердить, Esc или клик мимо — отмена.
+let _confirmResolve = null;
+
+function askConfirm(opts){
+  const o = (opts && typeof opts === 'object')
+    ? opts
+    : { text: opts == null ? '' : String(opts) };
+  const modal = document.getElementById('confirm-modal');
+  const okBtn = document.getElementById('confirm-ok-btn');
+  const cancelBtn = document.getElementById('confirm-cancel-btn');
+  // Страховка: если разметки нет, ведём себя как обычный confirm().
+  if(!modal || !okBtn || !cancelBtn){
+    return Promise.resolve(window.confirm(o.text || 'Подтвердить действие?'));
+  }
+  if(_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+  document.getElementById('confirm-title').textContent = o.title || 'Подтверждение';
+  document.getElementById('confirm-text').textContent = o.text || '';
+  okBtn.textContent = o.ok || 'Подтвердить';
+  cancelBtn.textContent = o.cancel || 'Отмена';
+  okBtn.className = o.danger ? 'danger' : 'primary';
+  modal.classList.add('show');
+  setTimeout(()=>{ try { cancelBtn.focus(); } catch(e){} }, 30);
+  return new Promise(resolve => { _confirmResolve = resolve; });
+}
+
+function askConfirmClose(result){
+  const modal = document.getElementById('confirm-modal');
+  if(modal) modal.classList.remove('show');
+  const resolve = _confirmResolve;
+  _confirmResolve = null;
+  if(resolve) resolve(!!result);
+}
+
+document.addEventListener('keydown', (e)=>{
+  const modal = document.getElementById('confirm-modal');
+  if(!modal || !modal.classList.contains('show')) return;
+  if(e.key === 'Escape'){
+    e.preventDefault();
+    askConfirmClose(false);
+  } else if(e.key === 'Enter'){
+    e.preventDefault();
+    askConfirmClose(true);
+  }
+});
+
 // ────── tabs ──────
 document.querySelectorAll('.tab').forEach(t=>{
   t.onclick=()=>{
@@ -1387,10 +1483,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       document.getElementById('btn-save-cookies').disabled = true;
     });
   }
-  // Ручное изменение числа потоков отключает автоподстановку рекомендации.
+  // Ручное изменение числа потоков отключает автоподстановку рекомендации,
+  // но подсказка «выбрано / рекомендую» пересчитывается сразу, а не по опросу.
   const wkIn = document.getElementById('ctrl-workers');
   if(wkIn){
-    wkIn.addEventListener('input', ()=>{ window._workersTouched = true; });
+    wkIn.addEventListener('input', ()=>{
+      window._workersTouched = true;
+      if(window._lastStatus) renderRamHint(window._lastStatus.ram);
+    });
   }
 });
 
@@ -1430,7 +1530,12 @@ async function saveToken(){
 }
 
 async function clearToken(){
-  if(!confirm('Удалить сохранённый токен?')) return;
+  const sure = await askConfirm({
+    title: 'Удалить токен?',
+    text: 'Сохранённый OAuth-токен будет удалён с этого компьютера.\nСкачивание обычного Диска без него работать не будет.',
+    ok: 'Удалить', danger: true
+  });
+  if(!sure) return;
   try {
     const r = await fetch('/api/config/token/clear',{method:'POST'});
     const d = await r.json();
@@ -1549,7 +1654,12 @@ async function saveCookies(){
 }
 
 async function clearCookies(){
-  if(!confirm('Удалить сохранённые куки?')) return;
+  const sure = await askConfirm({
+    title: 'Удалить куки?',
+    text: 'Сохранённые cookies будут удалены.\nБезлимитное хранилище перестанет скачиваться, пока вы не вставите новые.',
+    ok: 'Удалить', danger: true
+  });
+  if(!sure) return;
   try {
     const r = await fetch('/api/cookies/clear',{method:'POST'});
     const d = await r.json();
@@ -1614,7 +1724,11 @@ async function bigStart(){
   refresh();
 }
 async function bigStop(){
-  if(!confirm('Остановить выполнение?')) return;
+  if(!await askConfirm({
+    title: 'Остановить выполнение?',
+    text: 'Текущая задача будет прервана. Прогресс и очередь сохраняются — можно продолжить позже.',
+    ok: 'Остановить'
+  })) return;
   const r=await fetch('/api/start/stop',{method:'POST'});
   const d=await r.json();
   toast(d.msg, d.ok?'ok':'err');
@@ -1769,7 +1883,11 @@ async function startCustomDownload(){
 }
 
 async function stopCustomDownload(){
-  if(!confirm('Остановить процесс скачивания?')) return;
+  if(!await askConfirm({
+    title: 'Остановить скачивание?',
+    text: 'Процесс будет прерван. Прогресс и очередь сохраняются — можно продолжить позже.',
+    ok: 'Остановить'
+  })) return;
   try {
     const r = await fetch('/api/download/stop', { method: 'POST' });
     const d = await r.json();
@@ -1786,23 +1904,37 @@ async function startCustomScan(){
   if (mode === 'unlim') {
     const totalFiles = window._lastStatus?.unlim?.db?.total || 0;
     if (totalFiles > 0) {
-      if (!confirm(
-        `База Безлимита уже существует: ${totalFiles.toLocaleString('ru')} файлов.\n\n` +
-        `Дополнить её новыми файлами из облака (займёт ~2-3 минуты)?\n\n` +
-        `Статусы уже скачанных и пропущенных файлов сохранятся — заново скачивать их не придётся.`
-      )) {
+      if (!await askConfirm({
+        title: 'Дополнить базу Безлимита?',
+        text: `В базе уже ${totalFiles.toLocaleString('ru')} файлов.\n\n` +
+          `Дополнить её новыми файлами из облака (займёт ~2-3 минуты)?\n\n` +
+          `Статусы уже скачанных и пропущенных файлов сохранятся — заново скачивать их не придётся.`,
+        ok: 'Дополнить'
+      })) {
         toast(`База не изменена (${totalFiles.toLocaleString('ru')} файлов). Можно запускать скачивание.`, 'ok');
         return;
       }
     } else {
-      if(!confirm(`Обновить список файлов для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
+      if(!await askConfirm({
+        title: 'Обновить список файлов?',
+        text: `Скрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).\n\nРаздел: ${label}.`,
+        ok: 'Обновить'
+      })) return;
     }
   } else {
     const totalFiles = window._lastStatus?.disk?.db?.total || 0;
     if (totalFiles > 0) {
-      if (!confirm(`База данных обычного Диска (state.db) уже существует (${totalFiles.toLocaleString('ru')} файлов).\n\nОбновить список из облака? Новые файлы добавятся, статусы уже скачанных сохранятся.`)) return;
+      if (!await askConfirm({
+        title: 'Обновить список файлов?',
+        text: `База обычного Диска (state.db) уже существует: ${totalFiles.toLocaleString('ru')} файлов.\n\nОбновить список из облака? Новые файлы добавятся, статусы уже скачанных сохранятся.`,
+        ok: 'Обновить'
+      })) return;
     } else {
-      if(!confirm(`Обновить список файлов для ${label}?\n\nСкрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.`)) return;
+      if(!await askConfirm({
+        title: 'Обновить список файлов?',
+        text: `Скрипт запросит у Яндекса полный список файлов и папок через официальный API Яндекс.Диска.\n\nРаздел: ${label}.`,
+        ok: 'Обновить'
+      })) return;
     }
   }
 
@@ -2025,7 +2157,11 @@ async function clearLog(kind){
 
 async function clearDb(kind){
   const label = kind === 'disk' ? 'обычного диска' : 'безлимита';
-  if(!confirm(`Полностью очистить БД ${label}?\n\nЭто удалит:\n• список найденных файлов\n• статус скачивания\n• логи задач\n\nУже скачанные файлы на диске останутся.\n\nПродолжить?`)) return;
+  if(!await askConfirm({
+    title: `Очистить базу ${label}?`,
+    text: 'Это удалит:\n• список найденных файлов\n• статус скачивания\n• логи задач\n\nУже скачанные файлы на диске останутся.',
+    ok: 'Очистить', danger: true
+  })) return;
   try {
     const url = kind === 'disk' ? '/api/disk/clear' : '/api/unlim/clear';
     const r = await fetch(url, {method:'POST'});
@@ -2550,6 +2686,8 @@ async function toggleWatchdog(){
 function renderWatchdog(w){
   const btn = document.getElementById('watchdog-btn');
   const st = document.getElementById('watchdog-status');
+  const pill = document.getElementById('pill-watchdog');
+  const pillText = document.getElementById('pill-watchdog-text');
   if(!w || !btn || !st) return;
   if(w.running){
     btn.textContent = 'Выключить сторож';
@@ -2573,6 +2711,20 @@ function renderWatchdog(w){
   }
   st.textContent = txt;
   st.className = cls;
+
+  // Пилюля в шапке: состояние сторожа видно на любой вкладке.
+  if(pill && pillText){
+    if(w.state === 'triggered'){
+      pill.className = 'pill err';
+      pillText.textContent = '🛡 свободно мало';
+    } else if(w.running){
+      pill.className = 'pill ok';
+      pillText.textContent = `🛡 ${w.threshold_gb} ГБ`;
+    } else {
+      pill.className = 'pill';
+      pillText.textContent = '🛡 выкл';
+    }
+  }
 }
 
 function renderResetCounts(s){
@@ -2591,7 +2743,11 @@ async function resetStatus(what){
     unlim_skipped: 'пропущенные файлы Безлимита',
     unlim_stuck: 'зависшие файлы Безлимита'
   };
-  if(!confirm(`Сбросить ${labels[what] || what} обратно в очередь?\n\nМеняются только статусы в базе — скачанные файлы не удаляются.`)) return;
+  if(!await askConfirm({
+    title: 'Сбросить очередь?',
+    text: `Вернуть ${labels[what] || what} обратно в очередь?\n\nМеняются только статусы в базе — скачанные файлы не удаляются.`,
+    ok: 'Сбросить'
+  })) return;
   try {
     const r = await fetch('/api/reset', {
       method: 'POST',
@@ -2611,13 +2767,18 @@ function renderRamHint(ram){
   const inp = document.getElementById('ctrl-workers');
   if(!ram || !hint || !inp) return;
   const rec = parseInt(ram.recommended_workers, 10);
+  if(!Number.isFinite(rec)) return;
+  // Подставляем рекомендацию, пока пользователь сам не менял поле.
+  if(!window._workersTouched) inp.value = rec;
+  const val = parseInt(inp.value, 10);
   const parts = [];
   if(ram.total_gb != null) parts.push(`ОЗУ ${ram.total_gb} ГБ`);
   if(ram.available_gb != null) parts.push(`свободно ${ram.available_gb} ГБ`);
-  hint.textContent = `Рекомендуется: ${rec} ${workersWord(rec)}` +
-                     (parts.length ? ` (${parts.join(', ')})` : '');
-  // Подставляем рекомендацию, пока пользователь сам не менял поле.
-  if(!window._workersTouched) inp.value = rec;
+  // Живая перерисовка по вводу: видно, что выбрано и насколько это выше совета.
+  let text = `Выбрано: ${Number.isFinite(val) ? val : '—'} · рекомендую ${rec}`;
+  if(parts.length) text += ` (${parts.join(', ')})`;
+  hint.textContent = text;
+  hint.classList.toggle('warn', Number.isFinite(val) && val > rec);
 }
 
 async function refresh(){
@@ -3221,9 +3382,11 @@ async function cancelUpdateDownload(){
 
 async function applyUpdate(){
   const u = _lastUpdate || {};
-  if(!confirm(`Установить версию ${u.version || ''}?
-
-Программа закроется, установит обновление и снова откроется. Настройки и скачанные файлы не затрагиваются.`)) return;
+  if(!await askConfirm({
+    title: `Установить версию ${u.version || ''}?`,
+    text: 'Программа закроется, установит обновление и снова откроется.\nНастройки и скачанные файлы не затрагиваются.',
+    ok: 'Установить'
+  })) return;
   try{
     const r = await fetch('/api/updates/install', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -3328,7 +3491,11 @@ async function buildDiagnostics(){
 }
 
 async function sendDiagnostics(){
-  if(!confirm('Отправить диагностический отчёт в Telegram? Файл уйдёт через сервер отчётов и будет содержать сведения о компьютере и последние ошибки. Токен и куки в него не включаются.')){
+  if(!await askConfirm({
+    title: 'Отправить отчёт?',
+    text: 'Файл уйдёт через сервер отчётов и будет содержать сведения о компьютере и последние ошибки.\nТокен и куки в него не включаются.',
+    ok: 'Отправить'
+  })){
     return;
   }
   setDiagBusy(true, 'Собираю и отправляю отчёт…');
@@ -3421,9 +3588,11 @@ async function createBackup(scope){
   const titles = {disk:'Копия Диска', unlim:'Копия Безлимита', all:'Общая копия'};
   const what = {disk:'копию базы Диска', unlim:'копию базы Безлимита',
                 all:'общую копию обеих баз'}[scope] || 'копию';
-  if(!confirm(`Создать ${what}?
-
-Копия сохранится в папку данных приложения. Файлы на дисках и рабочие базы не изменяются.`)) return;
+  if(!await askConfirm({
+    title: 'Создать резервную копию?',
+    text: `Будет создана ${what}.\n\nКопия сохранится в папку данных приложения. Файлы на дисках и рабочие базы не изменяются.`,
+    ok: 'Создать'
+  })) return;
   const buttons = ['backup-create-disk','backup-create-unlim','backup-create-all']
     .map(id => document.getElementById(id)).filter(Boolean);
   buttons.forEach(b => { b.disabled = true; });
@@ -3538,7 +3707,11 @@ async function confirmRestoreBackup(){
 async function deleteBackup(i){
   const b = _backups[i];
   if(!b) return;
-  if(!confirm(`Удалить копию «${b.scope_title} от ${fmtBackupDate(b.created_at)}»?\n\nВосстановить её будет невозможно.`)){
+  if(!await askConfirm({
+    title: 'Удалить резервную копию?',
+    text: `«${b.scope_title} от ${fmtBackupDate(b.created_at)}»\n\nВосстановить её будет невозможно.`,
+    ok: 'Удалить', danger: true
+  })){
     return;
   }
   try{
@@ -3579,7 +3752,11 @@ async function rebuildUnlimDb(){
   const btn = document.getElementById('rebuild-btn');
   const status = document.getElementById('rebuild-status');
   if(!inp || inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ') return;
-  if(!confirm('Пересоздать базу Безлимита с нуля?\n\nСтатусы скачанных и пропущенных файлов будут потеряны, история ошибок исчезнет. Сами файлы на диске останутся.')){
+  if(!await askConfirm({
+    title: 'Пересоздать базу Безлимита?',
+    text: 'Статусы скачанных и пропущенных файлов будут потеряны, история ошибок исчезнет.\nСами файлы на диске останутся.',
+    ok: 'Пересоздать', danger: true
+  })){
     return;
   }
   btn.disabled = true;
@@ -3636,7 +3813,11 @@ async function saveReportKey(){
 }
 
 async function clearReportKey(){
-  if(!confirm('Удалить ключ отправки? Собирать отчёты можно будет и дальше, но кнопка «Отправить» перестанет работать.')) return;
+  if(!await askConfirm({
+    title: 'Удалить ключ отправки?',
+    text: 'Собирать отчёты можно будет и дальше, но кнопка «Отправить» перестанет работать.',
+    ok: 'Удалить', danger: true
+  })) return;
   try{
     const r = await fetch('/api/diagnostics/key', {
       method:'POST', headers:{'Content-Type':'application/json'},

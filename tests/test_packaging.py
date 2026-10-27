@@ -226,9 +226,99 @@ def test_backup_buttons_are_equal_and_ask_confirmation():
     tag = html[tag_start : html.index(">", tag_start) + 1]
     assert "primary" not in tag
 
-    assert "if(!confirm(`Создать ${what}?" in html
+    assert "await askConfirm({" in html
+    assert "Будет создана ${what}" in html
     assert "backup-create-disk','backup-create-unlim','backup-create-all'" in html
     assert "buttons.forEach(b => { b.disabled = false; });" in html
+
+
+def test_confirmation_uses_themed_dialog_instead_of_native_confirm():
+    """Все подтверждения — через своё окно в цветах приложения."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="confirm-modal"' in html
+    assert "function askConfirm(opts)" in html
+    assert "function askConfirmClose(result)" in html
+    assert html.count("await askConfirm(") >= 14
+    # Системный confirm() остался только как страховка.
+    assert "window.confirm(" in html
+    assert "!confirm(" not in html
+
+    # Компактное окно чуть ниже центра, в цветах приложения.
+    assert ".confirm-box{" in html
+    assert "max-width:430px" in html
+    assert "margin-top:14vh" in html
+    # Enter подтверждает, Esc и клик мимо — отмена.
+    assert "e.key === 'Escape'" in html
+    assert "e.key === 'Enter'" in html
+    assert "askConfirmClose(false)" in html
+
+
+def test_header_pills_have_hover_hints():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert ".pill[data-tip]:hover::after{" in html
+    assert "content:attr(data-tip)" in html
+    for pill in ("pill-token", "pill-cookies", "pill-speed",
+                 "pill-session", "pill-disk-session", "pill-watchdog"):
+        marker = f'id="{pill}"'
+        tag_start = html.rindex("<span", 0, html.index(marker))
+        tag = html[tag_start : html.index(">", tag_start) + 1]
+        assert "data-tip=" in tag, pill
+
+
+def _panel_html(html: str, name: str) -> str:
+    start = html.index(f'data-panel="{name}">')
+    nxt = html.find("<!-- =============", start)
+    return html[start : nxt if nxt != -1 else len(html)]
+
+
+def test_watchdog_lives_in_settings_with_status_pill():
+    """Сторож перенесён в «Настройки», в шапке осталась его пилюля."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    home = _panel_html(html, "home")
+    setup = _panel_html(html, "setup")
+    assert 'id="watchdog-card"' in setup
+    assert 'id="watchdog-threshold"' in setup
+    assert 'id="watchdog-btn"' in setup
+    assert 'id="watchdog-threshold"' not in home
+
+    # Пилюля показывает состояние, но не управляет сторожем.
+    assert "pill-watchdog-text" in html
+    assert "pillText.textContent = `🛡 ${w.threshold_gb} ГБ`" in html
+    assert "pillText.textContent = '🛡 выкл'" in html
+
+
+def test_queue_reset_lives_in_diagnostics_and_fits_its_buttons():
+    """Сброс очереди — рядом с пересозданием базы, подписи не вылезают вправо."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    home = _panel_html(html, "home")
+    diag = _panel_html(html, "diagnostics")
+    assert 'id="reset-queue-card"' in diag
+    assert 'onclick="resetStatus(' in diag
+    assert 'id="reset-queue-card"' not in home
+
+    # Кнопки: подпись и счётчик в две строки, без nowrap и жёсткой ширины.
+    assert ".reset-btn{" in html
+    assert "flex-direction:column" in html
+    assert "white-space:normal" in html
+    assert "min-width:200px" not in html
+    for counter in ("reset-disk-failed", "reset-unlim-skipped", "reset-unlim-stuck"):
+        assert f'id="{counter}"' in diag
+
+
+def test_workers_hint_reacts_to_the_chosen_value():
+    """Подсказка потоков показывает выбранное и рекомендованное число."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "Выбрано: — · рекомендую —" in html
+    assert "Выбрано: ${Number.isFinite(val) ? val : '—'} · рекомендую ${rec}" in html
+    assert "renderRamHint(window._lastStatus.ram);" in html
+    assert "hint.classList.toggle('warn'" in html
+    # Поле честно подписано: только Безлимит.
+    assert "Потоков (Безлимит):" in html
 
 
 def test_cloud_sync_button_is_called_update_file_list():
