@@ -82,6 +82,15 @@ def test_launch_modes_are_visually_separate_with_button_hints():
     assert "Сначала новые, затем сбойные" in html
     assert "ошибки Диска (failed) и пропущенные Безлимита (skipped)" in html
 
+    # Автосортировка доступна в обоих режимах и честно предупреждает о времени.
+    assert 'id="all-sort-after"' in html
+    assert "document.getElementById('all-sort-after').checked" in html
+    assert html.count("Может занять много времени. Можно не включать") == 2
+
+    # Пересоздание базы Безлимита не должно выглядеть безобидным обновлением.
+    assert "Будут потеряны статусы" in html
+    assert "Файлы на диске не удаляются." in html
+
     for wrapper in (
         "ctrl-all-wrap",
         "ctrl-scan-wrap",

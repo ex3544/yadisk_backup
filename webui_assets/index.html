@@ -676,6 +676,13 @@
           <div class="btn-hint" style="text-align:left;margin-top:4px">
             Повтор один раз за прогон: ошибки Диска (failed) и пропущенные Безлимита (skipped).
           </div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;cursor:pointer">
+            <input type="checkbox" id="all-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
+            Разложить фото/видео по датам после скачивания
+          </label>
+          <div class="btn-hint" style="text-align:left;margin-top:4px">
+            Может занять много времени. Можно не включать: отсортируйте позже на вкладке «Организация», когда всё скачается.
+          </div>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px">
             <span style="color:var(--text-secondary)">Прогонов:</span>
             <input type="number" id="all-runs" value="1" min="1" max="20" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
@@ -742,6 +749,9 @@
         <input type="checkbox" id="unlim-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
         Разложить фото/видео по датам сразу после скачивания (Фото/год/месяц, без поиска дубликатов)
       </label>
+      <div class="btn-hint" style="grid-column:1/-1;text-align:left;margin-top:2px">
+        Может занять много времени. Можно не включать: отсортируйте позже на вкладке «Организация», когда всё скачается.
+      </div>
     </div>
 
     <!-- 3. Настройки батчей и потоков -->
@@ -1578,7 +1588,7 @@ function toggleModeOpts(){
 
 async function startDownloadAll(){
   const retry = document.getElementById('all-retry-skipped').checked;
-  const sort_after = document.getElementById('unlim-sort-after').checked;
+  const sort_after = document.getElementById('all-sort-after').checked;
   const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
   const runs = Math.max(1, Math.min(parseInt(document.getElementById('all-runs').value, 10) || 1, 20));
   try {
@@ -1663,12 +1673,19 @@ async function startCustomScan(){
       const choice = confirm(
         `База данных Безлимита (unlim_state.db) уже существует на диске и содержит ${totalFiles.toLocaleString('ru')} файлов!\n\n` +
         `• Чтобы использовать готовую базу — нажмите «Отмена» и затем «Запустить скачивание».\n` +
-        `• Чтобы ПЕРЕСОЗДАТЬ базу заново с нуля (займёт ~2-3 минуты) — нажмите «OK».`
+        `• Чтобы ПЕРЕСОЗДАТЬ базу заново с нуля (займёт ~2-3 минуты) — нажмите «OK».\n\n` +
+        `ВНИМАНИЕ: пересоздание удалит историю статусов (что уже скачано) и пути к файлам. Сами файлы на диске останутся, но программа может скачивать их повторно.`
       );
       if (!choice) {
         toast(`Используется существующая база (${totalFiles.toLocaleString('ru')} файлов). Можно запускать скачивание.`, 'ok');
         return;
       }
+      if (!confirm(
+        `Точно пересоздать базу Безлимита?\n\n` +
+        `Будут потеряны статусы ${totalFiles.toLocaleString('ru')} файлов: какие уже скачаны и где они лежат. ` +
+        `Файлы на диске не удаляются.\n\n` +
+        `Если не уверены — нажмите «Отмена».`
+      )) return;
       force = true;
     } else {
       if(!confirm(`Сформировать базу данных для ${label}?\n\nСкрипт запросит у Яндекса полный список всех файлов в облаке и заполнит базу со статусом pending (для ~4800 кластеров сбор займёт ~2-3 минуты).`)) return;
