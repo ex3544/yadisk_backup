@@ -516,7 +516,7 @@ def test_per_user_install_updates_with_setup_not_zip(monkeypatch, tmp_path):
 
 @pytest.mark.skipif(os.name != "nt", reason="реестр Windows")
 def test_unpacked_zip_copy_is_portable(monkeypatch, tmp_path):
-    exe_dir = _fake_exe(monkeypatch, tmp_path, "Downloads/YandexDiskBackup")
+    _fake_exe(monkeypatch, tmp_path, "Downloads/YandexDiskBackup")
     monkeypatch.setattr(
         webui, "installed_app_dirs",
         lambda *_a, **_k: [tmp_path / "Program Files" / "YandexDiskBackup"],
