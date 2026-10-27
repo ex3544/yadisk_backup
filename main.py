@@ -228,7 +228,10 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
         )
 
         # Один повторный проход для сбойных файлов (по --retry).
-        if args.retry and counters["failed"] > 0:
+        # Сбрасываем и старые failed, даже если в этом проходе новых падений не
+        # было: иначе при пустой очереди pending галочка «повторить сбойные»
+        # ничего не делала, хотя в базе оставались failed-файлы.
+        if args.retry:
             n = state.reset_failed_to_pending()
             if n > 0:
                 print(f"\n— Повторный проход для сбойных файлов ({n} → pending)…")
@@ -241,7 +244,7 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
                 for k in counters:
                     counters[k] += counters2.get(k, 0)
             else:
-                print("\n— Сбойных файлов не осталось, повтор не нужен.")
+                print("\n— Сбойных файлов нет, повтор не нужен.")
     except KeyboardInterrupt:
         print("\nПрервано пользователем. Прогресс сохранён в state.db.")
         state.close()

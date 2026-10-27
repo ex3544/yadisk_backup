@@ -192,6 +192,34 @@
   .big-btn.danger:hover:not(:disabled){background:#ff5a4f}
   .big-btn.danger:disabled{background:var(--surface2);box-shadow:none;color:var(--text-tertiary)}
 
+  /* ── Режимы запуска: «скачать всё» и «пошаговый» — разные блоки ── */
+  .home-control{display:flex;flex-direction:column;gap:12px}
+  .home-control > .card{margin-bottom:0}
+  .launch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:0 2px}
+  .launch-card{padding:16px;margin-bottom:0}
+  .launch-card.auto{
+    border-color:rgba(10,132,255,.4);
+    background:linear-gradient(135deg,rgba(10,132,255,.10),rgba(94,92,230,.10));
+  }
+  .launch-title{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    font-size:16px;font-weight:700;color:var(--text);margin-bottom:5px;
+  }
+  .launch-badge{
+    font-size:11px;font-weight:600;letter-spacing:.02em;white-space:nowrap;
+    padding:2px 8px;border-radius:99px;color:var(--text-secondary);
+    background:var(--surface2);border:0.5px solid var(--hairline-strong);
+  }
+  .launch-card.auto .launch-badge{
+    background:rgba(10,132,255,.16);border-color:rgba(10,132,255,.45);color:var(--accent);
+  }
+  .launch-desc{font-size:12.5px;line-height:1.45;color:var(--text-secondary);margin-bottom:12px}
+  .launch-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+  .launch-action{display:flex;flex-direction:column;flex:1;min-width:180px}
+  .launch-action .big-btn{width:100%;justify-content:center}
+  .btn-hint{font-size:11.5px;line-height:1.35;color:var(--text-tertiary);margin-top:6px;text-align:center}
+  .launch-card.auto .btn-hint{color:var(--text-secondary)}
+
   .opts{display:flex;justify-content:center;gap:8px;margin-top:18px;flex-wrap:wrap}
   .opt-pill{
     display:inline-flex;align-items:center;gap:7px;
@@ -579,7 +607,7 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.8</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.4.9</span></div>
     </div>
   </div>
   <div class="pills">
@@ -619,8 +647,8 @@
 <!-- ============= ГЛАВНАЯ ============= -->
 <div class="panel active" data-panel="home">
 
-  <div class="card home-control" style="padding:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  <div class="home-control">
+    <div class="launch-head">
       <div>
         <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
         <div class="card-sub" style="margin-bottom:0">Прямое скоростное скачивание оригиналов без прокси (Sergey Pukhir)</div>
@@ -632,66 +660,44 @@
       </div>
     </div>
 
-    <!-- Баннер: скачать всё (Диск + Безлимит) одновременно -->
-    <div style="margin-bottom:12px;padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,rgba(10,132,255,.14),rgba(94,92,230,.14));border:1px solid rgba(10,132,255,.35);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <div style="flex:1;min-width:220px">
-        <div style="font-weight:700;font-size:15px;color:var(--text)">🚀 Скачать всё автоматически</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">Обычный Диск (все файлы) + Безлимит (все фото и видео) — одновременно.</div>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;cursor:pointer">
-          <input type="checkbox" id="all-retry-skipped" style="width:16px;height:16px;accent-color:var(--accent)">
-          Сначала новые, затем пропущенные (повтор)
-        </label>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px">
-          <span style="color:var(--text-secondary)">Прогонов:</span>
-          <input type="number" id="all-runs" value="1" min="1" max="20" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
-          <span id="all-runs-status" style="font-size:12px;color:var(--text-secondary)"></span>
-        </div>
+    <!-- Быстрый запуск: всё сразу, без ручной настройки -->
+    <div class="card launch-card auto">
+      <div class="launch-title">🚀 Быстрый запуск: скачать всё <span class="launch-badge">1 клик</span></div>
+      <div class="launch-desc">
+        Обычный Диск (все файлы) + Безлимит (все фото и видео) одновременно.
+        Настройки пошагового режима ниже не используются.
       </div>
-      <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()" style="flex:0 0 auto;min-width:200px">
-        <svg class="ico"><use href="#i-play"/></svg>Скачать всё
-      </button>
-    </div>
-
-    <!-- Сторож свободного места -->
-    <div class="card" style="padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <div style="flex:1;min-width:240px">
-        <div style="font-weight:700;font-size:15px;color:var(--text)">🛡 Сторож свободного места</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">
-          Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога.
+      <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:230px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer">
+            <input type="checkbox" id="all-retry-skipped" style="width:16px;height:16px;accent-color:var(--accent)">
+            Сначала новые, затем сбойные
+          </label>
+          <div class="btn-hint" style="text-align:left;margin-top:4px">
+            Повтор один раз за прогон: ошибки Диска (failed) и пропущенные Безлимита (skipped).
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px">
+            <span style="color:var(--text-secondary)">Прогонов:</span>
+            <input type="number" id="all-runs" value="1" min="1" max="20" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+            <span id="all-runs-status" style="font-size:12px;color:var(--text-secondary)"></span>
+          </div>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <label class="field-label" style="margin:0">Порог:</label>
-        <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-          <option value="10">10 ГБ</option>
-          <option value="20">20 ГБ</option>
-          <option value="30">30 ГБ</option>
-          <option value="50" selected>50 ГБ</option>
-          <option value="100">100 ГБ</option>
-        </select>
-        <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
-        <span id="watchdog-status" class="badge">—</span>
+        <div id="ctrl-all-wrap" class="launch-action" style="flex:0 0 auto;min-width:210px">
+          <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()">
+            <svg class="ico"><use href="#i-play"/></svg>Скачать всё
+          </button>
+          <div class="btn-hint">Диск + Безлимит сразу, без ручной настройки.</div>
+        </div>
       </div>
     </div>
 
-    <!-- Сброс статусов обратно в очередь -->
-    <div class="card" style="padding:14px 16px;margin-bottom:12px">
-      <div style="font-weight:700;font-size:15px;color:var(--text)">♻ Сброс очереди</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-top:3px;margin-bottom:10px">
-        Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.
+    <!-- Пошаговый режим: только выбранный раздел и очередь -->
+    <div class="card launch-card manual">
+      <div class="launch-title">🧭 Пошаговый режим <span class="launch-badge">вручную</span></div>
+      <div class="launch-desc">
+        Скачивает только выбранный раздел по настройкам ниже. «Сформировать базу данных»
+        лишь обновляет список файлов в облаке и ничего не скачивает.
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('disk_failed')">
-          Ошибочные Диска (<span id="reset-disk-failed">0</span>)
-        </button>
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_skipped')">
-          Пропущенные Безлимита (<span id="reset-unlim-skipped">0</span>)
-        </button>
-        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_stuck')">
-          Зависшие Безлимита (<span id="reset-unlim-stuck">0</span>)
-        </button>
-      </div>
-    </div>
 
     <!-- 1. Что скачиваем -->
     <div style="margin-bottom:10px">
@@ -773,18 +779,69 @@
     </div>
 
     <!-- 4. Кнопки запуска/остановки/сканирования -->
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <button id="ctrl-scan-btn" class="big-btn ghost" onclick="startCustomScan()" style="flex:1" title="Собрать список всех файлов из облака в базу данных без скачивания">
-        <svg class="ico"><use href="#i-search"/></svg>Сформировать базу данных
-      </button>
-      <button id="ctrl-start-btn" class="big-btn" onclick="startCustomDownload()" style="flex:1.2">
-        <svg class="ico"><use href="#i-play"/></svg>Запустить скачивание
-      </button>
-      <button id="ctrl-stop-btn" class="big-btn danger" style="display:none;flex:1" onclick="stopCustomDownload()">
-        <svg class="ico"><use href="#i-stop"/></svg>Остановить
-      </button>
+    <div class="launch-actions">
+      <div id="ctrl-scan-wrap" class="launch-action">
+        <button id="ctrl-scan-btn" class="big-btn ghost" onclick="startCustomScan()" title="Собрать список всех файлов из облака в базу данных без скачивания">
+          <svg class="ico"><use href="#i-search"/></svg>Сформировать базу данных
+        </button>
+        <div class="btn-hint">Обновляет список файлов в облаке. Ничего не скачивает.</div>
+      </div>
+      <div id="ctrl-start-wrap" class="launch-action" style="flex:1.2">
+        <button id="ctrl-start-btn" class="big-btn" onclick="startCustomDownload()">
+          <svg class="ico"><use href="#i-play"/></svg>Запустить скачивание
+        </button>
+        <div class="btn-hint">Скачивает только выбранный раздел по настройкам выше.</div>
+      </div>
+      <div id="ctrl-stop-wrap" class="launch-action" style="display:none">
+        <button id="ctrl-stop-btn" class="big-btn danger" onclick="stopCustomDownload()">
+          <svg class="ico"><use href="#i-stop"/></svg>Остановить
+        </button>
+        <div class="btn-hint">Прерывает скачивание. Прогресс и очередь сохраняются.</div>
+      </div>
     </div>
-  </div>
+    </div><!-- /launch-card manual -->
+
+    <!-- Сторож свободного места -->
+    <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <div style="font-weight:700;font-size:15px;color:var(--text)">🛡 Сторож свободного места</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:3px">
+          Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога.
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label class="field-label" style="margin:0">Порог:</label>
+        <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+          <option value="10">10 ГБ</option>
+          <option value="20">20 ГБ</option>
+          <option value="30">30 ГБ</option>
+          <option value="50" selected>50 ГБ</option>
+          <option value="100">100 ГБ</option>
+        </select>
+        <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
+        <span id="watchdog-status" class="badge">—</span>
+      </div>
+    </div>
+
+    <!-- Сброс статусов обратно в очередь -->
+    <div class="card" style="padding:14px 16px">
+      <div style="font-weight:700;font-size:15px;color:var(--text)">♻ Сброс очереди</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:3px;margin-bottom:10px">
+        Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('disk_failed')">
+          Ошибочные Диска (<span id="reset-disk-failed">0</span>)
+        </button>
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_skipped')">
+          Пропущенные Безлимита (<span id="reset-unlim-skipped">0</span>)
+        </button>
+        <button class="big-btn ghost" style="flex:1;min-width:200px" onclick="resetStatus('unlim_stuck')">
+          Зависшие Безлимита (<span id="reset-unlim-stuck">0</span>)
+        </button>
+      </div>
+    </div>
+  </div><!-- /home-control -->
 
   <div class="card" id="pipeline-card" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -2473,6 +2530,10 @@ async function refresh(){
     const scanBtn = document.getElementById('ctrl-scan-btn');
     const stopBtn = document.getElementById('ctrl-stop-btn');
     const allBtn = document.getElementById('ctrl-all-btn');
+    const startWrap = document.getElementById('ctrl-start-wrap');
+    const scanWrap = document.getElementById('ctrl-scan-wrap');
+    const stopWrap = document.getElementById('ctrl-stop-wrap');
+    const allWrap = document.getElementById('ctrl-all-wrap');
     const ps = document.getElementById('pipeline-state');
     const pStep = document.getElementById('pipeline-step');
     const pTime = document.getElementById('pipeline-time');
@@ -2497,6 +2558,10 @@ async function refresh(){
       if (scanBtn) scanBtn.style.display = 'none';
       if (allBtn) allBtn.style.display = 'none';
       if (stopBtn) stopBtn.style.display = 'inline-flex';
+      if (startWrap) startWrap.style.display = 'none';
+      if (scanWrap) scanWrap.style.display = 'none';
+      if (allWrap) allWrap.style.display = 'none';
+      if (stopWrap) stopWrap.style.display = 'flex';
       if (ps) { ps.textContent = runningSlots.length > 1 ? `идёт ${runningSlots.length} процесса` : 'идёт процесс'; ps.className = 'badge run'; }
 
       if (runningSlots.length > 0) {
@@ -2519,6 +2584,10 @@ async function refresh(){
       if (scanBtn) scanBtn.style.display = 'inline-flex';
       if (allBtn) allBtn.style.display = 'inline-flex';
       if (stopBtn) stopBtn.style.display = 'none';
+      if (startWrap) startWrap.style.display = 'flex';
+      if (scanWrap) scanWrap.style.display = 'flex';
+      if (allWrap) allWrap.style.display = 'flex';
+      if (stopWrap) stopWrap.style.display = 'none';
 
       const lastTask = (unlimTask && unlimTask.exit_code !== null) ? unlimTask :
                        ((diskTask && diskTask.exit_code !== null) ? diskTask : null);

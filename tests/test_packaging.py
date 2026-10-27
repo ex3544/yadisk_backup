@@ -66,6 +66,43 @@ def test_organize_stop_button_disabled_until_sorting_runs():
     assert ".big-btn.danger:disabled" in html
 
 
+def test_launch_modes_are_visually_separate_with_button_hints():
+    """«Скачать всё» и пошаговый режим — разные блоки, у кнопок есть подсказки."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'class="card launch-card auto"' in html
+    assert 'class="card launch-card manual"' in html
+    assert "Быстрый запуск: скачать всё" in html
+    assert "Пошаговый режим" in html
+    assert "1 клик" in html
+    assert "вручную" in html
+    assert "Настройки пошагового режима ниже не используются." in html
+
+    # Галочка больше не притворяется общей: объясняем, что повторяются и failed, и skipped.
+    assert "Сначала новые, затем сбойные" in html
+    assert "ошибки Диска (failed) и пропущенные Безлимита (skipped)" in html
+
+    for wrapper in (
+        "ctrl-all-wrap",
+        "ctrl-scan-wrap",
+        "ctrl-start-wrap",
+        "ctrl-stop-wrap",
+    ):
+        assert f'id="{wrapper}"' in html
+
+    for hint in (
+        "Диск + Безлимит сразу, без ручной настройки.",
+        "Обновляет список файлов в облаке. Ничего не скачивает.",
+        "Скачивает только выбранный раздел по настройкам выше.",
+        "Прерывает скачивание. Прогресс и очередь сохраняются.",
+    ):
+        assert hint in html
+
+    # Подсказки прячутся вместе с кнопками, а не остаются висеть.
+    assert "startWrap.style.display = 'none'" in html
+    assert "stopWrap.style.display = 'flex'" in html
+
+
 def test_readme_offers_ready_build_before_python_source():
     readme = (PROJECT_DIR / "README.md").read_text(encoding="utf-8")
     assert "Python устанавливать не нужно" in readme
