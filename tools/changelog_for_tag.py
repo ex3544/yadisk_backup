@@ -29,7 +29,7 @@ def extract(version: str) -> str:
         section = text[start:end].strip()
         return f"{section}\n\nПолная история изменений: {CHANGELOG_URL}\n"
     return (
-        f"## Yandex.Disk Backup {version}\n\n"
+        f"## Yad.backup {version}\n\n"
         f"Список изменений для этой версии не найден.\n\n"
         f"Полная история изменений: {CHANGELOG_URL}\n"
     )

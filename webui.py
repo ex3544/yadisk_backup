@@ -113,7 +113,7 @@ def public_config(cfg: dict) -> dict:
     return result
 
 
-app = FastAPI(title="Yandex.Disk Backup UI")
+app = FastAPI(title="Yad.backup UI")
 
 
 # ── CSRF защита: блокируем POST с чужих сайтов ─────────────────────────────
@@ -1147,7 +1147,7 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
             "[System.Windows.MessageBox]::Show("
             "'Не удалось установить обновление (код ' + $setup.ExitCode + "
             "'). Программа осталась прежней версии.', "
-            "'Yandex.Disk Backup') } catch { } }"
+            "'Yad.backup') } catch { } }"
         )
     if kind == "portable":
         restart_lines = ["Start-Process -FilePath " + _ps_quote(exe)] if restart else []
@@ -2780,7 +2780,7 @@ def main():
     port = int(os.getenv("WEBUI_PORT", "8000"))
     url = f"http://{_browser_host(host)}:{port}"
     print("=" * 64)
-    print("  Yandex.Disk Backup by Sergey Pukhir (ex3544, vovapuh's son)")
+    print("  Yad.backup by Sergey Pukhir (ex3544, vovapuh's son)")
     print(f"  Дашборд: {url}")
     print("=" * 64)
     print("  Быстрые ссылки для настройки:")

@@ -1,4 +1,4 @@
-; Inno Setup 6: установщик Yandex.Disk Backup.
+; Inno Setup 6: установщик Yad.backup (прежнее название — Yandex.Disk Backup).
 ;
 ; Сборка (из корня проекта, после PyInstaller):
 ;   python build_installer.py
@@ -9,14 +9,17 @@
 ; ReportKey попадает в собранный установщик, но НЕ в репозиторий.
 
 #ifndef AppVersion
-  #define AppVersion "35.5.5"
+  #define AppVersion "35.5.6"
 #endif
 
 #ifndef ReportKey
   #define ReportKey ""
 #endif
 
-#define AppName "Yandex.Disk Backup"
+; Название для пользователя: в окне, ярлыках и «Приложениях».
+; AppId, папка установки и имя exe остаются прежними — иначе Windows сочла бы
+; это другой программой и обновление поверх старой версии не сработало бы.
+#define AppName "Yad.backup"
 #define AppPublisher "Sergey Pukhir (ex3544, vovapuh's son)"
 #define AppExeName "YandexDiskBackup.exe"
 #define AppIdValue "{{8E4A3F42-6C1D-4A7E-9F2B-3544A1B2C3D4}"
@@ -67,6 +70,9 @@ Name: "startup"; Description: "Запускать при входе в Windows";
 [InstallDelete]
 ; Чистое обновление: старые модули _internal не должны смешиваться с новыми.
 Type: filesandordirs; Name: "{app}\_internal"
+; Ярлыки от прежнего названия программы, чтобы не висели два сразу.
+Type: files; Name: "{userprograms}\Yandex.Disk Backup.lnk"
+Type: files; Name: "{userdesktop}\Yandex.Disk Backup.lnk"
 
 [Files]
 Source: "..\dist\YandexDiskBackup\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

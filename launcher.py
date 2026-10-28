@@ -304,6 +304,64 @@ def enable_webview_context_menu() -> bool:
     return _patch_edgechromium_context_menu(edgechromium)
 
 
+# ── Оформление окна ─────────────────────────────────────────────────────────
+
+# Заголовок окна: pywebview красит его по теме Windows, и на светлой теме над
+# чёрным интерфейсом висит белая полоса. Перекрашиваем принудительно.
+_DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+_DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+_DWMWA_BORDER_COLOR = 34
+_DWMWA_CAPTION_COLOR = 35
+_CAPTION_COLOR = 0x000A0A0D  # COLORREF 0x00BBGGRR — фон приложения #0a0a0d
+_BORDER_COLOR = 0x002C2C2E  # цвет карточек #2c2c2e
+
+
+def _darken_window_frame(window) -> None:
+    """Тёмный заголовок и рамка окна, в цвет интерфейса.
+
+    Вызывается по событию before_show, пока окно ещё не показано: если сделать
+    это позже, Windows 10 вызов принимает (возвращает 0), но заголовок так и
+    остаётся белым. Windows 10 умеет только чёрный заголовок, точный цвет
+    задать нельзя; Windows 11 понимает и цвет фона, и цвет рамки.
+    """
+    if os.name != "nt":
+        return
+    try:
+        native = getattr(window, "native", None)
+        hwnd = int(native.Handle.ToInt32()) if native is not None else 0
+        if not hwnd:
+            return
+        dwm = ctypes.windll.dwmapi
+        dwm.DwmSetWindowAttribute.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        ]
+        handle = ctypes.c_void_p(hwnd)
+        on = ctypes.c_int(1)
+        res = dwm.DwmSetWindowAttribute(
+            handle, _DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(on), ctypes.sizeof(on)
+        )
+        if res != 0:  # Windows 10 до 20H1 знает только старый номер атрибута
+            dwm.DwmSetWindowAttribute(
+                handle,
+                _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD,
+                ctypes.byref(on),
+                ctypes.sizeof(on),
+            )
+        caption = ctypes.c_uint(_CAPTION_COLOR)
+        dwm.DwmSetWindowAttribute(
+            handle, _DWMWA_CAPTION_COLOR, ctypes.byref(caption), ctypes.sizeof(caption)
+        )
+        border = ctypes.c_uint(_BORDER_COLOR)
+        dwm.DwmSetWindowAttribute(
+            handle, _DWMWA_BORDER_COLOR, ctypes.byref(border), ctypes.sizeof(border)
+        )
+    except Exception:
+        log.debug("Не удалось перекрасить заголовок окна", exc_info=True)
+
+
 class Application:
     """Связывает окно, трей и сервер; владеет корректным завершением."""
 
@@ -348,6 +406,10 @@ class Application:
             text_select=True,
         )
         self.window.events.closing += self._on_closing
+        # Тёмный заголовок окна: своя тема pywebview включается только при
+        # тёмной теме Windows, а интерфейс у нас чёрный всегда. Именно
+        # before_show — после показа заголовок перекрасить уже нельзя.
+        self.window.events.before_show += lambda: _darken_window_frame(self.window)
         icon_path = paths.ASSETS_DIR / "app.ico"
         webview.start(
             gui="edgechromium" if os.name == "nt" else None,

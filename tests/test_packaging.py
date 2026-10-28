@@ -152,30 +152,100 @@ def test_unlim_rebuild_lives_in_diagnostics_with_warning_and_backup():
     assert "renderRebuildCounts(s);" in html
 
 
-def test_backups_block_creates_and_restores_with_warnings():
-    """Копии баз: создание по отдельности и вместе, восстановление с подтверждением."""
+def test_backups_live_in_organize_and_restore_keeps_its_guard():
+    """Копии баз переехали в «Организацию», восстановление осталось с вводом слова."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    diag_start = html.index('<div class="panel" data-panel="diagnostics">')
-    diag_html = html[diag_start:]
-    assert "Резервные копии баз" in diag_html
-    assert "Сами файлы не копируются" in diag_html
+    organize = _panel_html(html, "organize")
+    diagnostics = _panel_html(html, "diagnostics")
+    assert "Резервные копии баз" in organize
+    assert "Резервные копии баз" not in diagnostics
+    assert "Сами файлы не копируются" in organize
 
     for scope in ("disk", "unlim", "all"):
-        assert f"createBackup('{scope}')" in diag_html
-    assert 'id="backups-list"' in diag_html
-    assert 'id="backup-restore-panel"' in diag_html
+        assert f"createBackup('{scope}')" in organize
+    assert 'id="backups-list"' in organize
+    assert 'id="backup-restore-panel"' in organize
 
-    assert "Введите ВОССТАНОВИТЬ" in diag_html
-    assert "Файлы на дисках не удаляются" in diag_html
-    assert "программа сама сохранит её копию" in diag_html
-    assert "разложенные сортировкой — скачаются заново" in diag_html
+    assert "Введите ВОССТАНОВИТЬ" in organize
+    assert "Файлы на дисках не удаляются" in organize
+    assert "программа сама сохранит её копию" in organize
+    assert "разложенные сортировкой — скачаются заново" in organize
 
     assert "inp.value.trim().toUpperCase() !== 'ВОССТАНОВИТЬ'" in html
     assert "/api/backups/restore" in html
     assert "fetch('/api/backups')" in html
     assert "function loadBackups()" in html
-    assert "if(t.dataset.tab === 'diagnostics') loadBackups();" in html
+    # Список грузится при входе на вкладку «Организация», а не «Диагностика».
+    assert "if(t.dataset.tab === 'organize'){ toggleBackupsList(false); loadBackups(); }" in html
+    assert "if(t.dataset.tab === 'diagnostics') loadBackups();" not in html
+
+
+def test_backups_list_is_collapsed_by_default():
+    """Список копий свёрнут всегда и раскрывается только по нажатию."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    organize = _panel_html(html, "organize")
+
+    assert 'id="backups-toggle"' in organize
+    assert 'id="backups-wrap" style="display:none"' in organize
+    assert 'id="backups-count"' in organize
+    assert "let _backupsOpen = false;" in html
+    assert "function toggleBackupsList(force)" in html
+    assert "wrap.style.display = _backupsOpen ? 'block' : 'none';" in html
+    # Вход на вкладку снова сворачивает список.
+    assert "toggleBackupsList(false); loadBackups();" in html
+    # Созданную копию показываем сразу.
+    assert "toggleBackupsList(true);" in html
+
+
+def test_backups_and_reset_buttons_explain_themselves_without_confirm():
+    """У шести кнопок — подсказки вместо окна подтверждения."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    for button_id, needle in (
+        ("backup-create-disk", "createBackup('disk')"),
+        ("backup-create-unlim", "createBackup('unlim')"),
+        ("backup-create-all", "createBackup('all')"),
+    ):
+        marker = html.index(f'id="{button_id}"')
+        tag_start = html.rindex("<button", 0, marker)
+        tag = html[tag_start : html.index(">", tag_start) + 1]
+        assert "tipnode" in tag, button_id
+        assert "data-tip=" in tag, button_id
+        assert needle in tag, button_id
+
+    # У трёх кнопок сброса тоже есть подсказки.
+    for what in ("disk_failed", "unlim_skipped", "unlim_stuck"):
+        marker = html.index(f"resetStatus('{what}')")
+        tag_start = html.rindex("<button", 0, marker)
+        tag = html[tag_start : html.index(">", tag_start) + 1]
+        assert "tipnode" in tag and "data-tip=" in tag, what
+
+    # Ни создание копии, ни сброс больше не спрашивают подтверждения.
+    for func in ("async function createBackup(scope){", "async function resetStatus(what){"):
+        body = html[html.index(func) : html.index("\n}", html.index(func))]
+        assert "askConfirm" not in body, func
+
+
+def test_watchdog_is_a_compact_strip_next_to_the_token():
+    """Сторож — одна строка между «OAuth-токен» и «Папка для Безлимита»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    setup = _panel_html(html, "setup")
+
+    token_pos = setup.index("OAuth-токен")
+    watchdog_pos = setup.index('id="watchdog-card"')
+    unlim_pos = setup.index("Папка для Безлимита")
+    assert token_pos < watchdog_pos < unlim_pos
+
+    # Компактная строка, а не карточка с абзацем описания.
+    assert 'class="watchdog-line"' in setup
+    assert "Проверяет диск раз в 30 секунд и останавливает выгрузку" not in setup
+    assert "проверяет свободное место раз в 30 секунд" in setup  # это уже подсказка
+    assert "#watchdog-card{padding:10px 14px}" in html
+    # Две независимые колонки, чтобы сторож не уезжал вниз за высокий блок кук.
+    assert 'class="setup-col"' in setup
+    assert ".setup-col{display:flex;flex-direction:column;gap:12px}" in html
+    assert 'data-panel="setup"] .card:nth-child(' not in html
 
 
 def test_download_all_is_a_full_cycle_in_ui():
@@ -218,7 +288,8 @@ def test_console_scroll_sticks_only_when_user_is_at_bottom():
     assert "if(stick)" in body
 
 
-def test_backup_buttons_are_equal_and_ask_confirmation():
+def test_backup_buttons_are_equal_and_lock_while_copying():
+    """Все три кнопки копий одинаковые, на время создания блокируются."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     marker = html.index('id="backup-create-all"')
@@ -226,8 +297,6 @@ def test_backup_buttons_are_equal_and_ask_confirmation():
     tag = html[tag_start : html.index(">", tag_start) + 1]
     assert "primary" not in tag
 
-    assert "await askConfirm({" in html
-    assert "Будет создана ${what}" in html
     assert "backup-create-disk','backup-create-unlim','backup-create-all'" in html
     assert "buttons.forEach(b => { b.disabled = false; });" in html
 
@@ -380,3 +449,69 @@ def test_release_workflow_publishes_checksums():
     assert "Get-FileHash -Algorithm SHA256" in workflow
     assert "installer_output/YandexDiskBackup-*-setup.exe.sha256" in workflow
     assert "dist/YandexDiskBackup-*-portable.zip.sha256" in workflow
+
+
+def test_window_frame_and_scrollbars_match_the_dark_theme():
+    """Чёрный интерфейс не должен обрамляться белой системной рамкой."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "color-scheme:dark;" in html
+    assert "::-webkit-scrollbar{" in html
+    assert "::-webkit-scrollbar-thumb{" in html
+
+    launcher = (PROJECT_DIR / "launcher.py").read_text(encoding="utf-8")
+    assert "_DWMWA_USE_IMMERSIVE_DARK_MODE = 20" in launcher
+    assert "_DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19" in launcher
+    assert "DwmSetWindowAttribute" in launcher
+    assert "_CAPTION_COLOR = 0x000A0A0D" in launcher
+    # Только before_show: после показа окна Windows 10 вызов игнорирует.
+    assert (
+        "self.window.events.before_show += lambda: _darken_window_frame(self.window)"
+        in launcher
+    )
+
+
+def test_step_mode_fields_have_themed_hints():
+    """У всех четырёх полей — своя плашка вместо системной белой подсказки."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    for field in ("ctrl-workers", "ctrl-batch-size", "ctrl-batches", "ctrl-timeout"):
+        marker = html.index(f'id="{field}"')
+        tag_start = html.rindex("<input", 0, marker)
+        tag = html[tag_start : html.index(">", tag_start) + 1]
+        assert "title=" not in tag, field
+
+        label_start = html.rindex("<label", 0, tag_start)
+        label = html[label_start : html.index("</label>", label_start)]
+        assert "tip-i" in label, field
+        assert "data-tip=" in label, field
+
+    # Системные подсказки из интерфейса убраны полностью.
+    assert 'title="' not in html
+    assert ".tipnode[data-tip]:hover::after{" in html
+    assert ".tip-i{" in html
+
+
+def test_app_is_named_yad_backup():
+    """Сменилась только вывеска: установка и папка данных остались прежними."""
+    from version import APP_NAME
+
+    assert APP_NAME == "Yad.backup"
+
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "<title>Yad.backup" in html
+    assert '<div class="brand-name">Yad.backup</div>' in html
+
+    iss = (PROJECT_DIR / "installer" / "yadisk_backup.iss").read_text(encoding="utf-8")
+    assert '#define AppName "Yad.backup"' in iss
+    # Эти три вещи менять нельзя: иначе это будет другая программа для Windows
+    # и обновление поверх установленной копии не сработает.
+    assert '#define AppExeName "YandexDiskBackup.exe"' in iss
+    assert r"DefaultDirName={localappdata}\Programs\YandexDiskBackup" in iss
+    assert "8E4A3F42-6C1D-4A7E-9F2B-3544A1B2C3D4" in iss
+    # Старые ярлыки от прежнего названия убираются.
+    assert r'"{userprograms}\Yandex.Disk Backup.lnk"' in iss
+    assert r'"{userdesktop}\Yandex.Disk Backup.lnk"' in iss
+
+    import paths
+
+    assert paths.APP_NAME == "YandexDiskBackup"

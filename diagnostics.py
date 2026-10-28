@@ -589,7 +589,7 @@ def write_report(report: dict | None = None) -> Path:
         zf.writestr("report.txt", summary)
         zf.writestr(
             "README.txt",
-            "Диагностический отчёт Yandex.Disk Backup.\n"
+            "Диагностический отчёт Yad.backup.\n"
             "report.txt — краткая сводка, report.json — полные данные.\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )

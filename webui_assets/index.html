@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Yandex.Disk Backup — Sergey Pukhir (ex3544, vovapuh's son)</title>
+<title>Yad.backup — Sergey Pukhir (ex3544, vovapuh's son)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root{
@@ -24,8 +24,21 @@
     --orange:#ff9f0a;
     --purple:#bf5af2;
     --pink:#ff375f;
+    /* Тёмные системные виджеты: выпадающие списки, стрелки числовых полей,
+       полосы прокрутки — без этого они рисуются светлыми. */
+    color-scheme:dark;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
+  /* Полосы прокрутки в цветах приложения вместо системных светлых */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{
+    background:var(--surface3);border-radius:8px;
+    border:2px solid transparent;background-clip:content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover{background:#4c4c4e;background-clip:content-box}
+  ::-webkit-scrollbar-corner{background:transparent}
   html,body{height:100%}
   body{
     background:var(--bg);
@@ -71,12 +84,16 @@
   .pill.run .dot{background:var(--yellow);animation:pulse 1.4s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-  /* Описание пилюли при наведении: мгновенное, в цветах приложения */
+  /* Подсказка при наведении: своя плашка в цветах приложения вместо системного
+     белого прямоугольника. Описания пилюль прижаты к правому краю, у полей и
+     кнопок — к левому (или правому с классом tip-right). */
   .pill{position:relative}
-  .pill[data-tip]{cursor:help}
-  .pill[data-tip]:hover::after{
+  .pill[data-tip],.tipnode[data-tip]{cursor:help}
+  .tipnode{position:relative}
+  .pill[data-tip]:hover::after,
+  .tipnode[data-tip]:hover::after{
     content:attr(data-tip);
-    position:absolute;top:calc(100% + 8px);right:0;z-index:900;
+    position:absolute;top:calc(100% + 8px);z-index:900;
     width:max-content;max-width:300px;min-width:180px;
     padding:9px 11px;border-radius:10px;
     background:var(--surface2);color:var(--text);
@@ -86,6 +103,20 @@
     text-align:left;white-space:normal;
     pointer-events:none;
   }
+  .pill[data-tip]:hover::after{right:0}
+  .tipnode[data-tip]:hover::after{left:0}
+  .tipnode.tip-right[data-tip]:hover::after{left:auto;right:0}
+  .tipnode.tip-up[data-tip]:hover::after{top:auto;bottom:calc(100% + 8px)}
+  /* Значок «здесь есть пояснение» рядом с подписью поля */
+  .tip-i{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:14px;height:14px;margin-left:4px;border-radius:50%;
+    border:0.5px solid var(--hairline-strong);
+    color:var(--text-tertiary);
+    font-size:10px;font-weight:600;line-height:1;
+    vertical-align:1px;transition:color .15s,border-color .15s;
+  }
+  .tipnode:hover .tip-i{color:var(--accent);border-color:var(--accent)}
 
   /* ── Tabs (segmented control) ── */
   .tabs{
@@ -267,13 +298,10 @@
       display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;
     }
     .panel[data-panel="setup"] .card{margin-bottom:0}
-    /* Балансировка по высоте: токен+куки сверху, папки снизу */
-    .panel[data-panel="setup"] .card:nth-child(1){grid-column:1;grid-row:1}
-    .panel[data-panel="setup"] .card:nth-child(2){grid-column:1;grid-row:2}
-    .panel[data-panel="setup"] .card:nth-child(3){grid-column:2;grid-row:2}
-    .panel[data-panel="setup"] .card:nth-child(4){grid-column:2;grid-row:1}
-    /* Сторож свободного места — на всю ширину под папками */
-    .panel[data-panel="setup"] .card:nth-child(5){grid-column:1 / -1;grid-row:3}
+    /* Две независимые колонки: строки не тянутся друг за другом, и сторож
+       стоит ровно между токеном и папкой Безлимита, как бы ни был высок
+       соседний блок с куками. */
+    .setup-col{display:flex;flex-direction:column;gap:12px}
   }
 
   .stat{
@@ -545,6 +573,13 @@
   .confirm-box .modal-actions button{min-width:120px;justify-content:center}
 
   /* Кнопки сброса очереди: подпись и счётчик в две строки, без вылета вправо */
+  /* Сторож свободного места — одна строка, а не отдельная большая карточка */
+  #watchdog-card{padding:10px 14px}
+  .watchdog-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .watchdog-title{font-size:14px;font-weight:600;white-space:nowrap}
+  #watchdog-threshold{padding:6px 9px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:13px}
+  #watchdog-btn{padding:6px 14px;font-size:13px}
+
   .reset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
   .reset-btn{
     display:flex;flex-direction:column;align-items:center;gap:2px;
@@ -575,6 +610,19 @@
     padding:8px 0;border-bottom:0.5px solid var(--hairline);font-size:13px;
   }
   .diag-report-row:last-child{border-bottom:none}
+  /* Свёрнутый список копий: одна строка-переключатель */
+  .list-toggle{
+    display:flex;align-items:center;gap:8px;
+    padding:9px 12px;border-radius:10px;
+    background:var(--surface2);border:0.5px solid var(--hairline);
+    font-size:13px;font-weight:500;color:var(--text-secondary);
+    cursor:pointer;user-select:none;transition:color .15s,border-color .15s;
+  }
+  .list-toggle:hover{color:var(--text);border-color:var(--hairline-strong)}
+  .list-toggle-chevron{color:var(--text-tertiary);transition:transform .15s}
+  .list-toggle.open .list-toggle-chevron{transform:rotate(90deg)}
+  .list-toggle-hint{margin-left:auto;font-size:12px;color:var(--text-tertiary)}
+
   .backup-row{
     display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
     padding:10px 0;border-bottom:0.5px solid var(--hairline);font-size:13px;
@@ -662,8 +710,8 @@
   <div class="brand">
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
-      <div class="brand-name">Yandex.Disk Backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.5</span></div>
+      <div class="brand-name">Yad.backup</div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.6</span></div>
     </div>
   </div>
   <div class="pills">
@@ -823,23 +871,31 @@
     <!-- 3. Настройки батчей и потоков -->
     <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:10px">
       <div>
-        <label class="field-label" title="Сколько файлов Безлимита скачивать одновременно. Обычный Диск и сортировка число потоков подбирают сами по свободной памяти.">Потоков (Безлимит):</label>
-        <input type="number" id="ctrl-workers" value="10" min="1" max="24" title="Касается только Безлимита: обычный Диск и сортировка подбирают потоки сами по свободной памяти." style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
+        <label class="field-label">Потоков (Безлимит):
+          <span class="tipnode tip-i tip-up" data-tip="Сколько файлов Безлимита скачивать одновременно (1–24). Обычный Диск и сортировка подбирают число потоков сами по свободной памяти. Ниже под полем — рекомендация для этой машины.">i</span>
+        </label>
+        <input type="number" id="ctrl-workers" value="10" min="1" max="24" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
         <div id="ctrl-workers-hint" class="field-label" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);line-height:1.3">
           Выбрано: — · рекомендую —
         </div>
       </div>
       <div>
-        <label class="field-label">Размер батча:</label>
+        <label class="field-label">Размер батча:
+          <span class="tipnode tip-i tip-up" data-tip="Сколько файлов берётся за один заход записи в базу. 1000 — обычное значение: чем меньше, тем чаще обновляется прогресс, но тем больше пауз между пачками.">i</span>
+        </label>
         <input type="number" id="ctrl-batch-size" value="1000" min="10" max="5000" step="50" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
       </div>
       <div>
-        <label class="field-label">Повторить батчей:</label>
-        <input type="number" id="ctrl-batches" value="0" min="0" max="1000" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center" title="0 = скачивать все до конца">
+        <label class="field-label">Повторить батчей:
+          <span class="tipnode tip-i tip-up" data-tip="Сколько таких пачек обработать за один запуск. 0 — скачивать все файлы до конца; цифра — остановиться после указанного числа пачек.">i</span>
+        </label>
+        <input type="number" id="ctrl-batches" value="0" min="0" max="1000" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;text-align:center">0 = все до конца</div>
       </div>
       <div>
-        <label class="field-label">Таймаут (сек):</label>
+        <label class="field-label">Таймаут (сек):
+          <span class="tipnode tip-i tip-right tip-up" data-tip="Сколько секунд ждать данные от Яндекса при скачивании одного файла. Если ответа нет дольше, попытка прерывается, а файл помечается сбойным и повторяется позже. 7 — обычное значение; на медленном канале увеличьте.">i</span>
+        </label>
         <input type="number" id="ctrl-timeout" value="7.0" min="2" max="60" step="0.5" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
       </div>
     </div>
@@ -857,7 +913,7 @@
     <!-- 4. Кнопки запуска/остановки/сканирования -->
     <div class="launch-actions">
       <div id="ctrl-scan-wrap" class="launch-action">
-        <button id="ctrl-scan-btn" class="big-btn ghost" onclick="startCustomScan()" title="Собрать список всех файлов из облака в базу данных без скачивания">
+        <button id="ctrl-scan-btn" class="big-btn ghost tipnode" data-tip="Собрать список всех файлов из облака в базу данных без скачивания" onclick="startCustomScan()">
           <svg class="ico"><use href="#i-search"/></svg>Обновить список файлов
         </button>
         <div class="btn-hint">Обходит облако и добавляет новые файлы. Ничего не скачивает.</div>
@@ -923,7 +979,7 @@
         <label class="field-label">Папка для сортировки:</label>
         <div style="display:flex;gap:8px">
           <input type="text" id="organize-input" placeholder="например: E:\Backup\Unlim" style="flex:1;padding:9px 12px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:14px">
-          <button class="ghost" onclick="browseFolder('organize')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+          <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('organize')" style="white-space:nowrap;padding:8px 14px">
             <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
           </button>
         </div>
@@ -968,10 +1024,67 @@
     </div>
   </div>
 
+  <div class="card" id="backups-card">
+    <div class="card-title">Резервные копии баз</div>
+    <div class="card-sub">Статусы, ошибки и пути файлов. Сами файлы не копируются — диски могут быть отключены.</div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button id="backup-create-disk" class="tipnode" onclick="createBackup('disk')"
+              data-tip="Копия базы Диска: какие файлы скачаны, где лежат и что сломалось. Сами файлы на диске не копируются.">Копия Диска</button>
+      <button id="backup-create-unlim" class="tipnode" onclick="createBackup('unlim')"
+              data-tip="Копия базы Безлимита: статусы всех фото и видео. Сами файлы на диске не копируются.">Копия Безлимита</button>
+      <button id="backup-create-all" class="tipnode" onclick="createBackup('all')"
+              data-tip="Обе базы в одном ZIP — удобно перенести на другой компьютер или сохранить перед рискованным шагом.">Общая копия (оба)</button>
+      <button class="ghost" onclick="openBackupsFolder()">Открыть папку</button>
+    </div>
+    <div id="backup-status" class="setup-hint" style="margin-bottom:8px"></div>
+
+    <div class="list-toggle" id="backups-toggle" onclick="toggleBackupsList()">
+      <span class="list-toggle-chevron" id="backups-chevron">▸</span>
+      <span>Список копий</span>
+      <span class="badge" id="backups-count">—</span>
+      <span class="list-toggle-hint" id="backups-toggle-hint">показать</span>
+    </div>
+
+    <div id="backups-wrap" style="display:none">
+      <div class="diag-note" style="margin-top:10px">
+        Копия нужна, чтобы вернуть базу после неудачного пересоздания, сбоя или
+        переезда на другой компьютер. Файлы на дисках восстановление не трогает:
+        оно заменяет только записи о том, что и куда скачано.
+      </div>
+      <div id="backups-busy-note" class="setup-hint" style="display:none;margin-bottom:6px">
+        Идёт скачивание — восстановление и удаление копий недоступны, пока оно не остановится.
+      </div>
+      <div id="backups-list" class="muted">Загружаю список…</div>
+    </div>
+
+    <div id="backup-restore-panel" style="display:none;margin-top:14px;padding:12px;border-radius:10px;background:rgba(255,69,58,.06);border:1px solid rgba(255,69,58,.3)">
+      <div id="backup-restore-title" style="font-weight:600;margin-bottom:8px"></div>
+      <div class="setup-hint" style="margin-bottom:10px">
+        Текущая база будет заменена. Перед заменой программа сама сохранит её копию.
+        Файлы на дисках не удаляются. Всё, что скачано после даты копии, снова
+        станет «в очереди»; файлы на прежних местах отметятся скачанными без
+        повторной загрузки, а разложенные сортировкой — скачаются заново.
+      </div>
+      <div id="backup-restore-scopes" style="display:none;margin-bottom:10px"></div>
+      <label class="field-label">Введите ВОССТАНОВИТЬ, чтобы включить кнопку</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="backup-restore-confirm" placeholder="ВОССТАНОВИТЬ" autocomplete="off"
+               oninput="updateRestoreBackupBtn()" style="flex:1;min-width:160px">
+        <button class="danger" id="backup-restore-btn" disabled onclick="confirmRestoreBackup()">
+          Восстановить
+        </button>
+        <button class="ghost" onclick="cancelRestoreBackup()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ============= НАСТРОЙКА ============= -->
 <div class="panel" data-panel="setup">
+
+  <div class="setup-col">
 
   <div class="card">
     <div class="card-title">OAuth-токен</div>
@@ -1018,13 +1131,29 @@
     </div>
   </div>
 
+  <!-- Сторож — компактной строкой между токеном и папкой Безлимита -->
+  <div class="card" id="watchdog-card">
+    <div class="watchdog-line">
+      <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
+      <select id="watchdog-threshold">
+        <option value="10">10 ГБ</option>
+        <option value="20">20 ГБ</option>
+        <option value="30">30 ГБ</option>
+        <option value="50" selected>50 ГБ</option>
+        <option value="100">100 ГБ</option>
+      </select>
+      <button id="watchdog-btn" class="ghost" onclick="toggleWatchdog()">Включить</button>
+      <span id="watchdog-status" class="badge">—</span>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">Папка для Безлимита</div>
     <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
     <label class="field-label">Путь к папке Безлимита</label>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <input type="text" id="unlim-dir-input" placeholder="например: /media/vb/backup Ya1/Unlim" style="flex:1">
-      <button class="ghost" onclick="browseFolder('unlim')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
         <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
       </button>
     </div>
@@ -1035,13 +1164,17 @@
     </div>
   </div>
 
+  </div><!-- /setup-col -->
+
+  <div class="setup-col">
+
   <div class="card">
     <div class="card-title">Папка для обычного Диска</div>
     <div class="card-sub">Куда складывать файлы и структуру основного Диска. Папка создастся автоматически.</div>
     <label class="field-label">Путь к папке Диска</label>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <input type="text" id="disk-dir-input" placeholder="например: /media/vb/backup Ya1/Disk" style="flex:1">
-      <button class="ghost" onclick="browseFolder('disk')" title="Открыть проводник для выбора папки" style="white-space:nowrap;padding:8px 14px">
+      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 14px">
         <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
       </button>
     </div>
@@ -1108,22 +1241,7 @@
     </div>
   </div>
 
-  <div class="card" id="watchdog-card">
-    <div class="card-title">🛡 Сторож свободного места</div>
-    <div class="card-sub">Проверяет диск раз в 30 секунд и останавливает выгрузку, если свободного места станет меньше порога. Состояние всегда видно в шапке окна.</div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <label class="field-label" style="margin:0">Порог:</label>
-      <select id="watchdog-threshold" style="padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-        <option value="10">10 ГБ</option>
-        <option value="20">20 ГБ</option>
-        <option value="30">30 ГБ</option>
-        <option value="50" selected>50 ГБ</option>
-        <option value="100">100 ГБ</option>
-      </select>
-      <button id="watchdog-btn" class="big-btn ghost" onclick="toggleWatchdog()" style="min-width:160px">Включить сторож</button>
-      <span id="watchdog-status" class="badge">—</span>
-    </div>
-  </div>
+  </div><!-- /setup-col -->
 
 </div>
 
@@ -1173,58 +1291,20 @@
     <div id="diag-reports" class="muted">—</div>
   </div>
 
-  <div class="card">
-    <div class="card-title">Резервные копии баз</div>
-    <div class="card-sub">Статусы, ошибки и пути файлов. Сами файлы не копируются — диски могут быть отключены.</div>
-
-    <div class="diag-note">
-      Копия нужна, чтобы вернуть базу после неудачного пересоздания, сбоя или
-      переезда на другой компьютер. Файлы на дисках восстановление не трогает:
-      оно заменяет только записи о том, что и куда скачано.
-    </div>
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button id="backup-create-disk" onclick="createBackup('disk')">Копия Диска</button>
-      <button id="backup-create-unlim" onclick="createBackup('unlim')">Копия Безлимита</button>
-      <button id="backup-create-all" onclick="createBackup('all')">Общая копия (оба)</button>
-      <button class="ghost" onclick="openBackupsFolder()">Открыть папку</button>
-    </div>
-    <div id="backup-status" class="setup-hint" style="margin-bottom:10px"></div>
-
-    <div id="backups-list" class="muted">Загружаю список…</div>
-
-    <div id="backup-restore-panel" style="display:none;margin-top:14px;padding:12px;border-radius:10px;background:rgba(255,69,58,.06);border:1px solid rgba(255,69,58,.3)">
-      <div id="backup-restore-title" style="font-weight:600;margin-bottom:8px"></div>
-      <div class="setup-hint" style="margin-bottom:10px">
-        Текущая база будет заменена. Перед заменой программа сама сохранит её копию.
-        Файлы на дисках не удаляются. Всё, что скачано после даты копии, снова
-        станет «в очереди»; файлы на прежних местах отметятся скачанными без
-        повторной загрузки, а разложенные сортировкой — скачаются заново.
-      </div>
-      <div id="backup-restore-scopes" style="display:none;margin-bottom:10px"></div>
-      <label class="field-label">Введите ВОССТАНОВИТЬ, чтобы включить кнопку</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input id="backup-restore-confirm" placeholder="ВОССТАНОВИТЬ" autocomplete="off"
-               oninput="updateRestoreBackupBtn()" style="flex:1;min-width:160px">
-        <button class="danger" id="backup-restore-btn" disabled onclick="confirmRestoreBackup()">
-          Восстановить
-        </button>
-        <button class="ghost" onclick="cancelRestoreBackup()">Отмена</button>
-      </div>
-    </div>
-  </div>
-
   <div class="card" id="reset-queue-card">
     <div class="card-title">♻ Сброс очереди</div>
     <div class="card-sub">Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
     <div class="reset-grid">
-      <button class="reset-btn" onclick="resetStatus('disk_failed')">
+      <button class="reset-btn tipnode" onclick="resetStatus('disk_failed')"
+              data-tip="Файлы Диска, которые не скачались (ошибки сервера, обрывы), снова встанут в очередь. Уже скачанные файлы и их статусы не меняются.">
         <span>Ошибочные Диска</span><span class="reset-count" id="reset-disk-failed">0</span>
       </button>
-      <button class="reset-btn" onclick="resetStatus('unlim_skipped')">
+      <button class="reset-btn tipnode" onclick="resetStatus('unlim_skipped')"
+              data-tip="Пропущенные файлы Безлимита снова встанут в очередь — программа попробует скачать их заново. Ничего не удаляется.">
         <span>Пропущенные Безлимита</span><span class="reset-count" id="reset-unlim-skipped">0</span>
       </button>
-      <button class="reset-btn" onclick="resetStatus('unlim_stuck')">
+      <button class="reset-btn tipnode tip-right" onclick="resetStatus('unlim_stuck')"
+              data-tip="Файлы, которые зависли в процессе скачивания, снова встанут в очередь. Полезно, если выгрузка оборвалась и файлы остались недокачанными.">
         <span>Зависшие Безлимита</span><span class="reset-count" id="reset-unlim-stuck">0</span>
       </button>
     </div>
@@ -1310,7 +1390,7 @@
 <!-- ============= ПЕРВЫЙ ЗАПУСК ============= -->
 <div class="modal-backdrop" id="setup-modal">
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="setup-title">
-    <div class="modal-kicker">Yandex.Disk Backup · первый запуск</div>
+    <div class="modal-kicker">Yad.backup · первый запуск</div>
     <div class="modal-title" id="setup-title">Настроим за минуту</div>
     <div class="modal-sub">
       Нужен OAuth-токен Яндекс.Диска и две папки для файлов. Куки для Безлимита
@@ -1358,7 +1438,7 @@
 
 <div class="modal-backdrop" id="cycle-modal">
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="cycle-title">
-    <div class="modal-kicker">Yandex.Disk Backup · полный цикл</div>
+    <div class="modal-kicker">Yad.backup · полный цикл</div>
     <div class="modal-title" id="cycle-title">Скачивание завершено</div>
     <div class="modal-sub" id="cycle-sub"></div>
     <div id="cycle-body"></div>
@@ -1451,7 +1531,9 @@ document.querySelectorAll('.tab').forEach(t=>{
     // При переходе на диск/безлимит — подтянем превью
     if(t.dataset.tab === 'disk') refreshPreview('disk');
     if(t.dataset.tab === 'photos') refreshPreview('unlim');
-    if(t.dataset.tab === 'diagnostics') loadBackups();
+    // Резервные копии живут в «Организации»: при входе на вкладку список
+    // снова свёрнут, но счётчик копий обновляем сразу.
+    if(t.dataset.tab === 'organize'){ toggleBackupsList(false); loadBackups(); }
   };
 });
 
@@ -2690,13 +2772,13 @@ function renderWatchdog(w){
   const pillText = document.getElementById('pill-watchdog-text');
   if(!w || !btn || !st) return;
   if(w.running){
-    btn.textContent = 'Выключить сторож';
+    btn.textContent = 'Выключить';
     btn.classList.add('danger');
     btn.classList.remove('ghost');
     const sel = document.getElementById('watchdog-threshold');
     if(sel) sel.value = String(w.threshold_gb);
   } else {
-    btn.textContent = 'Включить сторож';
+    btn.textContent = 'Включить';
     btn.classList.remove('danger');
     btn.classList.add('ghost');
   }
@@ -2738,16 +2820,8 @@ function renderResetCounts(s){
 }
 
 async function resetStatus(what){
-  const labels = {
-    disk_failed: 'ошибочные файлы Диска',
-    unlim_skipped: 'пропущенные файлы Безлимита',
-    unlim_stuck: 'зависшие файлы Безлимита'
-  };
-  if(!await askConfirm({
-    title: 'Сбросить очередь?',
-    text: `Вернуть ${labels[what] || what} обратно в очередь?\n\nМеняются только статусы в базе — скачанные файлы не удаляются.`,
-    ok: 'Сбросить'
-  })) return;
+  // Подтверждения нет намеренно: что именно вернётся в очередь, написано в
+  // подсказке на самой кнопке, а меняются только статусы в базе.
   try {
     const r = await fetch('/api/reset', {
       method: 'POST',
@@ -3527,7 +3601,30 @@ async function sendDiagnostics(){
 // ── резервные копии баз ──
 let _backups = [];
 let _backupsBusy = false;
+let _backupsData = null;
+let _backupsOpen = false;   // список копий свёрнут по умолчанию
 let _restoreBackup = null;
+
+function pluralCopies(n){
+  const a = n % 10, b = n % 100;
+  if(a === 1 && b !== 11) return n + ' копия';
+  if(a >= 2 && a <= 4 && (b < 12 || b > 14)) return n + ' копии';
+  return n + ' копий';
+}
+
+// Свёрнутый список: раскрывается только по нажатию, каждое открытие вкладки — заново.
+function toggleBackupsList(force){
+  _backupsOpen = (force === undefined) ? !_backupsOpen : !!force;
+  const wrap = document.getElementById('backups-wrap');
+  const toggle = document.getElementById('backups-toggle');
+  const hint = document.getElementById('backups-toggle-hint');
+  if(wrap) wrap.style.display = _backupsOpen ? 'block' : 'none';
+  if(toggle) toggle.classList.toggle('open', _backupsOpen);
+  if(hint) hint.textContent = _backupsOpen ? 'свернуть' : 'показать';
+  const busy = document.getElementById('backups-busy-note');
+  if(busy) busy.style.display = (_backupsOpen && _backupsBusy) ? 'block' : 'none';
+  if(_backupsOpen && !_backupsData) loadBackups();
+}
 
 function fmtBackupDate(iso){
   if(!iso) return 'дата неизвестна';
@@ -3548,13 +3645,18 @@ async function loadBackups(){
     const d = await r.json();
     renderBackups(d);
   }catch(e){
-    list.textContent = 'Не удалось загрузить список копий: ' + e.message;
+    if(_backupsOpen) list.textContent = 'Не удалось загрузить список копий: ' + e.message;
   }
 }
 
 function renderBackups(data){
+  _backupsData = data;
   _backups = data.items || [];
   _backupsBusy = !!data.busy;
+  const count = document.getElementById('backups-count');
+  if(count) count.textContent = _backups.length ? pluralCopies(_backups.length) : 'нет';
+  const busyNote = document.getElementById('backups-busy-note');
+  if(busyNote) busyNote.style.display = (_backupsOpen && _backupsBusy) ? 'block' : 'none';
   const list = document.getElementById('backups-list');
   if(!list) return;
   if(!_backups.length){
@@ -3576,7 +3678,7 @@ function renderBackups(data){
         <div class="backup-meta">скачано ${fmtNum(c.downloaded)} · пропущено ${fmtNum((c.skipped||0) + (c.failed||0))} · в очереди ${fmtNum(c.pending)} · всего ${fmtNum(c.total)}</div>
       </div>
       <div class="backup-actions">
-        <button onclick="startRestoreBackup(${i})"${_backupsBusy ? ' disabled title="Сначала остановите скачивание"' : ''}>Восстановить</button>
+        <button class="tipnode tip-right" data-tip="Заменить текущую базу статусами из этой копии. Файлы на дисках не удаляются, прежнее состояние сохраняется автоматически." onclick="startRestoreBackup(${i})"${_backupsBusy ? ' disabled' : ''}>Восстановить</button>
         <button class="danger" onclick="deleteBackup(${i})">Удалить</button>
       </div>
     </div>`;
@@ -3586,13 +3688,8 @@ function renderBackups(data){
 async function createBackup(scope){
   const status = document.getElementById('backup-status');
   const titles = {disk:'Копия Диска', unlim:'Копия Безлимита', all:'Общая копия'};
-  const what = {disk:'копию базы Диска', unlim:'копию базы Безлимита',
-                all:'общую копию обеих баз'}[scope] || 'копию';
-  if(!await askConfirm({
-    title: 'Создать резервную копию?',
-    text: `Будет создана ${what}.\n\nКопия сохранится в папку данных приложения. Файлы на дисках и рабочие базы не изменяются.`,
-    ok: 'Создать'
-  })) return;
+  // Подтверждения нет намеренно: что делает кнопка, написано в подсказке при
+  // наведении, а копия ничего не меняет — её всегда можно удалить.
   const buttons = ['backup-create-disk','backup-create-unlim','backup-create-all']
     .map(id => document.getElementById(id)).filter(Boolean);
   buttons.forEach(b => { b.disabled = true; });
@@ -3612,6 +3709,8 @@ async function createBackup(scope){
     status.className = 'setup-hint ok';
     status.textContent = `Готово: ${titles[scope] || 'копия'} · ${human(d.item.size_bytes)}`;
     toast('Копия создана', 'ok');
+    // Только что созданную копию показываем сразу: список раскрывается сам.
+    toggleBackupsList(true);
     loadBackups();
   }catch(e){
     status.className = 'setup-hint err';
