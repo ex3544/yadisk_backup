@@ -36,6 +36,7 @@ from downloader import (
     download_all,
     scan_media,
     scan_tree,
+    write_status_start,
 )
 from state import State
 from utils import (
@@ -200,6 +201,10 @@ def cmd_scan_media(cfg: dict, args: argparse.Namespace) -> int:
 
 
 def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
+    # Статус для Web UI появляется сразу: проверка токена и скан идут секунды,
+    # и всё это время плашка не должна висеть в «подготовке».
+    write_status_start()
+
     ok, msg = check_token(cfg["token"])
     if not ok:
         print(msg, file=sys.stderr)
@@ -242,14 +247,15 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
             n = state.reset_failed_to_pending()
             if n > 0:
                 print(f"\n— Повторный проход для сбойных файлов ({n} → pending)…")
-                counters2 = download_all(
+                # Передаём уже накопленные счётчики: итог сессии должен включать
+                # оба прохода, иначе плашка показывала только второй.
+                counters = download_all(
                     token=cfg["token"],
                     state=state,
                     download_dir=cfg["download_dir"],
                     workers=workers,
+                    session=counters,
                 )
-                for k in counters:
-                    counters[k] += counters2.get(k, 0)
             else:
                 print("\n— Сбойных файлов нет, повтор не нужен.")
     except KeyboardInterrupt:

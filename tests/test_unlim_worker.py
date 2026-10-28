@@ -276,3 +276,50 @@ def test_split_matches_by_md5_when_names_differ(tmp_path, monkeypatch):
     done, missing = uw.split_by_extracted(batch, [("renamed1.jpg", 10), ("renamed2.jpg", 10)])
     assert set(done) == {"target_id", "other_id"}
     assert missing == []
+
+
+# ── статус сессии Безлимита для Web UI ──────────────────────────────────────
+
+
+def test_status_file_has_started_at(tmp_path):
+    """UI отличает статус этого процесса от файла прошлой сессии по started_at."""
+    import json
+
+    import unlim_backup
+
+    status = tmp_path / "unlim_status.json"
+    unlim_backup.update_status_file(status, active=True, success=7, skipped=2)
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["started_at"] == unlim_backup.SESSION_STARTED_AT
+    assert data["active"] is True
+    assert data["success"] == 7
+    assert data["skipped"] == 2
+
+
+def test_zero_status_is_written_before_auth(tmp_path, monkeypatch):
+    """Нулевой статус пишется до авторизации: плашка не висит «подготовкой»."""
+    import json
+
+    import unlim_backup
+
+    status = tmp_path / "unlim_status.json"
+    monkeypatch.setattr(unlim_backup, "check_target_dir", lambda path: None)
+
+    def stop_on_auth(path):
+        raise SystemExit(1)
+
+    monkeypatch.setattr(unlim_backup, "load_cookies", stop_on_auth)
+
+    with pytest.raises(SystemExit):
+        unlim_backup.run_backup(
+            db_path=tmp_path / "unlim_state.db",
+            cookies_path=tmp_path / "cookies.json",
+            out_dir_path=tmp_path,
+            status_file=status,
+        )
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["active"] is True
+    assert data["success"] == 0
+    assert "started_at" in data

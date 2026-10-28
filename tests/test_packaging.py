@@ -177,7 +177,7 @@ def test_backups_live_in_organize_and_restore_keeps_its_guard():
     assert "fetch('/api/backups')" in html
     assert "function loadBackups()" in html
     # Список грузится при входе на вкладку «Организация», а не «Диагностика».
-    assert "if(t.dataset.tab === 'organize'){ toggleBackupsList(false); loadBackups(); }" in html
+    assert "if(name === 'organize'){ toggleBackupsList(false); loadBackups(); }" in html
     assert "if(t.dataset.tab === 'diagnostics') loadBackups();" not in html
 
 
@@ -525,14 +525,19 @@ def test_app_is_named_yad_backup():
 
 
 def test_session_pills_do_not_show_previous_session_numbers():
-    """На старте плашки показывают «подготовка», а не итоги прошлой сессии."""
-    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    """На старте плашки показывают «подготовка», а не итоги прошлой сессии.
 
-    assert "function statusIsFresh(task, st)" in html
-    assert "st.started_at" in html
-    assert "setSessionPending('pill-session'" in html
-    assert "⏳ Безлимит: подготовка…" in html
-    assert "⏳ Диск: подготовка…" in html
+    С 35.5.9 свежесть файла статуса проверяет сервер (build_session), а UI
+    рисует уже готовый блок session.
+    """
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    webui_src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert "def build_session(" in webui_src
+    assert "_status_fresh(" in webui_src
+    assert '"preparing"' in webui_src
+    assert "function renderSessionPill(" in html
+    assert "подготовка…" in html
     # Дублирующие бейджи в панели управления удалены вместе с их отрисовкой.
     assert "session-count-badge" not in html
     assert "disk-session-badge" not in html
@@ -543,8 +548,8 @@ def test_service_pills_look_different_from_download_totals():
     """Токен, куки и сторож отделены от зелёных итоговых плашек."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert 'class="pill service" id="pill-token"' in html
-    assert 'class="pill service" id="pill-cookies"' in html
+    assert 'class="pill service clickable" id="pill-token"' in html
+    assert 'class="pill service clickable" id="pill-cookies"' in html
     assert 'class="pills-sep"' in html
     assert ".pill.service{" in html
     assert ".pill.info{" in html
@@ -625,3 +630,49 @@ def test_main_sets_utf8_stdout_before_scanning():
 
     assert 'sys.stdout, sys.stderr' in src
     assert "reconfigure(encoding=\"utf-8\", errors=\"replace\")" in src
+
+
+# ── 35.5.9: кликабельные плашки, таймер, кнопка обновления ──────────────────
+
+
+def test_header_pills_navigate_to_their_settings():
+    """Плашки в шапке — не только индикаторы: клик ведёт к настройке."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "function showPanel(name)" in html
+    assert "function revealTarget(panel, selector)" in html
+    assert "function gotoSetting(panel, selector)" in html
+    assert "const PILL_TARGETS = {" in html
+    for pill in ("active-tasks", "pill-token", "pill-cookies", "pill-watchdog",
+                 "pill-speed", "pill-session", "pill-disk-session"):
+        assert f"'{pill}':" in html, pill
+    # С клавиатуры тоже работает, иначе кликабельность — только для мыши.
+    assert html.count('role="button" tabindex="0"') >= 7
+    assert "e.key === 'Enter' || e.key === ' '" in html
+    assert ".pill.clickable,.active-tasks.clickable{cursor:pointer}" in html
+    assert ".flash{animation:flashCard" in html
+    assert "@keyframes flashCard{" in html
+    # Подсказка не должна перехватывать клик по плашке.
+    assert "pointer-events:none" in html
+
+
+def test_eta_box_counts_down_on_home_page():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="eta-box"' in html
+    assert 'id="eta-text"' in html
+    assert "function etaFor(kind, s)" in html
+    assert "function fmtEta(sec)" in html
+    assert "#eta-box{" in html
+    # Остаток считает сервер: UI не выдумывает, сколько файлов ещё впереди.
+    assert "session[\"remaining\"]" in (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+
+def test_update_download_button_is_one_shot():
+    """После скачивания остаётся только «Перезапустить и установить»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "install.style.display = 'none'; install.disabled = true;" in html
+    assert "const alreadyReady = _lastUpdate && _lastUpdate.state === 'ready';" in html
+    # В ошибке кнопку возвращаем — иначе обновление не повторить.
+    assert "if(install && u.version){" in html

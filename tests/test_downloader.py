@@ -154,6 +154,49 @@ def test_download_all_refuses_unavailable_target_dir(tmp_path):
     assert exc.value.code == 2
 
 
+def test_empty_pass_keeps_session_totals(tmp_path, monkeypatch):
+    """Второй проход без файлов не обнуляет итог сессии.
+
+    Регресс: при `download --retry` пустая очередь перезаписывала файл статуса
+    нулями, и плашка показывала только последний проход.
+    """
+    import json
+
+    import downloader
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+
+    total = {"downloaded": 58, "skipped": 3, "failed": 451, "bytes": 1024}
+    out = downloader.download_all("token", state=None, download_dir=str(tmp_path),
+                                  jobs=iter([]), session=dict(total))
+
+    assert out == total
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["downloaded"] == 58
+    assert data["skipped"] == 3
+    assert data["failed"] == 451
+    assert data["active"] is False
+    assert data["started_at"] == downloader.SESSION_STARTED_AT
+
+
+def test_start_status_is_zero_and_active(tmp_path, monkeypatch):
+    """Ранняя запись: плашка сразу «идёт», а не «подготовка»."""
+    import json
+
+    import downloader
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+
+    downloader.write_status_start()
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["active"] is True
+    assert data["downloaded"] == 0
+    assert data["updated_at"] >= downloader.SESSION_STARTED_AT
+
+
 def test_download_stops_on_insufficient_disk_space(tmp_path, monkeypatch):
     import downloader
     # Эмулируем нехватку свободного места

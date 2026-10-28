@@ -312,7 +312,7 @@ python organize.py --input "D:/Backup" --action move    # применить
 
    ```bash
    python build_installer.py
-   # результат: installer_output\YandexDiskBackup-35.5.8-setup.exe
+   # результат: installer_output\YandexDiskBackup-35.5.9-setup.exe
    ```
 
 Установщик ставит программу в `%LOCALAPPDATA%\Programs\YandexDiskBackup`
@@ -337,7 +337,7 @@ Microsoft Edge WebView2 Bootstrapper (нужен интернет). Если у�
 
    ```bash
    python build_portable.py
-   # результат: dist\YandexDiskBackup-35.5.8-portable.zip
+   # результат: dist\YandexDiskBackup-35.5.9-portable.zip
    ```
 
    Архив распаковывается в папку `YandexDiskBackup` и запускается двойным

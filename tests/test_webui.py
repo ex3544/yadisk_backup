@@ -671,3 +671,114 @@ def test_task_is_dead_once_stdout_ends():
     task._t.join(timeout=5)
     assert task.finished
     assert not task.alive()
+
+# ── 35.5.9: итоги сессии для плашек и таймера ───────────────────────────────
+
+
+def _build_session(fc=None, tasks=None, unlim_st=None, disk_st=None,
+                   disk_db=None, unlim_db=None, retry=None):
+    return webui.build_session(
+        fc or {}, tasks or {}, unlim_st or {}, disk_st or {},
+        disk_db or {}, unlim_db or {}, retry or {},
+    )
+
+
+def _lane(over=None):
+    lane = {"state": "ожидание", "pass": 0, "passes": 3,
+            "downloaded": 0, "bytes": 0, "errors": None, "error": None}
+    lane.update(over or {})
+    return lane
+
+
+def test_session_task_counts_downloaded_and_db_failures():
+    """Скачано — из файла статуса, сбойные — из базы (каждый файл один раз)."""
+    sess = _build_session(
+        tasks={"disk": {"running": True, "started_at": 100.0, "exit_code": None}},
+        disk_st={"started_at": 100.0, "updated_at": 200.0,
+                 "downloaded": 58, "failed": 3},
+        disk_db={"pending": 10, "failed": 451},
+    )
+
+    disk = sess["disk"]
+    assert disk["success"] == 58
+    assert disk["failed"] == 451
+    assert disk["remaining"] == 10       # обычный запуск не повторяет сбойные
+    assert disk["running"] is True
+    assert disk["preparing"] is False
+    assert sess["unlim"] is None
+
+
+def test_session_task_without_fresh_status_is_preparing():
+    """Числа прошлой сессии не выдаются за текущие."""
+    sess = _build_session(
+        tasks={"unlim": {"running": True, "started_at": 100.0, "exit_code": None}},
+        unlim_st={"started_at": 10.0, "updated_at": 20.0, "success": 99},
+        unlim_db={"pending": 5, "skipped": 0},
+    )
+
+    assert sess["unlim"]["preparing"] is True
+    assert sess["unlim"]["success"] == 0
+
+
+def test_session_cycle_adds_live_pass_to_accumulated_total():
+    """Плашка растёт за все проходы: итог линии + живой текущий проход."""
+    sess = _build_session(
+        fc={"started_at": 100.0, "finished_at": None, "running": True,
+            "lanes": {"disk": _lane({"state": "скачивание, проход 2",
+                                     "downloaded": 50, "pass": 2}),
+                      "unlim": _lane({"state": "сбор списка"})}},
+        tasks={"disk": {"running": True, "started_at": 300.0, "exit_code": None}},
+        disk_st={"started_at": 300.0, "updated_at": 400.0, "downloaded": 5},
+        disk_db={"pending": 7, "failed": 451},
+        unlim_db={"pending": 3, "skipped": 0},
+    )
+
+    assert sess["disk"]["success"] == 55
+    assert sess["disk"]["pass"] == 2
+    assert sess["disk"]["remaining"] == 7 + 451   # цикл повторяет сбойные
+    assert sess["unlim"]["preparing"] is True
+
+
+def test_session_cycle_totals_stay_after_finish_and_stop():
+    """После завершения/остановки цикл остаётся владельцем сессии."""
+    sess = _build_session(
+        fc={"started_at": 100.0, "finished_at": 500.0, "running": False,
+            "lanes": {"disk": _lane({"state": "готово", "downloaded": 63,
+                                     "pass": 2}),
+                      "unlim": _lane({"state": "остановлено",
+                                      "downloaded": 19, "pass": 1})}},
+        tasks={"disk": {"running": False, "started_at": 300.0, "exit_code": 0}},
+        disk_db={"pending": 0, "failed": 451},
+        unlim_db={"pending": 0, "skipped": 922},
+    )
+
+    assert sess["disk"]["success"] == 63
+    assert sess["unlim"]["success"] == 19
+    assert sess["unlim"]["running"] is False
+    assert sess["unlim"]["failed"] == 922
+
+
+def test_session_task_started_after_cycle_takes_over():
+    sess = _build_session(
+        fc={"started_at": 100.0, "finished_at": 500.0, "running": False,
+            "lanes": {"disk": _lane({"state": "готово", "downloaded": 63,
+                                     "pass": 2})}},
+        tasks={"disk": {"running": True, "started_at": 600.0, "exit_code": None}},
+        disk_st={"started_at": 600.0, "updated_at": 700.0, "downloaded": 4},
+        disk_db={"pending": 2, "failed": 3},
+    )
+
+    assert sess["disk"]["success"] == 4
+    assert sess["disk"]["started_at"] == 600.0
+    assert sess["disk"]["passes"] == 0
+
+
+def test_session_retry_mode_counts_failed_as_remaining():
+    sess = _build_session(
+        tasks={"unlim": {"running": True, "started_at": 100.0, "exit_code": None}},
+        unlim_st={"started_at": 100.0, "updated_at": 200.0, "success": 1},
+        unlim_db={"pending": 4, "skipped": 6},
+        retry={"unlim": True},
+    )
+
+    assert sess["unlim"]["remaining"] == 10

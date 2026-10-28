@@ -502,15 +502,29 @@ def _write_disk_status(counters: dict[str, int], total_files: int, total_bytes: 
         pass
 
 
+def write_status_start() -> None:
+    """Нулевой статус в начале сессии: UI сразу видит «идёт», а не «подготовка».
+
+    Пишется до проверки токена и сканирования — иначе плашка висит в
+    «⏳ подготовка», пока идёт сетевой запрос.
+    """
+    _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}, 0, 0, True)
+
+
 def download_all(
     token: str,
     state: State,
     download_dir: str,
     workers: int = 4,
     jobs: Optional[Iterator[DownloadJob]] = None,
+    session: Optional[dict[str, int]] = None,
 ) -> dict[str, int]:
     """Скачивает все pending файлы из state в пул потоков.
     Возвращает счётчики: {downloaded, skipped, failed, bytes}.
+
+    ``session`` — счётчики предыдущих проходов этого же процесса. С них начинаем
+    и в файл статуса пишем кумулятив: иначе повторный проход по сбойным
+    перезаписывал итог сессии цифрами последнего прохода.
     """
     if workers < 1:
         workers = 1
@@ -539,13 +553,18 @@ def download_all(
     else:
         jobs_list = list(jobs)
 
+    counters = {
+        key: int((session or {}).get(key, 0) or 0)
+        for key in ("downloaded", "skipped", "failed", "bytes")
+    }
+
     if not jobs_list:
         log.info("Нет файлов для скачивания.")
-        _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}, 0, 0, False)
-        return {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
+        # Пустой проход не должен обнулять итог сессии: пишем то, что уже накоплено.
+        _write_disk_status(counters, 0, 0, False)
+        return counters
 
     total_bytes = sum(j.size for j in jobs_list if j.size)
-    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
     _write_disk_status(counters, len(jobs_list), total_bytes, True)
 
     file_bar = tqdm(total=len(jobs_list), unit="file", desc="Файлы", position=0)

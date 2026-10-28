@@ -126,6 +126,29 @@
   }
   .tipnode:hover .tip-i{color:var(--accent);border-color:var(--accent)}
 
+  /* Кликабельные плашки: ЛКМ открывает соответствующую настройку. Курсор-палец
+     важнее «help» из правила выше — иначе непонятно, что по плашке можно кликать. */
+  .pill.clickable,.active-tasks.clickable{cursor:pointer}
+  .pill.clickable:hover,.active-tasks.clickable:hover{background:rgba(255,255,255,.1)}
+  .pill.clickable:focus-visible,.active-tasks.clickable:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px;
+  }
+  /* Подсветка карточки, к которой перешли по плашке */
+  .flash{animation:flashCard 1.8s ease-out}
+  @keyframes flashCard{
+    0%{box-shadow:0 0 0 0 rgba(10,132,255,.6)}
+    35%{box-shadow:0 0 0 6px rgba(10,132,255,.3)}
+    100%{box-shadow:0 0 0 0 rgba(10,132,255,0)}
+  }
+  /* Окошко с оценкой времени до конца задания */
+  #eta-box{
+    display:none;margin-top:10px;padding:10px 14px;border-radius:10px;
+    background:rgba(10,132,255,.08);border:0.5px solid rgba(10,132,255,.3);
+    font-size:13.5px;color:var(--text);
+  }
+  #eta-box .eta-value{font-weight:600;color:var(--accent)}
+  #eta-box .eta-note{font-size:11.5px;color:var(--text-tertiary);margin-left:6px}
+
   /* ── Tabs (segmented control) ── */
   .tabs{
     display:flex;gap:2px;
@@ -731,21 +754,21 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yad.backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.6</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.9</span></div>
     </div>
   </div>
   <div class="pills">
-    <span class="active-tasks" id="active-tasks">
+    <span class="active-tasks clickable" id="active-tasks" role="button" tabindex="0" data-tip="Идут фоновые задачи. Нажмите — откроет журнал выполнения на «Главной».">
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
     </span>
-    <span class="pill service" id="pill-token" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Задать: «Настройки» → OAuth-токен."><span class="dot"></span><span id="pill-token-text">токен</span></span>
-    <span class="pill service" id="pill-cookies" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Обновить: «Настройки» → Cookies браузера."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
-    <span class="pill service" id="pill-watchdog" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Включить и задать порог: «Настройки» → Сторож свободного места."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
+    <span class="pill service clickable" id="pill-token" role="button" tabindex="0" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Нажмите — откроет поле токена в «Настройках»."><span class="dot"></span><span id="pill-token-text">токен</span></span>
+    <span class="pill service clickable" id="pill-cookies" role="button" tabindex="0" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Нажмите — откроет поле кук в «Настройках»."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
+    <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
     <span class="pills-sep" aria-hidden="true"></span>
-    <span class="pill ok" id="pill-speed" style="display:none" data-tip="Скорость скачивания Безлимита в этом запуске."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
-    <span class="pill ok" id="pill-session" style="display:none" data-tip="Итог текущего запуска Безлимита: скачано успешно / пропущено."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
-    <span class="pill ok" id="pill-disk-session" style="display:none" data-tip="Итог текущего запуска обычного Диска: скачано успешно / с ошибкой."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
+    <span class="pill ok clickable" id="pill-speed" style="display:none" role="button" tabindex="0" data-tip="Скорость скачивания Безлимита в этом запуске. Нажмите — откроет журнал выполнения."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
+    <span class="pill ok clickable" id="pill-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии Безлимита: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Безлимита."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
+    <span class="pill ok clickable" id="pill-disk-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии обычного Диска: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Диска."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
   </div>
 </header>
 
@@ -959,6 +982,10 @@
     </div>
     <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
     <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
+    <div id="eta-box">
+      ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
+      <span class="eta-note">оценка по текущей скорости</span>
+    </div>
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
@@ -1540,20 +1567,71 @@ document.addEventListener('keydown', (e)=>{
 });
 
 // ────── tabs ──────
+function showPanel(name){
+  const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+  const panel = document.querySelector(`.panel[data-panel="${name}"]`);
+  if(!tab || !panel) return null;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  tab.classList.add('active');
+  panel.classList.add('active');
+  // Резервные копии живут в «Организации»: при входе на вкладку список
+  // снова свёрнут, но счётчик копий обновляем сразу.
+  if(name === 'organize'){ toggleBackupsList(false); loadBackups(); }
+  return panel;
+}
+
+// Прокрутка к настройке и подсветка её карточки — после перехода по плашке.
+function revealTarget(panel, selector){
+  if(!panel) return;
+  const el = panel.querySelector(selector);
+  if(!el) return;
+  // Карточку подсвечиваем целиком: поле ввода само по себе слишком мелкое.
+  const box = el.closest('.card') || el;
+  box.classList.remove('flash');
+  void box.offsetWidth;          // перезапуск анимации при повторном клике
+  box.classList.add('flash');
+  setTimeout(()=>box.classList.remove('flash'), 2000);
+  el.scrollIntoView({block:'center', behavior:'smooth'});
+  const field = el.matches('input,textarea,select')
+    ? el : el.querySelector('input,textarea,select');
+  if(field && !field.disabled) field.focus({preventScroll:true});
+}
+
+function gotoSetting(panel, selector){
+  revealTarget(showPanel(panel), selector);
+}
+
+// Куда ведёт клик по плашке в шапке: панель и поле, к которому прокрутить.
+const PILL_TARGETS = {
+  'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
+  'pill-token':        {panel:'setup', selector:'#token-input'},
+  'pill-cookies':      {panel:'setup', selector:'#cookies-input'},
+  'pill-watchdog':     {panel:'setup', selector:'#watchdog-card'},
+  'pill-speed':        {panel:'home',  selector:'#pipeline-console'},
+  'pill-session':      {panel:'setup', selector:'#unlim-dir-input'},
+  'pill-disk-session': {panel:'setup', selector:'#disk-dir-input'},
+};
+
+function bindPillNavigation(){
+  Object.keys(PILL_TARGETS).forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const go = ()=>{
+      const t = PILL_TARGETS[id];
+      gotoSetting(t.panel, t.selector);
+    };
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', e=>{
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); }
+    });
+  });
+}
+
 document.querySelectorAll('.tab').forEach(t=>{
-  t.onclick=()=>{
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
-    t.classList.add('active');
-    document.querySelector(`.panel[data-panel="${t.dataset.tab}"]`).classList.add('active');
-    // При переходе на диск/безлимит — подтянем превью
-    if(t.dataset.tab === 'disk') refreshPreview('disk');
-    if(t.dataset.tab === 'photos') refreshPreview('unlim');
-    // Резервные копии живут в «Организации»: при входе на вкладку список
-    // снова свёрнут, но счётчик копий обновляем сразу.
-    if(t.dataset.tab === 'organize'){ toggleBackupsList(false); loadBackups(); }
-  };
+  t.onclick=()=>showPanel(t.dataset.tab);
 });
+bindPillNavigation();
 
 // ────── Setup actions ──────
 function toggleTokenView(){
@@ -1820,7 +1898,10 @@ function renderCookieFetch(f){
     cancel.style.display = 'none';
     if(state==='done'){
       status.innerHTML = `✅ <strong style="color:var(--green)">${f.msg||'Готово'}</strong>`;
-    } else if(state==='cancelled' || state==='timeout' || state==='error' || state==='stopped'){
+    } else if(state==='cancelled' || state==='stopped'){
+      // Закрытое окно браузера или «Отмена» — обычное действие, не ошибка.
+      status.innerHTML = `⏹ <strong style="color:var(--text-secondary)">${f.msg||'Отменено'}</strong>`;
+    } else if(state==='timeout' || state==='error'){
       status.innerHTML = `⚠️ <strong style="color:var(--red)">${f.msg||state}</strong>`;
     } else {
       status.innerHTML = '';
@@ -2439,67 +2520,83 @@ function isStopped(code){
   return code === -15 || code === -2 || code === 143 || code === 130 || code === 15;
 }
 
-function renderSessionCounters(s, tasks){
-  const sp = s.speed || {};
-  const dsp = s.disk_speed || {};
-  const ut = tasks && tasks.unlim;
-  const dt = tasks && tasks.disk;
-
-  // Показываем счётчик, пока задача идёт (в т.ч. зависла) или уже завершилась,
-  // чтобы в конце сессии было видно, что файлы реально скачались. Но только
-  // если файл статуса свежее старта задачи: иначе на экране оказались бы
-  // числа прошлой сессии, выданные за текущие.
-  const unlimTask = !!ut && (ut.running || ut.exit_code !== null);
-  const diskTask = !!dt && (dt.running || dt.exit_code !== null);
-  const unlimFresh = statusIsFresh(ut, sp) && sp.success !== undefined;
-  const diskFresh = statusIsFresh(dt, dsp) && dsp.downloaded !== undefined;
-
-  if(unlimTask && !unlimFresh){
-    setSessionPending('pill-session', 'pill-session-text', '⏳ Безлимит: подготовка…');
-  } else {
-    setSessionCounter('pill-session', 'pill-session-text', unlimTask, sp.success, sp.skipped, 'файлов');
-  }
-  if(diskTask && !diskFresh){
-    setSessionPending('pill-disk-session', 'pill-disk-session-text', '⏳ Диск: подготовка…');
-  } else {
-    setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskTask, dsp.downloaded, dsp.failed, 'файлов', '⚠');
-  }
+// Итоги сессии приходят готовыми из /api/status (блок «session»): скачано за
+// все проходы и сколько файлов сейчас сбойные. UI только рисует и считает
+// оценку до конца — цифры не сбрасываются между проходами и остаются после
+// остановки, пока не начнётся новая сессия.
+function renderSessionCounters(s){
+  const sess = s.session || {};
+  renderSessionPill('pill-session', 'pill-session-text', sess.unlim, 'Безлимит', 'unlim');
+  renderSessionPill('pill-disk-session', 'pill-disk-session-text', sess.disk, 'Диск', 'disk');
+  renderEta(s);
 }
 
-// Статус относится к текущему запуску, если записан после старта задачи.
-// Писатель статуса сам сообщает started_at своего процесса; для старых файлов
-// без этого поля считаем старт по времени работы задачи в UI.
-function statusIsFresh(task, st){
-  if(!task || !st) return false;
-  const updated = Number(st.updated_at || 0) * 1000;
-  if(!updated) return false;
-  const started = st.started_at
-    ? Number(st.started_at) * 1000
-    : Date.now() - Number(task.elapsed || 0) * 1000;
-  return updated >= started - 5000;
-}
-
-function setSessionPending(id, textId, label){
+function renderSessionPill(id, textId, d, label, kind){
   const el = document.getElementById(id);
   if(!el) return;
+  if(!d){ el.style.display = 'none'; return; }
   el.style.display = 'inline-flex';
-  el.className = 'pill';
   const text = document.getElementById(textId);
-  if(text) text.textContent = label;
+  if(d.preparing){
+    el.className = 'pill clickable';
+    if(text) text.textContent = `⏳ ${label}: подготовка…`;
+    return;
+  }
+  el.className = 'pill ok clickable';
+  let value = '✅ ' + (+d.success || 0).toLocaleString('ru');
+  if(d.failed) value += ' · ⚠ ' + (+d.failed).toLocaleString('ru');
+  if(text) text.textContent = value;
+  const pass = d.passes > 1 ? ` Проход ${d.pass || 1} из ${d.passes}.` : '';
+  el.dataset.tip = `Итог сессии ${label}: скачано за все проходы / сбойных сейчас.${pass} `
+    + (kind === 'unlim' ? 'Нажмите — откроет папку выгрузки Безлимита.'
+                        : 'Нажмите — откроет папку выгрузки Диска.');
 }
 
-function setSessionCounter(id, textId, show, count, extra, suffix, extraIcon){
-  const el = document.getElementById(id);
-  if(!el) return;
-  if(show && count !== undefined){
-    el.style.display = 'inline-flex';
-    el.className = 'pill ok';
-    let label = '✅ ' + (+count).toLocaleString('ru') + ' ' + suffix;
-    if(extra) label += ' · ' + (extraIcon || '↷') + ' ' + (+extra).toLocaleString('ru');
-    document.getElementById(textId).textContent = label;
-  } else {
-    el.style.display = 'none';
-  }
+// ── Оценка времени до конца задания ──
+// Остаток берём из базы (сколько ещё предстоит скачать), среднюю скорость —
+// из файла статуса текущего процесса: попытки / время работы. Это усреднение
+// без дрожания; цифра приблизительная, так и подписана.
+function fmtEta(sec){
+  if(!isFinite(sec) || sec <= 0) return null;
+  const total = Math.round(sec);
+  if(total < 60) return 'меньше минуты';
+  const mins = Math.round(total / 60);
+  if(mins < 60) return `~${mins} мин`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  return rest ? `~${hours} ч ${rest} мин` : `~${hours} ч`;
+}
+
+function etaFor(kind, s){
+  const d = (s.session || {})[kind];
+  const st = (kind === 'unlim' ? s.speed : s.disk_speed) || {};
+  if(!d || !d.running || d.preparing) return null;
+  if(!(d.remaining > 0)) return null;
+  const started = Number(st.started_at || 0);
+  const updated = Number(st.updated_at || 0);
+  if(!started || !updated) return null;
+  const elapsed = updated - started;
+  // Первые полминуты скорость ещё не показательна — оценка была бы дикой.
+  if(elapsed < 30) return null;
+  const attempts = kind === 'unlim'
+    ? (+st.success || 0) + (+st.skipped || 0)
+    : (+st.downloaded || 0) + (+st.skipped || 0) + (+st.failed || 0);
+  if(attempts <= 0) return null;
+  return fmtEta(d.remaining / (attempts / elapsed));
+}
+
+function renderEta(s){
+  const box = document.getElementById('eta-box');
+  const txt = document.getElementById('eta-text');
+  if(!box || !txt) return;
+  const parts = [];
+  const disk = etaFor('disk', s);
+  const unlim = etaFor('unlim', s);
+  if(unlim) parts.push(`Безлимит ${unlim}`);
+  if(disk) parts.push(`Диск ${disk}`);
+  if(!parts.length){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  txt.textContent = parts.join(' · ');
 }
 
 function renderFullCycle(fc){
@@ -2861,8 +2958,9 @@ async function refresh(){
     const pStep = document.getElementById('pipeline-step');
     const pTime = document.getElementById('pipeline-time');
 
-    // Счётчики успешно скачанных файлов за текущую сессию (Диск и Безлимит).
-    renderSessionCounters(s, tasks);
+    // Счётчики успешно скачанных файлов за текущую сессию (Диск и Безлимит)
+    // и оценка времени до конца.
+    renderSessionCounters(s);
 
     if (isRunning) {
       if (card) card.style.display = 'block';
@@ -3260,8 +3358,12 @@ async function checkUpdates(){
       status.className = 'setup-hint ok';
       status.textContent = `Доступна версия ${d.latest} (у вас ${d.current}).`;
       open.style.display = '';
-      if(install && (d.installer || d.portable)){
+      // Если обновление уже скачано, повторно предлагать «Обновить» не нужно:
+      // остаётся только «Перезапустить и установить».
+      const alreadyReady = _lastUpdate && _lastUpdate.state === 'ready';
+      if(install && (d.installer || d.portable) && !alreadyReady){
         install.textContent = `Обновить до ${d.latest}`;
+        install.disabled = false;
         install.style.display = '';
       }
       if(d.notes){
@@ -3283,16 +3385,20 @@ async function checkUpdates(){
 let _lastUpdate = {};
 
 async function startUpdateDownload(){
+  // Кнопка одноразовая: после скачивания остаётся только «Перезапустить и
+  // установить», поэтому дальше её видимостью управляет renderUpdate().
   const btn = document.getElementById('update-install-btn');
-  if(btn) btn.disabled = true;
+  if(btn){ btn.disabled = true; btn.style.display = 'none'; }
   try{
     const r = await fetch('/api/updates/download', {method:'POST'});
     const d = await r.json();
-    if(!d.ok) toast(d.msg || 'Не удалось начать загрузку', 'err');
+    if(!d.ok){
+      toast(d.msg || 'Не удалось начать загрузку', 'err');
+      if(btn){ btn.disabled = false; btn.style.display = ''; }
+    }
   }catch(e){
     toast('Нет связи с программой: ' + e.message, 'err');
-  }finally{
-    if(btn) btn.disabled = false;
+    if(btn){ btn.disabled = false; btn.style.display = ''; }
   }
 }
 
@@ -3329,6 +3435,7 @@ async function applyUpdate(){
 function renderUpdate(u){
   u = u || {};
   _lastUpdate = u;
+  const install = document.getElementById('update-install-btn');
   const apply = document.getElementById('update-apply-btn');
   const cancel = document.getElementById('update-cancel-btn');
   const status = document.getElementById('update-status');
@@ -3347,6 +3454,8 @@ function renderUpdate(u){
     if(cancel) cancel.style.display = u.running ? '' : 'none';
     if(apply) apply.style.display = 'none';
     if(hint) hint.style.display = 'none';
+    // Скачивание уже идёт — кнопка «Обновить» больше не нужна.
+    if(install){ install.style.display = 'none'; install.disabled = true; }
   }else if(state === 'ready'){
     progress.style.display = 'block';
     bar.style.width = '100%';
@@ -3355,6 +3464,8 @@ function renderUpdate(u){
     if(cancel) cancel.style.display = 'none';
     if(apply) apply.style.display = u.can_install ? '' : 'none';
     if(hint) hint.style.display = u.can_install ? 'block' : 'none';
+    // Скачано и проверено — предлагать «Обновить» повторно нельзя.
+    if(install){ install.style.display = 'none'; install.disabled = true; }
     if(!u.can_install){
       status.textContent += ' Установка из этой сборки недоступна — скачайте вручную.';
     }
@@ -3365,6 +3476,7 @@ function renderUpdate(u){
     if(apply) apply.style.display = 'none';
     if(cancel) cancel.style.display = 'none';
     if(hint) hint.style.display = 'none';
+    if(install){ install.style.display = 'none'; install.disabled = true; }
   }else if(state === 'error'){
     progress.style.display = 'none';
     status.className = 'setup-hint err';
@@ -3372,6 +3484,12 @@ function renderUpdate(u){
     if(apply) apply.style.display = 'none';
     if(cancel) cancel.style.display = 'none';
     if(hint) hint.style.display = 'none';
+    // Ошибка — можно попробовать снова.
+    if(install && u.version){
+      install.textContent = `Обновить до ${u.version}`;
+      install.disabled = false;
+      install.style.display = '';
+    }
   }else{
     progress.style.display = 'none';
     if(apply) apply.style.display = 'none';

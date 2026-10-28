@@ -331,6 +331,7 @@ class TaskManager:
             for slot, t in self._tasks.items():
                 out[slot] = {
                     "running": t.alive(),
+                    "started_at": t.started_at,
                     "elapsed": time.time() - t.started_at,
                     "exit_code": t.proc.poll(),
                     "log_tail": list(t.log)[-500:],
@@ -655,6 +656,13 @@ class FullCycle:
             time.sleep(1.0)
 
     @staticmethod
+    def _read_status(path: Path) -> dict:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — статуса может не быть
+            return {}
+
+    @staticmethod
     def _db_snapshot(db_file: Path, table: str,
                      error_statuses: tuple[str, ...]) -> dict:
         """Счётчики из базы: сколько скачано, сколько сбойных, объём скачанного."""
@@ -771,6 +779,10 @@ class FullCycle:
             if self._stop:
                 lane["state"] = "остановлено"
                 return
+            if code not in (0, 1):
+                # 0 — всё скачано, 1 — часть файлов упала (это норма), остальное
+                # (нет токена и т.п.) — смысла повторять проходы нет.
+                raise RuntimeError(f"скачивание завершилось с кодом {code}")
             after = self._db_snapshot(DB_FILE, "files", ("failed",))
             gained = max(0, after["downloaded"] - before["downloaded"])
             lane["downloaded"] += gained
@@ -828,6 +840,16 @@ class FullCycle:
             if self._stop:
                 lane["state"] = "остановлено"
                 return
+            if code not in (0, 1):
+                raise RuntimeError(f"скачивание завершилось с кодом {code}")
+            fatal = self._read_status(paths.UNLIM_STATUS_FILE).get("error")
+            if fatal in ("cookies_expired", "disk_full"):
+                # Процесс отработал «штатно», но по факту ничего не смог:
+                # повторять проходы бессмысленно, нужна реакция пользователя.
+                reason = ("сессия Яндекса истекла — обновите cookies"
+                          if fatal == "cookies_expired"
+                          else "недостаточно места на диске")
+                raise RuntimeError(reason)
             after = self._db_snapshot(UNLIM_DB_FILE, "unlim_files", ("skipped",))
             gained = max(0, after["downloaded"] - before["downloaded"])
             lane["downloaded"] += gained
@@ -1559,6 +1581,92 @@ def get_last_unlim_log(max_lines: int = 300) -> list[str]:
         return []
 
 
+# ── Сессия скачивания: итоги за все проходы ─────────────────────────────────
+#
+# Плашки в шапке показывают итог текущей сессии: сколько скачано за все проходы
+# и сколько файлов сейчас сбойные. Сессию ведёт либо отдельная задача (файл
+# статуса дочернего процесса), либо полный цикл (линии, копящие итог по
+# проходам). Владелец — тот, кто начался позже.
+
+# Какие ключи файла статуса отвечают за «скачано» и «сбойные» по разделу.
+_SESSION_KEYS = {"disk": ("downloaded", "failed"), "unlim": ("success", "skipped")}
+
+# Повторяет ли запущенная вручную сессия сбойные файлы (нужно для остатка/таймера).
+_session_retry: dict[str, bool] = {"disk": False, "unlim": False}
+
+
+def _status_fresh(st: dict, started_at: float | None) -> bool:
+    """Статус относится к текущей задаче, а не остался от прошлой сессии."""
+    updated = float(st.get("updated_at") or 0)
+    if not updated:
+        return False
+    # Старт задачи точнее, чем started_at внутри файла: старый файл мог быть
+    # записан давно и сам себе «свежий».
+    started = float(started_at or st.get("started_at") or 0)
+    return updated >= started - 5
+
+
+def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
+                  disk_db: dict, unlim_db: dict,
+                  retry: dict[str, bool] | None = None) -> dict:
+    """Сводка сессии для плашек и таймера: {disk: {...}|None, unlim: {...}|None}."""
+    retry = retry or {}
+    out: dict = {}
+    cycle_started = fc.get("started_at")
+    for kind in ("disk", "unlim"):
+        task = tasks.get(kind) or {}
+        st = unlim_st if kind == "unlim" else disk_st
+        db = unlim_db if kind == "unlim" else disk_db
+        failed_key = _SESSION_KEYS[kind][1]
+        task_started = task.get("started_at")
+        # Отдельная выгрузка, запущенная после завершения цикла, — новая сессия:
+        # старые линии к ней уже не относятся.
+        takeover = bool(cycle_started) and not fc.get("running") and task_started \
+            and task_started > (fc.get("finished_at") or cycle_started)
+        use_cycle = bool(cycle_started) and not takeover
+        session = None
+        if use_cycle:
+            lane = (fc.get("lanes") or {}).get(kind) or {}
+            started = fc.get("running") or lane.get("state") not in (None, "ожидание")
+            if started:
+                running = bool(fc.get("running"))
+                # Пока дочерний процесс прохода жив, к итогу линии прибавляем его
+                # живые цифры: иначе плашка «замирает» между проходами.
+                success = int(lane.get("downloaded") or 0)
+                if task.get("running") and _status_fresh(st, task_started):
+                    success += int(st.get(_SESSION_KEYS[kind][0]) or 0)
+                session = {
+                    "started_at": cycle_started,
+                    "running": running,
+                    "preparing": running and int(lane.get("pass") or 0) == 0,
+                    "success": success,
+                    "pass": int(lane.get("pass") or 0),
+                    "passes": int(lane.get("passes") or 0),
+                    "retry_failed": True,
+                }
+        elif task and (task.get("running") or task.get("exit_code") is not None):
+            running = bool(task.get("running"))
+            fresh = _status_fresh(st, task_started)
+            session = {
+                "started_at": task_started,
+                "running": running,
+                "preparing": running and not fresh,
+                "success": int(st.get(_SESSION_KEYS[kind][0]) or 0) if fresh else 0,
+                "pass": 0,
+                "passes": 0,
+                "retry_failed": bool(retry.get(kind)),
+            }
+        if not session:
+            out[kind] = None
+            continue
+        session["failed"] = int(db.get(failed_key) or 0)
+        retry_failed = session.pop("retry_failed")
+        session["remaining"] = int(db.get("pending") or 0) + (
+            session["failed"] if retry_failed else 0)
+        out[kind] = session
+    return out
+
+
 @app.get("/api/status")
 def api_status():
     cfg = get_config()
@@ -1584,25 +1692,32 @@ def api_status():
         except Exception:
             pass
 
+    disk_db = db_stats(DB_FILE, "files", "remote_path")
+    unlim_db = db_stats(UNLIM_DB_FILE, "unlim_files", "file_id")
+    tasks = tm.status()
+    cycle = full_cycle.status()
+
     return {
         "config": public_config(cfg),
         "token": check_token(cfg["token"]),
         "cookies": check_cookies(),
         "disk": {
-            "db": db_stats(DB_FILE, "files", "remote_path"),
+            "db": disk_db,
             "local": local_size(cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR)),
         },
         "unlim": {
-            "db": db_stats(UNLIM_DB_FILE, "unlim_files", "file_id"),
+            "db": unlim_db,
             "local": local_size(cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)),
             "summary": unlim_db_summary(),
         },
+        "session": build_session(cycle, tasks, download_status, disk_status,
+                                 disk_db, unlim_db, _session_retry),
         "ram": ram_info(),
-        "full_cycle": full_cycle.status(),
+        "full_cycle": cycle,
         "update": update_manager.status(),
         "legacy_install": legacy_install_status(),
         "watchdog": watchdog.status(),
-        "tasks": tm.status(),
+        "tasks": tasks,
         "pipeline": pipeline.status(),
         "speed": download_status,
         "disk_speed": disk_status,
@@ -1673,6 +1788,8 @@ def api_download_start(payload: DownloadControlPayload):
             args.append("--from-end")
         if payload.sort_after:
             args.append("--sort-after")
+        # «all» и «skipped» — повтор сбойных, значит они тоже входят в остаток.
+        _session_retry["unlim"] = payload.target in ("all", "skipped")
         reset_session_counters("unlim")
         ok, msg = tm.start("unlim", "unlim_backup.py", args)
         return {"ok": ok, "msg": msg, "mode": "unlim"}
@@ -1681,6 +1798,7 @@ def api_download_start(payload: DownloadControlPayload):
         args = ["download", "--workers", str(auto_workers())]
         if DB_FILE.exists():
             args.append("--no-scan")
+        _session_retry["disk"] = False
         reset_session_counters("disk")
         ok, msg = tm.start("disk", "main.py", args)
         return {"ok": ok, "msg": msg, "mode": "disk"}

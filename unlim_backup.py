@@ -639,12 +639,16 @@ def download_one_file(
 
 # ── Статус для Web UI ────────────────────────────────────────────────────────
 
+# Момент старта процесса: UI по нему отличает свой статус от прошлой сессии.
+SESSION_STARTED_AT = time.time()
+
 
 def update_status_file(status_file: Path, active: bool, **kwargs):
     if not status_file:
         return
     data = {
         "active": active,
+        "started_at": SESSION_STARTED_AT,
         "batch_idx": kwargs.get("batch_idx", 0),
         "batches_total": kwargs.get("batches_total", 0),
         "item_current": kwargs.get("item_current", 0),
@@ -688,6 +692,10 @@ def run_backup(
     problem = check_target_dir(out_dir)
     if problem:
         sys.exit(f"[-] {problem}")
+
+    # Нулевой статус до авторизации и сборки списка: плашка в UI сразу показывает
+    # «идёт», а не «⏳ подготовка», пока идут сетевые запросы к Яндексу.
+    update_status_file(status_file, active=True)
 
     print("=" * 70)
     print("  Yandex.Disk — Универсальный выгрузчик Безлимита (Sergey Pukhir, ex3544)")
