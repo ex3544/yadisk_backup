@@ -462,10 +462,14 @@ def _close_all_clients() -> None:
 # поэтому видно, что работа не была напрасной.
 DISK_STATUS_FILE = paths.DISK_STATUS_FILE
 
+# Момент старта процесса: UI по нему отличает свой статус от прошлой сессии.
+SESSION_STARTED_AT = time.time()
+
 
 def _write_disk_status(counters: dict[str, int], total_files: int, total_bytes: int, active: bool) -> None:
     data = {
         "active": active,
+        "started_at": SESSION_STARTED_AT,
         "downloaded": int(counters.get("downloaded", 0)),
         "skipped": int(counters.get("skipped", 0)),
         "failed": int(counters.get("failed", 0)),

@@ -308,7 +308,9 @@ def test_confirmation_uses_themed_dialog_instead_of_native_confirm():
     assert 'id="confirm-modal"' in html
     assert "function askConfirm(opts)" in html
     assert "function askConfirmClose(result)" in html
-    assert html.count("await askConfirm(") >= 14
+    # В 35.5.7 выпилены девять мёртвых функций (два их подтверждения ушли
+    # вместе с ними), поэтому порог снижен: 12 живых подтверждений.
+    assert html.count("await askConfirm(") >= 12
     # Системный confirm() остался только как страховка.
     assert "window.confirm(" in html
     assert "!confirm(" not in html
@@ -382,8 +384,10 @@ def test_workers_hint_reacts_to_the_chosen_value():
     """Подсказка потоков показывает выбранное и рекомендованное число."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert "Выбрано: — · рекомендую —" in html
-    assert "Выбрано: ${Number.isFinite(val) ? val : '—'} · рекомендую ${rec}" in html
+    # С 35.5.7 подсказка держится в одну строку, а ОЗУ ушло в data-tip.
+    assert "Потоки: — · совет —" in html
+    assert "hint.textContent = `Потоки: ${Number.isFinite(val) ? val : '—'} · совет ${rec}`" in html
+    assert "hint.dataset.tip = `Выбрано" in html
     assert "renderRamHint(window._lastStatus.ram);" in html
     assert "hint.classList.toggle('warn'" in html
     # Поле честно подписано: только Безлимит.
@@ -515,3 +519,109 @@ def test_app_is_named_yad_backup():
     import paths
 
     assert paths.APP_NAME == "YandexDiskBackup"
+
+
+# ── 35.5.7: счётчики, подсказки, мёртвый код ────────────────────────────────
+
+
+def test_session_pills_do_not_show_previous_session_numbers():
+    """На старте плашки показывают «подготовка», а не итоги прошлой сессии."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "function statusIsFresh(task, st)" in html
+    assert "st.started_at" in html
+    assert "setSessionPending('pill-session'" in html
+    assert "⏳ Безлимит: подготовка…" in html
+    assert "⏳ Диск: подготовка…" in html
+    # Дублирующие бейджи в панели управления удалены вместе с их отрисовкой.
+    assert "session-count-badge" not in html
+    assert "disk-session-badge" not in html
+    assert "live-speed-badge" not in html
+
+
+def test_service_pills_look_different_from_download_totals():
+    """Токен, куки и сторож отделены от зелёных итоговых плашек."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'class="pill service" id="pill-token"' in html
+    assert 'class="pill service" id="pill-cookies"' in html
+    assert 'class="pills-sep"' in html
+    assert ".pill.service{" in html
+    assert ".pill.info{" in html
+    # Сторож включён — синий, а не зелёный и не серый.
+    assert "pill.className = 'pill info';" in html
+
+
+def test_watchdog_threshold_applies_without_restart():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    webui_src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert 'onchange="applyWatchdogThreshold()"' in html
+    assert "async function applyWatchdogThreshold()" in html
+    # Сервер меняет порог у работающего сторожа, а не отказывает.
+    assert "Порог сторожа изменён" in webui_src
+
+
+def test_token_show_button_toggles_label_and_needs_input():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="btn-token-view"' in html
+    assert "function syncTokenViewButton()" in html
+    assert "b.textContent = show ? 'Скрыть' : 'Показать';" in html
+    assert "b.disabled = !has;" in html
+    assert "syncTokenViewButton();" in html
+    # Кнопка по умолчанию неактивна: показывать нечего.
+    assert 'id="btn-token-view" onclick="toggleTokenView()" disabled' in html
+
+
+def test_reset_buttons_are_disabled_when_there_is_nothing_to_reset():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "setEnabled('disk_failed', diskFailed > 0 && !diskBusy);" in html
+    assert "setEnabled('unlim_skipped', unlimSkipped > 0 && !unlimBusy);" in html
+    assert "setEnabled('unlim_stuck', unlimStuck > 0 && !unlimBusy);" in html
+    assert ".reset-btn:disabled{" in html
+
+
+def test_partial_failure_is_orange_and_user_stop_is_neutral():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert ".badge.warn{" in html
+    assert ".badge.stop{" in html
+    assert "ps.className = 'badge warn'" in html
+    assert "ps.className = 'badge stop'" in html
+    # Серой плашки «с ошибками» больше нет.
+    assert "ps.className = partial ? 'badge' : 'badge ok'" not in html
+
+
+def test_dead_javascript_is_removed():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    for name in ("bigStart", "bigStop", "clearDb", "clearLog", "downloadSelected",
+                 "updateDownloadBanner", "updateScanStatus", "updateUnlimBanner",
+                 "workersWord"):
+        assert name not in html, name
+
+
+def test_ui_speaks_to_the_user_formally():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    for informal in ("Введи токен", "Укажи папку", "Залогинься", "Скопируй строку",
+                     "Установи <a", "Кликни на иконку"):
+        assert informal not in html, informal
+    assert "Нет связи с программой: " in html
+
+
+def test_home_layout_has_no_empty_half():
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "align-content:start;" in html
+    assert ".panel[data-panel=\"home\"] > .card:not(#pipeline-card){grid-column:1 / -1}" in html
+
+
+def test_main_sets_utf8_stdout_before_scanning():
+    """Без этого «→» в консоли cp1251 роняет сканирование в установленной сборке."""
+    src = (PROJECT_DIR / "main.py").read_text(encoding="utf-8")
+
+    assert 'sys.stdout, sys.stderr' in src
+    assert "reconfigure(encoding=\"utf-8\", errors=\"replace\")" in src

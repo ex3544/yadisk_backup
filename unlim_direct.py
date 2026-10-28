@@ -109,6 +109,9 @@ class SpeedMeter:
 
 _global_speed_meter = SpeedMeter()
 
+# Момент старта процесса: UI по нему отличает свой статус от прошлой сессии.
+SESSION_STARTED_AT = time.time()
+
 
 def update_status_file(
     active: bool,
@@ -125,6 +128,7 @@ def update_status_file(
     """Пишет статус для Web UI в logs/download_status.json."""
     data = {
         "active": active,
+        "started_at": SESSION_STARTED_AT,
         "batch_idx": batch_idx,
         "batches_total": batches_total,
         "item_current": item_current,

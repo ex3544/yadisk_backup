@@ -200,12 +200,31 @@ def categorize(path: str) -> str:
 # ── Менеджер фоновых процессов ──────────────────────────────────────────────
 
 
+def reset_session_counters(kind: str) -> None:
+    """Убирает счётчики прошлой сессии перед новым запуском выгрузки.
+
+    Файл именно удаляется, а не обнуляется: пока дочерний процесс не напишет
+    свой первый статус, интерфейс покажет «подготовка», а не чужие числа из
+    прошлой сессии (именно так на старте появлялось «136 файлов загружено»).
+    """
+    path = paths.UNLIM_STATUS_FILE if kind == "unlim" else paths.DISK_STATUS_FILE
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+
 class Task:
     def __init__(self, name: str, proc: subprocess.Popen):
         self.name = name
         self.proc = proc
         self.started_at = time.time()
         self.log: deque[str] = deque(maxlen=2000)
+        # Процесс закончил писать (EOF в stdout). Нужен, потому что poll() иногда
+        # продолжает возвращать None, и тогда полный цикл ждёт «живую» задачу,
+        # которая на самом деле уже упала, до ручной остановки.
+        self.finished = False
         self._t = threading.Thread(target=self._read, daemon=True)
         self._t.start()
 
@@ -223,9 +242,12 @@ class Task:
                 self.proc.wait(timeout=10)
             except Exception:
                 pass
+            self.finished = True
 
     def alive(self) -> bool:
-        return self.proc.poll() is None
+        # EOF в stdout означает, что процесс дописал последнее: считаем его
+        # завершённым, даже если poll() ещё не отдал код возврата.
+        return not self.finished and self.proc.poll() is None
 
     def stop(self):
         if self.alive():
@@ -616,8 +638,14 @@ class FullCycle:
                 time.sleep(0.2)
                 continue
             if not t.alive():
-                code = t.proc.poll()
-                return code if code is not None else 0
+                # Даём процессу пару секунд, чтобы poll() отдал код возврата:
+                # иначе упавшая задача выглядела бы как успешная.
+                for _ in range(50):
+                    code = t.proc.poll()
+                    if code is not None:
+                        return code
+                    time.sleep(0.1)
+                return 1
             time.sleep(1.0)
         return -1
 
@@ -730,6 +758,7 @@ class FullCycle:
             self._update_step()
             self._log(f"⬇️ Диск: проход {p}/{self.passes} — новые и сбойные файлы…")
             before = self._db_snapshot(DB_FILE, "files", ("failed",))
+            reset_session_counters("disk")
             self._own_start("disk", "main.py",
                             ["download", "--workers", str(disk_workers),
                              "--no-scan", "--retry"])
@@ -780,6 +809,7 @@ class FullCycle:
             self._update_step()
             self._log(f"⬇️ Безлимит: проход {p}/{self.passes} — новые и пропущенные…")
             before = self._db_snapshot(UNLIM_DB_FILE, "unlim_files", ("skipped",))
+            reset_session_counters("unlim")
             self._own_start("unlim", "unlim_backup.py", [
                 "--out-dir", out_dir,
                 "--media", "all",
@@ -1221,9 +1251,12 @@ class DiskWatchdog:
 
     def start(self, threshold_gb: float) -> tuple[bool, str]:
         with self._lock:
-            if self.is_running():
-                return False, "Сторож уже включён"
             self.threshold_gb = max(1.0, float(threshold_gb))
+            if self.is_running():
+                # Поток перечитывает порог на каждом круге, поэтому менять его
+                # у работающего сторожа можно без перезапуска — раньше выбор
+                # в списке молча пропадал.
+                return True, f"Порог сторожа изменён: {self.threshold_gb:g} ГБ"
             self._stop = False
             self.state = "watching"
             self.message = ""
@@ -1622,6 +1655,7 @@ def api_download_start(payload: DownloadControlPayload):
             args.append("--from-end")
         if payload.sort_after:
             args.append("--sort-after")
+        reset_session_counters("unlim")
         ok, msg = tm.start("unlim", "unlim_backup.py", args)
         return {"ok": ok, "msg": msg, "mode": "unlim"}
     else:
@@ -1629,6 +1663,7 @@ def api_download_start(payload: DownloadControlPayload):
         args = ["download", "--workers", str(auto_workers())]
         if DB_FILE.exists():
             args.append("--no-scan")
+        reset_session_counters("disk")
         ok, msg = tm.start("disk", "main.py", args)
         return {"ok": ok, "msg": msg, "mode": "disk"}
 

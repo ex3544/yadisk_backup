@@ -2,10 +2,13 @@
 
 import os
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 import webui
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 # ── классификация ───────────────────────────────────────────────────────────
@@ -574,3 +577,78 @@ def test_update_helper_restarts_the_newly_installed_copy(tmp_path):
     assert webui.APP_UNINSTALL_KEY in text
     assert "InstallLocation" in text
     assert "Start-Process -FilePath $target" in text
+
+
+# ── сессионные счётчики (35.5.7) ────────────────────────────────────────────
+
+
+def test_session_counters_are_cleared_before_a_new_run(monkeypatch, tmp_path):
+    """Чужие числа прошлой сессии не должны висеть на плашках нового запуска."""
+    unlim = tmp_path / "download_status.json"
+    disk = tmp_path / "disk_download_status.json"
+    unlim.write_text('{"success": 136}', encoding="utf-8")
+    disk.write_text('{"downloaded": 7}', encoding="utf-8")
+    monkeypatch.setattr(webui.paths, "UNLIM_STATUS_FILE", unlim)
+    monkeypatch.setattr(webui.paths, "DISK_STATUS_FILE", disk)
+
+    webui.reset_session_counters("unlim")
+    assert not unlim.exists()
+    assert disk.exists()          # чужой вид не тронут
+
+    webui.reset_session_counters("disk")
+    assert not disk.exists()
+
+    # Повторный вызов не падает, когда файла уже нет.
+    webui.reset_session_counters("disk")
+
+
+def test_status_writers_report_process_start():
+    """По started_at интерфейс отличает текущую сессию от прошлой."""
+    downloader_src = (PROJECT_DIR / "downloader.py").read_text(encoding="utf-8")
+    assert "SESSION_STARTED_AT = time.time()" in downloader_src
+    assert '"started_at": SESSION_STARTED_AT' in downloader_src
+
+    direct_src = (PROJECT_DIR / "unlim_direct.py").read_text(encoding="utf-8")
+    assert "SESSION_STARTED_AT = time.time()" in direct_src
+    assert '"started_at": SESSION_STARTED_AT' in direct_src
+
+
+def test_task_is_dead_once_stdout_ends():
+    """EOF в stdout — процесс дописал; полный цикл не должен ждать его вечно."""
+    import queue
+
+    class Lines:
+        """Строки «как из процесса»: блокируются, пока в очередь ничего не положат."""
+
+        def __init__(self):
+            self.q: queue.Queue = queue.Queue()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            item = self.q.get(timeout=5)
+            if item is None:
+                raise StopIteration
+            return item
+
+    class FakeProc:
+        def __init__(self):
+            self.code = None
+            self.stdout = Lines()
+
+        def poll(self):
+            return self.code
+
+        def wait(self, timeout=None):
+            return 0
+
+    proc = FakeProc()
+    task = webui.Task("disk", proc)
+    assert task.alive()
+
+    # poll() продолжает отдавать None, но поток чтения уже завершился — задача мертва.
+    proc.stdout.q.put(None)
+    task._t.join(timeout=5)
+    assert task.finished
+    assert not task.alive()

@@ -82,6 +82,14 @@
   .pill.err .dot{background:var(--red);box-shadow:0 0 8px rgba(255,69,58,.5)}
   .pill.run{color:var(--yellow)}
   .pill.run .dot{background:var(--yellow);animation:pulse 1.4s infinite}
+  .pill.info{color:var(--accent);background:rgba(10,132,255,.1);border-color:rgba(10,132,255,.35)}
+  .pill.info .dot{background:var(--accent);box-shadow:0 0 8px rgba(10,132,255,.5)}
+  /* Служебные пилюли (токен, куки, сторож) не должны выглядеть как итоги
+     выгрузки: текст нейтральный, цвет сообщает только точка. */
+  .pill.service{background:rgba(255,255,255,.035);color:var(--text-secondary)}
+  .pill.service.ok{color:var(--text-secondary)}
+  .pill.service.err{color:var(--red)}
+  .pills-sep{width:1px;height:22px;align-self:center;background:var(--hairline-strong)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
   /* Подсказка при наведении: своя плашка в цветах приложения вместо системного
@@ -286,13 +294,20 @@
   /* ── Широкоформатный (16:9) расклад: два столбца на больших экранах ── */
   @media (min-width:1200px){
     .panel.active[data-panel="home"]{
-      display:grid;grid-template-columns:1fr 1.2fr;gap:16px;align-items:start;
+      display:grid;grid-template-columns:1fr 1.2fr;gap:16px;
+      align-items:start;align-content:start;
     }
     .panel[data-panel="home"] .card,
     .panel[data-panel="home"] .grid-2{margin-bottom:0}
     .home-control{grid-column:1;grid-row:1 / span 2}
     #pipeline-card{grid-column:2;grid-row:1}
     .home-stats{grid-column:2;grid-row:2;grid-template-columns:1fr 1fr}
+    /* Журнал выше: иначе под статистикой справа остаётся пол-экрана пустоты,
+       а лог всё равно обрезан до 320 px. */
+    #pipeline-card #pipeline-console{height:min(52vh, 560px)}
+    /* Остальные карточки «Главной» — на всю ширину: иначе третий ряд занят
+       одной карточкой, а правая половина стоит пустой. */
+    .panel[data-panel="home"] > .card:not(#pipeline-card){grid-column:1 / -1}
 
     .panel.active[data-panel="setup"]{
       display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;
@@ -420,6 +435,9 @@
   .badge.ok{background:rgba(48,209,88,.12);border-color:rgba(48,209,88,.3);color:var(--green)}
   .badge.err{background:rgba(255,69,58,.12);border-color:rgba(255,69,58,.3);color:var(--red)}
   .badge.run{background:rgba(255,214,10,.12);border-color:rgba(255,214,10,.3);color:var(--yellow)}
+  /* Частичный сбой — не ошибка (работа сделана), но и не «готово». */
+  .badge.warn{background:rgba(255,159,10,.12);border-color:rgba(255,159,10,.35);color:var(--orange)}
+  .badge.stop{background:rgba(255,255,255,.06);border-color:var(--hairline-strong);color:var(--text-secondary)}
 
   /* ── Footer ── */
   footer{
@@ -588,6 +606,8 @@
     white-space:normal;min-width:0;word-break:break-word;
   }
   .reset-btn .reset-count{font-weight:700;font-size:13px;opacity:.85}
+  /* Сбрасывать нечего или идёт выгрузка — кнопка не должна выглядеть рабочей. */
+  .reset-btn:disabled{opacity:.45;cursor:not-allowed}
 
   #ctrl-workers-hint.warn{color:var(--yellow)}
 
@@ -719,12 +739,13 @@
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
     </span>
-    <span class="pill" id="pill-token" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Задать: «Настройки» → OAuth-токен."><span class="dot"></span><span id="pill-token-text">токен</span></span>
-    <span class="pill" id="pill-cookies" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Обновить: «Настройки» → Cookies браузера."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
+    <span class="pill service" id="pill-token" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Задать: «Настройки» → OAuth-токен."><span class="dot"></span><span id="pill-token-text">токен</span></span>
+    <span class="pill service" id="pill-cookies" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Обновить: «Настройки» → Cookies браузера."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
+    <span class="pill service" id="pill-watchdog" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Включить и задать порог: «Настройки» → Сторож свободного места."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
+    <span class="pills-sep" aria-hidden="true"></span>
     <span class="pill ok" id="pill-speed" style="display:none" data-tip="Скорость скачивания Безлимита в этом запуске."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
     <span class="pill ok" id="pill-session" style="display:none" data-tip="Итог текущего запуска Безлимита: скачано успешно / пропущено."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
     <span class="pill ok" id="pill-disk-session" style="display:none" data-tip="Итог текущего запуска обычного Диска: скачано успешно / с ошибкой."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
-    <span class="pill" id="pill-watchdog" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Включить и задать порог: «Настройки» → Сторож свободного места."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
   </div>
 </header>
 
@@ -768,11 +789,6 @@
       <div>
         <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
         <div class="card-sub" style="margin-bottom:0">Прямое скоростное скачивание оригиналов без прокси (Sergey Pukhir)</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span id="session-count-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">✅ Безлимит: 0 файлов за сессию</span>
-        <span id="disk-session-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">✅ Диск: 0 файлов за сессию</span>
-        <div id="live-speed-badge" class="badge ok" style="display:none;font-size:13px;padding:6px 12px">⚡ 0 МБ/с</div>
       </div>
     </div>
 
@@ -837,26 +853,26 @@
 
     <!-- 2. Параметры для Безлимита -->
     <div id="unlim-opts-row" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-bottom:10px">
-      <div>
+      <div class="tipnode" data-tip="Фото — jpg, heic, raw и другие картинки. Видео — mp4, mov и т.п. «Фото и видео» берёт всё медиа.">
         <label class="field-label">Тип медиа:</label>
         <select id="ctrl-media" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-          <option value="photos" selected>Только фото (.jpg, .heic, .raw…)</option>
-          <option value="videos">Только видео (.mp4, .mov…)</option>
-          <option value="all">Все медиа (фото + видео)</option>
+          <option value="photos" selected>Фото (jpg, heic…)</option>
+          <option value="videos">Видео (mp4, mov…)</option>
+          <option value="all">Фото и видео</option>
         </select>
       </div>
-      <div>
+      <div class="tipnode" data-tip="Новые — файлы, которые ещё не пытались скачать. Сбойные — те, что уже пробовали, но сервер отдал ошибку; их можно попробовать снова.">
         <label class="field-label">Очередь:</label>
         <select id="ctrl-target" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-          <option value="pending" selected>Новые файлы (pending)</option>
-          <option value="skipped">Повторить сбойные (skipped)</option>
+          <option value="pending" selected>Новые (pending)</option>
+          <option value="skipped">Сбойные (skipped)</option>
         </select>
       </div>
-      <div>
+      <div class="tipnode" data-tip="С конца — начинать со старых архивов (обычно там основная масса файлов). С начала — со свежих файлов.">
         <label class="field-label">Порядок файлов:</label>
         <select id="ctrl-order" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-          <option value="from_end" selected>С конца (старые архивы)</option>
-          <option value="from_start">С начала (свежие файлы)</option>
+          <option value="from_end" selected>С конца</option>
+          <option value="from_start">С начала</option>
         </select>
       </div>
       <label style="grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;margin-top:2px">
@@ -875,8 +891,9 @@
           <span class="tipnode tip-i tip-up" data-tip="Сколько файлов Безлимита скачивать одновременно (1–24). Обычный Диск и сортировка подбирают число потоков сами по свободной памяти. Ниже под полем — рекомендация для этой машины.">i</span>
         </label>
         <input type="number" id="ctrl-workers" value="10" min="1" max="24" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
-        <div id="ctrl-workers-hint" class="field-label" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);line-height:1.3">
-          Выбрано: — · рекомендую —
+        <div id="ctrl-workers-hint" class="field-label tipnode" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+             data-tip="Рекомендация считается по свободной памяти этой машины. Можно поставить больше, если память позволяет.">
+          Потоки: — · совет —
         </div>
       </div>
       <div>
@@ -1093,10 +1110,10 @@
     <details class="info">
       <summary>Где взять OAuth-токен (1 минута)</summary>
       <ol>
-        <li>Открой <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
-        <li>Залогинься своим аккаунтом Яндекса</li>
+        <li>Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
+        <li>Войдите в свой аккаунт Яндекса</li>
         <li>Справа вверху: <strong>«Получить OAuth-токен»</strong></li>
-        <li>Скопируй строку <code>y0_xxxx…</code>, вставь ниже</li>
+        <li>Скопируйте строку <code>y0_xxxx…</code> и вставьте её ниже</li>
         <li>Сначала <strong>«Проверить»</strong>, потом <strong>«Сохранить»</strong> когда статус зелёный</li>
       </ol>
     </details>
@@ -1114,7 +1131,7 @@
     </div>
 
     <label class="field-label">Новый токен</label>
-    <input type="password" id="token-input" placeholder="y0_AgAAA…">
+    <input type="password" id="token-input" placeholder="y0_AgAAA…" autocomplete="off" spellcheck="false">
     <div class="actions">
       <button onclick="testToken()">
         <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
@@ -1122,7 +1139,8 @@
       <button class="primary" id="btn-save-token" onclick="saveToken()" disabled>
         <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
       </button>
-      <button class="ghost" onclick="toggleTokenView()">Показать</button>
+      <button class="ghost tipnode" id="btn-token-view" onclick="toggleTokenView()" disabled
+              data-tip="Показывает открытым то, что вы ввели в поле «Новый токен». Сохранённый токен остаётся скрытым: выше видна только маска. Кнопка неактивна, пока поле пустое.">Показать</button>
     </div>
     <hr>
     <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
@@ -1135,7 +1153,7 @@
   <div class="card" id="watchdog-card">
     <div class="watchdog-line">
       <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
-      <select id="watchdog-threshold">
+      <select id="watchdog-threshold" onchange="applyWatchdogThreshold()">
         <option value="10">10 ГБ</option>
         <option value="20">20 ГБ</option>
         <option value="30">30 ГБ</option>
@@ -1193,10 +1211,10 @@
       <summary>Что это и как получить куки</summary>
       <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
       <ol>
-        <li>Установи <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
-        <li>Открой <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и залогинься</li>
-        <li>Кликни на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
-        <li>Вставь JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
+        <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
+        <li>Откройте <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и войдите в аккаунт</li>
+        <li>Нажмите на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
+        <li>Вставьте JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
       </ol>
       <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
     </details>
@@ -1540,7 +1558,22 @@ document.querySelectorAll('.tab').forEach(t=>{
 // ────── Setup actions ──────
 function toggleTokenView(){
   const i=document.getElementById('token-input');
-  i.type = i.type==='password'?'text':'password';
+  if(!i) return;
+  const show = i.type === 'password';
+  i.type = show ? 'text' : 'password';
+  const b=document.getElementById('btn-token-view');
+  if(b) b.textContent = show ? 'Скрыть' : 'Показать';
+}
+
+// «Показать» имеет смысл только когда в поле что-то есть; заодно возвращаем
+// скрытый вид, если поле очистили (иначе следующая вставка была бы на виду).
+function syncTokenViewButton(){
+  const i=document.getElementById('token-input');
+  const b=document.getElementById('btn-token-view');
+  if(!i || !b) return;
+  const has = !!i.value.trim();
+  b.disabled = !has;
+  if(!has && i.type === 'text') toggleTokenView();
 }
 
 let _verifiedToken = null;     // если совпадает с input → можно сохранять
@@ -1556,6 +1589,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       } else {
         document.getElementById('btn-save-token').disabled = false;
       }
+      syncTokenViewButton();
     });
   }
   const ckIn = document.getElementById('cookies-input');
@@ -1578,7 +1612,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 async function testToken(){
   const tok=document.getElementById('token-input').value.trim();
-  if(!tok){toast('Введи токен','err');return}
+  if(!tok){toast('Введите токен','err');return}
   const r=await fetch('/api/config/token/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})});
   const d=await r.json();
   if(d.ok){
@@ -1594,7 +1628,7 @@ async function testToken(){
 
 async function saveToken(){
   const tok=document.getElementById('token-input').value.trim();
-  if(!tok){toast('Пусто','err');return}
+  if(!tok){toast('Поле пустое','err');return}
   if(_verifiedToken !== tok){
     toast('Сначала «Проверить»','err'); return;
   }
@@ -1605,6 +1639,7 @@ async function saveToken(){
     document.getElementById('token-input').value='';
     _verifiedToken = null;
     document.getElementById('btn-save-token').disabled = true;
+    syncTokenViewButton();
   } else {
     toast(d.check?.msg||'Ошибка','err');
   }
@@ -1622,7 +1657,7 @@ async function clearToken(){
     const r = await fetch('/api/config/token/clear',{method:'POST'});
     const d = await r.json();
     toast(d.ok===false ? 'Ошибка удаления' : 'Удалено', d.ok===false?'err':'ok');
-  } catch(e){ toast('Сеть: '+e.message,'err') }
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
   refresh();
 }
 
@@ -1685,7 +1720,7 @@ async function browseFolder(target){
 
 function _parseCookies(){
   const txt=document.getElementById('cookies-input').value.trim();
-  if(!txt){toast('Пусто','err'); return null}
+  if(!txt){toast('Поле пустое','err'); return null}
   let parsed;
   try { parsed = JSON.parse(txt) }
   catch(e){ toast('Невалидный JSON: '+e.message,'err'); return null }
@@ -1711,7 +1746,7 @@ async function testCookies(){
       document.getElementById('btn-save-cookies').disabled = true;
       toast(d.msg||'Невалидны','err');
     }
-  } catch(e){ toast('Сеть: '+e.message,'err') }
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
 }
 
 async function saveCookies(){
@@ -1731,7 +1766,7 @@ async function saveCookies(){
     } else {
       toast(d.check?.msg||'Ошибка','err');
     }
-  } catch(e){toast('Сеть: '+e.message,'err')}
+  } catch(e){toast('Нет связи с программой: '+e.message,'err')}
   refresh();
 }
 
@@ -1746,7 +1781,7 @@ async function clearCookies(){
     const r = await fetch('/api/cookies/clear',{method:'POST'});
     const d = await r.json();
     toast(d.ok===false ? (d.msg||'Ошибка удаления') : 'Удалено', d.ok===false?'err':'ok');
-  } catch(e){ toast('Сеть: '+e.message,'err') }
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
   refresh();
 }
 
@@ -1755,7 +1790,7 @@ async function startCookieFetch(){
     const r=await fetch('/api/cookies/fetch',{method:'POST'});
     const d=await r.json();
     toast(d.msg||(d.ok?'Запускаю…':'Ошибка'), d.ok?'ok':'err');
-  } catch(e){ toast('Сеть: '+e.message,'err') }
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
   refresh();
 }
 
@@ -1764,7 +1799,7 @@ async function cancelCookieFetch(){
     const r=await fetch('/api/cookies/fetch/cancel',{method:'POST'});
     const d=await r.json();
     toast(d.msg||'Отменено','ok');
-  } catch(e){ toast('Сеть: '+e.message,'err') }
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
   refresh();
 }
 
@@ -1794,29 +1829,6 @@ function renderCookieFetch(f){
 }
 
 // ────── Big start / pipeline ──────
-async function bigStart(){
-  const opts = {
-    workers: +document.getElementById('opt-workers').value || 4,
-    do_disk: document.getElementById('opt-disk').checked,
-    do_unlim: document.getElementById('opt-unlim').checked,
-  };
-  const r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(opts)});
-  const d=await r.json();
-  if(d.ok===false){toast(d.msg,'err')} else {toast('Запущено','ok')}
-  refresh();
-}
-async function bigStop(){
-  if(!await askConfirm({
-    title: 'Остановить выполнение?',
-    text: 'Текущая задача будет прервана. Прогресс и очередь сохраняются — можно продолжить позже.',
-    ok: 'Остановить'
-  })) return;
-  const r=await fetch('/api/start/stop',{method:'POST'});
-  const d=await r.json();
-  toast(d.msg, d.ok?'ok':'err');
-  refresh();
-}
-
 function updateDbStatusBanner(s){
   if(!s) return;
   const currentModeEl = document.querySelector('input[name="ctrl-mode"]:checked');
@@ -1918,7 +1930,7 @@ async function startDownloadAll(){
       toast(d.msg || 'Не удалось запустить', 'err');
     }
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -1959,7 +1971,7 @@ async function startCustomDownload(){
       toast('Ошибка: ' + (d.msg || 'Не удалось запустить'), 'err');
     }
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -1975,7 +1987,7 @@ async function stopCustomDownload(){
     const d = await r.json();
     toast('Процесс остановлен', 'ok');
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -2042,7 +2054,7 @@ async function startCustomScan(){
       if (ps) { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
     }
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -2087,7 +2099,7 @@ async function action(name, btn){
     const d=await r.json();
     if(d.ok===false){toast(d.msg||'Ошибка','err')} else {toast(d.msg||'Запущено','ok')}
   } catch(e){
-    toast('Сеть: '+e.message,'err');
+    toast('Нет связи с программой: '+e.message,'err');
   }
   refresh();
 }
@@ -2096,7 +2108,7 @@ async function organize(actionType, btn){
   const inp=document.getElementById('organize-input').value.trim();
   const scheme=document.getElementById('organize-scheme').value;
   const quick=document.getElementById('organize-quick').checked;
-  if(!inp){toast('Укажи папку','err');return}
+  if(!inp){toast('Укажите папку','err');return}
 
   // С галочкой «Сортировать сразу» отчёт превращается в реальную сортировку (move)
   const action = (quick && actionType === 'report-only') ? 'move' : actionType;
@@ -2133,7 +2145,7 @@ async function organize(actionType, btn){
     toast(d.msg, d.ok===false?'err':'ok');
     if(d.ok===false && stopBtn) stopBtn.disabled = true;
   } catch(e){
-    toast('Сеть: '+e.message,'err');
+    toast('Нет связи с программой: '+e.message,'err');
   }
   refresh();
 }
@@ -2218,85 +2230,6 @@ function updateSelectedSummary(kind, cats){
   }
   document.getElementById(`${kind}-preview-selected`).textContent =
     `${count.toLocaleString('ru')} файлов · ${human(bytes)}`;
-}
-
-async function clearLog(kind){
-  // kind: 'disk' | 'unlim' | 'organize'
-  // Для unlim слоты unlim_collect + unlim_w* — используем wildcard
-  const slot = kind === 'unlim' ? 'unlim*' : kind;
-  try {
-    const r = await fetch(`/api/task/${encodeURIComponent(slot)}/clear_log`, {method:'POST'});
-    const d = await r.json();
-    // Локально сразу очистим консоль чтобы не ждать polling
-    const el = document.getElementById(`${kind}-console`);
-    if(el){
-      el.innerHTML = '<div class="console-empty">лог очищен</div>';
-      _lastConsole[`${kind}-console`] = '';
-    }
-    toast(d.cleared > 0 ? 'Лог очищен' : 'Нечего очищать', 'ok');
-  } catch(e){ toast('Сеть: '+e.message,'err') }
-}
-
-async function clearDb(kind){
-  const label = kind === 'disk' ? 'обычного диска' : 'безлимита';
-  if(!await askConfirm({
-    title: `Очистить базу ${label}?`,
-    text: 'Это удалит:\n• список найденных файлов\n• статус скачивания\n• логи задач\n\nУже скачанные файлы на диске останутся.',
-    ok: 'Очистить', danger: true
-  })) return;
-  try {
-    const url = kind === 'disk' ? '/api/disk/clear' : '/api/unlim/clear';
-    const r = await fetch(url, {method:'POST'});
-    const d = await r.json();
-    if(d.ok){
-      toast(d.msg || 'Очищено','ok');
-      // Скрыть карточку превью
-      const card = document.getElementById(`${kind}-preview-card`);
-      if(card) card.style.display = 'none';
-      // Сбросить статус-баннеры
-      const statusEl = document.getElementById(`${kind}-scan-status`);
-      if(statusEl) statusEl.style.display = 'none';
-      const downloadBanner = document.getElementById(`${kind}-download-banner`);
-      if(downloadBanner) downloadBanner.style.display = 'none';
-    } else {
-      toast(d.msg || 'Ошибка','err');
-    }
-  } catch(e){ toast('Сеть: '+e.message,'err') }
-  refresh();
-}
-
-async function downloadSelected(kind, btn){
-  const cats = Object.keys(selectedCats[kind]).filter(k => selectedCats[kind][k]);
-  if(cats.length === 0){toast('Ничего не выбрано','err');return}
-  const workers = kind === 'unlim'
-    ? (+document.getElementById('unlim-workers').value || 4)
-    : 4;
-  const url = kind === 'disk' ? '/api/disk/download_selected' : '/api/unlim/download_selected';
-
-  // Сразу показать live-баннер
-  const banner = document.getElementById(`${kind}-download-banner`);
-  banner.style.display = 'flex';
-  banner.className = 'task-banner';
-  document.getElementById(`${kind}-download-title`).textContent =
-    kind === 'disk' ? 'Скачиваю обычный диск…' : 'Скачиваю безлимит…';
-  document.getElementById(`${kind}-download-sub`).innerHTML =
-    `Категории: ${cats.map(c => CAT_META[c]?.label || c).join(', ')} · потоков: ${workers}`;
-  document.getElementById(`${kind}-download-time`).textContent = '0с';
-  setTimeout(()=>banner.scrollIntoView({behavior:'smooth', block:'center'}), 50);
-
-  if(btn){
-    if(!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
-    btn.classList.add('loading');
-    btn.innerHTML = '<div class="spinner spinner-sm" style="margin-right:6px"></div>Запуск…';
-    setTimeout(()=>{btn.classList.remove('loading'); btn.innerHTML = btn.dataset.origHtml}, 1800);
-  }
-
-  try {
-    const r = await fetch(url, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({categories:cats, workers})});
-    const d = await r.json();
-    toast(d.ok===false ? (d.msg||'Ошибка') : 'Скачивание запущено', d.ok===false?'err':'ok');
-  } catch(e){toast('Сеть: '+e.message,'err')}
-  refresh();
 }
 
 // ────── Refresh ──────
@@ -2411,105 +2344,6 @@ function slotOrder(slot){
   return 100;
 }
 
-function updateDownloadBanner(kind, task){
-  const banner = document.getElementById(`${kind}-download-banner`);
-  const title = document.getElementById(`${kind}-download-title`);
-  const sub = document.getElementById(`${kind}-download-sub`);
-  const time = document.getElementById(`${kind}-download-time`);
-  if(!banner) return;
-  if(!task){return}
-  // Не показываем download-баннер для scan — у scan свой статус
-  // Различаем по log_tail: если есть "scan" / "Обхожу" — это scan
-  const logTxt = (task.log_tail||[]).join(' ');
-  const isScan = /Обхожу|Найдено\s*\[/.test(logTxt);
-  if(isScan){
-    banner.style.display = 'none';
-    return;
-  }
-  if(task.running){
-    banner.style.display = 'flex';
-    banner.className = 'task-banner';
-    title.textContent = kind === 'disk' ? 'Скачиваю обычный диск…' : 'Скачиваю безлимит…';
-    const p = parseDownloadProgress(task.log_tail);
-    if(p && p.total){
-      sub.innerHTML = `${p.done.toLocaleString('ru')} / ${p.total.toLocaleString('ru')} файлов`;
-    } else if(p && p.extra){
-      sub.textContent = p.extra;
-    } else {
-      sub.textContent = 'качаю…';
-    }
-    time.textContent = dur(task.elapsed);
-  } else if(task.exit_code === 0){
-    banner.style.display = 'flex';
-    banner.className = 'task-banner done';
-    title.innerHTML = '<span style="color:var(--green)">Скачивание завершено</span>';
-    sub.textContent = 'все файлы на диске';
-    time.textContent = dur(task.elapsed);
-  } else if(isStopped(task.exit_code)){
-    banner.style.display = 'flex';
-    banner.className = 'task-banner stopped';
-    title.innerHTML = '<span style="color:var(--text-secondary)">Остановлено пользователем</span>';
-    sub.textContent = 'скачивание прервано';
-    time.textContent = dur(task.elapsed);
-  } else if(task.exit_code !== null){
-    banner.style.display = 'flex';
-    banner.className = 'task-banner err';
-    title.innerHTML = '<span style="color:var(--red)">Ошибка</span>';
-    sub.textContent = `код ${task.exit_code}`;
-    time.textContent = dur(task.elapsed);
-  }
-}
-
-function updateUnlimBanner(tasks){
-  // Агрегированный статус workers
-  const workers = Object.keys(tasks).filter(k=>k.startsWith('unlim_w'));
-  const banner = document.getElementById('unlim-download-banner');
-  if(!banner) return;
-  if(workers.length === 0) return;
-  const aliveWorkers = workers.filter(w=>tasks[w].running);
-  const title = document.getElementById('unlim-download-title');
-  const sub = document.getElementById('unlim-download-sub');
-  const time = document.getElementById('unlim-download-time');
-  if(aliveWorkers.length > 0){
-    banner.style.display = 'flex';
-    banner.className = 'task-banner';
-    title.textContent = `Скачиваю безлимит · ${aliveWorkers.length} воркеров`;
-    // Найдём последнюю batch-инфу
-    let last = '';
-    for(const w of workers){
-      const tail = tasks[w].log_tail || [];
-      for(const l of tail.slice().reverse()){
-        const m = /batch\s+(\d+):\s*✓\s*(\d+)\s*files\s*\/\s*([\d.]+)\s*GB/i.exec(l);
-        if(m){last = `последний batch w${w.replace('unlim_w','')}: ${m[2]} файлов, ${m[3]} ГБ`; break}
-      }
-      if(last) break;
-    }
-    sub.textContent = last || 'идёт скачивание архивов…';
-    const maxElapsed = Math.max(...aliveWorkers.map(w=>tasks[w].elapsed||0));
-    time.textContent = dur(maxElapsed);
-  } else {
-    // Все воркеры закончили
-    const allOk = workers.every(w=>tasks[w].exit_code === 0);
-    const anyStopped = workers.some(w=>isStopped(tasks[w].exit_code));
-    if(allOk){
-      banner.style.display = 'flex';
-      banner.className = 'task-banner done';
-      title.innerHTML = '<span style="color:var(--green)">Безлимит скачан</span>';
-      sub.textContent = `${workers.length} воркеров завершили работу`;
-    } else if(anyStopped){
-      banner.style.display = 'flex';
-      banner.className = 'task-banner stopped';
-      title.innerHTML = '<span style="color:var(--text-secondary)">Остановлено пользователем</span>';
-      sub.textContent = `воркеры прерваны`;
-    } else {
-      banner.style.display = 'flex';
-      banner.className = 'task-banner err';
-      title.innerHTML = '<span style="color:var(--red)">Ошибка воркеров</span>';
-      sub.textContent = `проверь консоль`;
-    }
-  }
-}
-
 function updateOrganizeControls(task){
   const btn = document.getElementById('organize-stop-btn');
   if(btn) btn.disabled = !(task && task.running);
@@ -2605,48 +2439,6 @@ function isStopped(code){
   return code === -15 || code === -2 || code === 143 || code === 130 || code === 15;
 }
 
-function updateScanStatus(kind, task, lastTotal){
-  const statusEl = document.getElementById(`${kind}-scan-status`);
-  const titleEl = document.getElementById(`${kind}-scan-status-title`);
-  const subEl = document.getElementById(`${kind}-scan-status-sub`);
-  if(!statusEl) return;
-  if(task && task.running){
-    statusEl.style.display = 'block';
-    statusEl.className = 'task-banner';
-    const word = kind === 'disk' ? 'диск' : 'photoslice';
-    titleEl.textContent = `Сканирую ${word}…`;
-    const p = parseScanProgress(task.log_tail);
-    if(p && p.total){
-      subEl.textContent = `${p.count.toLocaleString('ru')} / ${p.total.toLocaleString('ru')} · ${dur(task.elapsed)}`;
-    } else if(p){
-      subEl.textContent = `найдено: ${p.count.toLocaleString('ru')} · ${dur(task.elapsed)}`;
-    } else {
-      subEl.textContent = `работает ${dur(task.elapsed)}…`;
-    }
-  } else if(task && task.exit_code === 0){
-    // Только что закончилось успешно
-    statusEl.style.display = 'block';
-    statusEl.className = 'task-banner done';
-    titleEl.innerHTML = '<span style="color:var(--green)">Готово</span>';
-    if(lastTotal) subEl.textContent = `найдено: ${lastTotal.toLocaleString('ru')} файлов`;
-    else subEl.textContent = 'сканирование завершено';
-  } else if(task && isStopped(task.exit_code)){
-    // Пользователь нажал «Стоп»
-    statusEl.style.display = 'block';
-    statusEl.className = 'task-banner stopped';
-    titleEl.innerHTML = '<span style="color:var(--text-secondary)">Остановлено пользователем</span>';
-    if(lastTotal) subEl.textContent = `было найдено: ${lastTotal.toLocaleString('ru')} файлов`;
-    else subEl.textContent = 'сканирование прервано';
-  } else if(task && task.exit_code !== null && task.exit_code !== 0){
-    statusEl.style.display = 'block';
-    statusEl.className = 'task-banner err';
-    titleEl.innerHTML = '<span style="color:var(--red)">Ошибка</span>';
-    subEl.textContent = `код ${task.exit_code}`;
-  } else {
-    statusEl.style.display = 'none';
-  }
-}
-
 function renderSessionCounters(s, tasks){
   const sp = s.speed || {};
   const dsp = s.disk_speed || {};
@@ -2654,36 +2446,60 @@ function renderSessionCounters(s, tasks){
   const dt = tasks && tasks.disk;
 
   // Показываем счётчик, пока задача идёт (в т.ч. зависла) или уже завершилась,
-  // чтобы в конце сессии было видно, что файлы реально скачались.
-  const unlimShow = !!ut && (ut.running || ut.exit_code !== null) && sp.success !== undefined;
-  const diskShow = !!dt && (dt.running || dt.exit_code !== null) && dsp.downloaded !== undefined;
+  // чтобы в конце сессии было видно, что файлы реально скачались. Но только
+  // если файл статуса свежее старта задачи: иначе на экране оказались бы
+  // числа прошлой сессии, выданные за текущие.
+  const unlimTask = !!ut && (ut.running || ut.exit_code !== null);
+  const diskTask = !!dt && (dt.running || dt.exit_code !== null);
+  const unlimFresh = statusIsFresh(ut, sp) && sp.success !== undefined;
+  const diskFresh = statusIsFresh(dt, dsp) && dsp.downloaded !== undefined;
 
-  setSessionCounter('pill-session', 'pill-session-text', unlimShow, sp.success, sp.skipped, 'файлов');
-  setSessionCounter('session-count-badge', null, unlimShow, sp.success, sp.skipped, 'файлов за сессию', 'Безлимит: ');
-  setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskShow, dsp.downloaded, dsp.failed, 'файлов', '', '⚠');
-  setSessionCounter('disk-session-badge', null, diskShow, dsp.downloaded, dsp.failed, 'файлов за сессию', 'Диск: ', '⚠');
+  if(unlimTask && !unlimFresh){
+    setSessionPending('pill-session', 'pill-session-text', '⏳ Безлимит: подготовка…');
+  } else {
+    setSessionCounter('pill-session', 'pill-session-text', unlimTask, sp.success, sp.skipped, 'файлов');
+  }
+  if(diskTask && !diskFresh){
+    setSessionPending('pill-disk-session', 'pill-disk-session-text', '⏳ Диск: подготовка…');
+  } else {
+    setSessionCounter('pill-disk-session', 'pill-disk-session-text', diskTask, dsp.downloaded, dsp.failed, 'файлов', '⚠');
+  }
 }
 
-function setSessionCounter(id, textId, show, count, extra, suffix, prefix, extraIcon){
+// Статус относится к текущему запуску, если записан после старта задачи.
+// Писатель статуса сам сообщает started_at своего процесса; для старых файлов
+// без этого поля считаем старт по времени работы задачи в UI.
+function statusIsFresh(task, st){
+  if(!task || !st) return false;
+  const updated = Number(st.updated_at || 0) * 1000;
+  if(!updated) return false;
+  const started = st.started_at
+    ? Number(st.started_at) * 1000
+    : Date.now() - Number(task.elapsed || 0) * 1000;
+  return updated >= started - 5000;
+}
+
+function setSessionPending(id, textId, label){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.display = 'inline-flex';
+  el.className = 'pill';
+  const text = document.getElementById(textId);
+  if(text) text.textContent = label;
+}
+
+function setSessionCounter(id, textId, show, count, extra, suffix, extraIcon){
   const el = document.getElementById(id);
   if(!el) return;
   if(show && count !== undefined){
     el.style.display = 'inline-flex';
-    let label = (prefix || '') + '✅ ' + (+count).toLocaleString('ru') + ' ' + suffix;
+    el.className = 'pill ok';
+    let label = '✅ ' + (+count).toLocaleString('ru') + ' ' + suffix;
     if(extra) label += ' · ' + (extraIcon || '↷') + ' ' + (+extra).toLocaleString('ru');
-    if(textId) document.getElementById(textId).textContent = label;
-    else el.textContent = label;
+    document.getElementById(textId).textContent = label;
   } else {
     el.style.display = 'none';
   }
-}
-
-function workersWord(n){
-  const a = Math.abs(n) % 100, b = a % 10;
-  if(a > 10 && a < 20) return 'потоков';
-  if(b === 1) return 'поток';
-  if(b >= 2 && b <= 4) return 'потока';
-  return 'потоков';
 }
 
 function renderFullCycle(fc){
@@ -2746,6 +2562,26 @@ function closeCycleSummary(){
   if(modal) modal.classList.remove('show');
 }
 
+async function applyWatchdogThreshold(){
+  // У включённого сторожа новый порог применяется сразу: сервер перечитывает
+  // его на каждом круге проверки. Раньше выбор молча возвращался назад.
+  const st = window._lastStatus && window._lastStatus.watchdog;
+  if(!st || !st.running) return;
+  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 50;
+  if(Number(st.threshold_gb) === threshold) return;
+  try{
+    const r = await fetch('/api/watchdog/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({threshold_gb: threshold})
+    });
+    const d = await r.json();
+    toast(d.msg || 'Порог изменён', d.ok ? 'ok' : 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
+}
+
 async function toggleWatchdog(){
   const st = window._lastStatus && window._lastStatus.watchdog;
   const running = !!(st && st.running);
@@ -2760,7 +2596,7 @@ async function toggleWatchdog(){
     const d = await r.json();
     toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -2797,26 +2633,50 @@ function renderWatchdog(w){
   // Пилюля в шапке: состояние сторожа видно на любой вкладке.
   if(pill && pillText){
     if(w.state === 'triggered'){
-      pill.className = 'pill err';
+      pill.className = 'pill service err';
       pillText.textContent = '🛡 свободно мало';
     } else if(w.running){
-      pill.className = 'pill ok';
+      // Синяя — включён, и это не итог выгрузки, а состояние службы.
+      pill.className = 'pill info';
       pillText.textContent = `🛡 ${w.threshold_gb} ГБ`;
     } else {
-      pill.className = 'pill';
+      pill.className = 'pill service';
       pillText.textContent = '🛡 выкл';
     }
   }
 }
 
 function renderResetCounts(s){
-  const set = (id, v) => {
+  const count = (id, v) => {
     const el = document.getElementById(id);
     if(el) el.textContent = (+v || 0).toLocaleString('ru');
+    return +v || 0;
   };
-  set('reset-disk-failed', s && s.disk && s.disk.db ? s.disk.db.failed : 0);
-  set('reset-unlim-skipped', s && s.unlim && s.unlim.db ? s.unlim.db.skipped : 0);
-  set('reset-unlim-stuck', s && s.unlim && s.unlim.db ? s.unlim.db.in_progress : 0);
+  const diskFailed = count('reset-disk-failed',
+    s && s.disk && s.disk.db ? s.disk.db.failed : 0);
+  const unlimSkipped = count('reset-unlim-skipped',
+    s && s.unlim && s.unlim.db ? s.unlim.db.skipped : 0);
+  const unlimStuck = count('reset-unlim-stuck',
+    s && s.unlim && s.unlim.db ? s.unlim.db.in_progress : 0);
+
+  // Кнопка без работы — ловушка: нажимаешь, а сбрасывать нечего. Пока идёт
+  // выгрузка, сброс запрещён и на сервере, поэтому гасим заранее.
+  const tasks = (s && s.tasks) || {};
+  const fcRunning = !!(s && s.full_cycle && s.full_cycle.running);
+  const pipeRunning = !!(s && s.pipeline && s.pipeline.running);
+  const busy = (slot) => {
+    const t = tasks[slot];
+    return !!(t && t.running);
+  };
+  const diskBusy = busy('disk') || fcRunning || pipeRunning;
+  const unlimBusy = busy('unlim') || busy('unlim_collect') || fcRunning || pipeRunning;
+  const setEnabled = (what, enabled) => {
+    const el = document.querySelector(`#reset-queue-card [onclick="resetStatus('${what}')"]`);
+    if(el) el.disabled = !enabled;
+  };
+  setEnabled('disk_failed', diskFailed > 0 && !diskBusy);
+  setEnabled('unlim_skipped', unlimSkipped > 0 && !unlimBusy);
+  setEnabled('unlim_stuck', unlimStuck > 0 && !unlimBusy);
 }
 
 async function resetStatus(what){
@@ -2831,7 +2691,7 @@ async function resetStatus(what){
     const d = await r.json();
     toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
   } catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
   refresh();
 }
@@ -2845,13 +2705,15 @@ function renderRamHint(ram){
   // Подставляем рекомендацию, пока пользователь сам не менял поле.
   if(!window._workersTouched) inp.value = rec;
   const val = parseInt(inp.value, 10);
+  // Держим строку в одну строку: под узким полем длинный текст про ОЗУ
+  // переносился на три строки и распирал всю строку параметров. Подробности
+  // про память — в подсказке к этому же тексту.
   const parts = [];
   if(ram.total_gb != null) parts.push(`ОЗУ ${ram.total_gb} ГБ`);
   if(ram.available_gb != null) parts.push(`свободно ${ram.available_gb} ГБ`);
-  // Живая перерисовка по вводу: видно, что выбрано и насколько это выше совета.
-  let text = `Выбрано: ${Number.isFinite(val) ? val : '—'} · рекомендую ${rec}`;
-  if(parts.length) text += ` (${parts.join(', ')})`;
-  hint.textContent = text;
+  hint.textContent = `Потоки: ${Number.isFinite(val) ? val : '—'} · совет ${rec}`;
+  hint.dataset.tip = `Выбрано ${Number.isFinite(val) ? val : '—'}, рекомендация для этой машины — ${rec}.`
+    + (parts.length ? ` ${parts.join(', ')}.` : '');
   hint.classList.toggle('warn', Number.isFinite(val) && val > rec);
 }
 
@@ -2877,11 +2739,12 @@ async function refresh(){
 
     // Pills
     const pt=document.getElementById('pill-token');
-    pt.className = 'pill '+(s.token.ok?'ok':'err');
+    // Класс service сохраняем: он отличает служебные плашки от итогов выгрузки.
+    pt.className = 'pill service '+(s.token.ok?'ok':'err');
     document.getElementById('pill-token-text').textContent = s.token.ok ? `токен · ${s.token.login}` : 'нет токена';
 
     const pc=document.getElementById('pill-cookies');
-    pc.className = 'pill '+(s.cookies.ok?'ok':'err');
+    pc.className = 'pill service '+(s.cookies.ok?'ok':'err');
     document.getElementById('pill-cookies-text').textContent = s.cookies.ok ? 'cookies · OK' : 'нет cookies';
 
     const pSpeed = document.getElementById('pill-speed');
@@ -2998,17 +2861,6 @@ async function refresh(){
     const pStep = document.getElementById('pipeline-step');
     const pTime = document.getElementById('pipeline-time');
 
-    // Live speed badge in download control card
-    const liveSpeed = document.getElementById('live-speed-badge');
-    if (liveSpeed) {
-      if (sp.active && sp.speed_mb !== undefined && isUnlimRunning) {
-        liveSpeed.style.display = 'inline-block';
-        liveSpeed.textContent = `⚡ ${sp.speed_mb} МБ/с (${sp.speed_mbit} Мбит/с)`;
-      } else {
-        liveSpeed.style.display = 'none';
-      }
-    }
-
     // Счётчики успешно скачанных файлов за текущую сессию (Диск и Безлимит).
     renderSessionCounters(s, tasks);
 
@@ -3057,7 +2909,7 @@ async function refresh(){
         // лог последней задачи: он затирал результат Диска.
         if (card) card.style.display = 'block';
         const partial = fcst.state !== 'done';
-        if (ps) { ps.textContent = partial ? 'с ошибками' : 'готово'; ps.className = partial ? 'badge' : 'badge ok'; }
+        if (ps) { ps.textContent = partial ? 'с ошибками' : 'готово'; ps.className = partial ? 'badge warn' : 'badge ok'; }
         if (pStep) pStep.textContent = 'Полный цикл: Диск + Безлимит';
         if (pTime) pTime.textContent = dur((fcst.summary || {}).duration);
         const fcLog = ['🏁 Полный цикл', cycleLaneText('disk', fcst), cycleLaneText('unlim', fcst)];
@@ -3076,8 +2928,8 @@ async function refresh(){
         const doneLabel = isScanTask ? 'сканирование завершено (база готова)' : 'скачивание завершено';
         if (ps) {
           if (isDone) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
-          else if (isPartial) { ps.textContent = 'с ошибками'; ps.className = 'badge'; }
-          else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge'; }
+          else if (isPartial) { ps.textContent = 'с ошибками'; ps.className = 'badge warn'; }
+          else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge stop'; }
           else { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
         }
         if (pStep) pStep.textContent = (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (
@@ -3099,7 +2951,7 @@ async function refresh(){
         if (ps) {
           if (pl.state === 'done') { ps.textContent = 'готово'; ps.className = 'badge ok'; }
           else if (pl.state === 'failed') { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
-          else { ps.textContent = 'остановлено пользователем'; ps.className = 'badge'; }
+          else { ps.textContent = 'остановлено пользователем'; ps.className = 'badge stop'; }
         }
         if (pStep) pStep.textContent = pl.step || 'Завершено';
         if (pTime) pTime.textContent = dur(pl.elapsed);
@@ -3338,7 +3190,7 @@ async function skipSetup(){
     document.getElementById('setup-modal').classList.remove('show');
     toast('Можно настроить позже на вкладке «Настройки».', 'ok');
   }catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }finally{
     btn.disabled = false;
   }
@@ -3438,7 +3290,7 @@ async function startUpdateDownload(){
     const d = await r.json();
     if(!d.ok) toast(d.msg || 'Не удалось начать загрузку', 'err');
   }catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }finally{
     if(btn) btn.disabled = false;
   }
@@ -3450,7 +3302,7 @@ async function cancelUpdateDownload(){
     const d = await r.json();
     if(!d.ok) toast(d.msg || 'Загрузка уже завершена', 'err');
   }catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
 }
 
@@ -3470,7 +3322,7 @@ async function applyUpdate(){
     if(!d.ok){ toast(d.msg || 'Не удалось установить обновление', 'err'); return; }
     toast(d.msg || 'Устанавливаю обновление…', 'ok');
   }catch(e){
-    toast('Сеть: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
   }
 }
 
@@ -3828,7 +3680,7 @@ async function openBackupsFolder(){
     const d = await r.json();
     if(d.ok) toast('Открываю: ' + d.path, 'ok');
     else toast(d.error || 'Не удалось открыть папку', 'err');
-  }catch(e){ toast('Сеть: ' + e.message, 'err'); }
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
 }
 
 function renderRebuildCounts(s){
@@ -3891,7 +3743,7 @@ async function openReportsFolder(){
     const d = await r.json();
     if(d.ok) toast('Открываю: ' + d.path, 'ok');
     else toast(d.error || 'Не удалось открыть папку', 'err');
-  }catch(e){ toast('Сеть: ' + e.message, 'err'); }
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
 }
 
 async function saveReportKey(){

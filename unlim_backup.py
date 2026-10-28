@@ -731,6 +731,10 @@ def run_backup(
     total_downloaded_files = 0
     total_downloaded_bytes = 0
     total_skipped_files = 0
+    # Считаем пропущенные по уникальным file_id: во второй фазе те же файлы
+    # берутся повторно, и простой счётчик давал двойное число (1951 против 970
+    # сбойных в базе).
+    skipped_ids: set[str] = set()
     fatal_error: str | None = None
     fatal_code: str | None = None
 
@@ -794,8 +798,12 @@ def run_backup(
                     if ok:
                         batch_success += 1
                         batch_bytes += sz
+                        # Файл, сбойнувший в первой фазе и скачанный во второй,
+                        # сбойным уже не считается.
+                        skipped_ids.discard(future_to_item[future]["file_id"])
                     else:
                         batch_skipped += 1
+                        skipped_ids.add(future_to_item[future]["file_id"])
 
                     cur_mb, cur_mbit = _global_speed_meter.current_speed()
                     percent = (i / len(items)) * 100
@@ -809,7 +817,7 @@ def run_backup(
                             item_current=i,
                             items_total=len(items),
                             success=total_downloaded_files + batch_success,
-                            skipped=total_skipped_files + batch_skipped,
+                            skipped=len(skipped_ids),
                             mb_s=cur_mb,
                             mbit_s=cur_mbit,
                             total_bytes=total_downloaded_bytes + batch_bytes,
@@ -829,7 +837,7 @@ def run_backup(
             avg_mbit = avg_mb * 8.0
             total_downloaded_files += batch_success
             total_downloaded_bytes += batch_bytes
-            total_skipped_files += batch_skipped
+            total_skipped_files = len(skipped_ids)
 
             print()
             print(

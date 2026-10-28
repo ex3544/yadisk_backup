@@ -19,6 +19,13 @@ import sys
 import time
 from logging.handlers import RotatingFileHandler
 
+# В установленной сборке stdout дочернего процесса — консольная кодировка
+# Windows (cp1251), и любая печать «→» или кириллического имени падала с
+# UnicodeEncodeError, обрывая сканирование. Остальные скрипты делают то же.
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from dotenv import load_dotenv
 from tqdm import tqdm
 
