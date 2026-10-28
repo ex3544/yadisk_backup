@@ -411,6 +411,25 @@ def test_download_all_payload_defaults():
     assert payload.sort_after is False
 
 
+def test_download_start_refuses_unavailable_folder(monkeypatch, tmp_path):
+    """Отключённый диск должен давать отказ с текстом, а не падение процесса."""
+    blocker = tmp_path / "file.txt"
+    blocker.write_text("x")
+    monkeypatch.setattr(webui, "get_config",
+                        lambda: {"disk_dir": str(blocker / "sub")})
+    started = []
+    monkeypatch.setattr(webui.tm, "start",
+                        lambda *a, **k: started.append(a) or (True, "ok"))
+
+    out = webui.api_download_start(
+        webui.DownloadControlPayload(mode="disk")
+    )
+
+    assert out["ok"] is False
+    assert "Папка выгрузки недоступна" in out["msg"]
+    assert started == []
+
+
 # ── обновление программы ────────────────────────────────────────────────────
 
 

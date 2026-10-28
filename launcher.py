@@ -586,7 +586,18 @@ def main(argv: list[str] | None = None) -> int:
 
     # Multi-call: воркеры запускаются до загрузки pywebview/pystray.
     if args and args[0] in webui.WORKER_SCRIPTS:
-        webui.dispatch_worker(args)
+        # Необработанное исключение здесь раньше показывало пользователю окно
+        # «Unhandled exception in script» с простынёй трейсбека. Теперь причина
+        # уходит в журнал задачи (её видно в панели), а код возврата — 1.
+        try:
+            webui.dispatch_worker(args)
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001 — любой сбой задачи
+            _setup_logging()
+            log.exception("Ошибка фоновой задачи %s", args[0])
+            print(f"[ОШИБКА] {exc}", file=sys.stderr, flush=True)
+            raise SystemExit(1) from None
 
     _setup_logging()
     host = _env_host()

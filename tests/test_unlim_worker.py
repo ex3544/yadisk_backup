@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import unlim_schema
 import unlim_worker as uw
 
 
@@ -147,7 +148,7 @@ def test_migration_adds_attempts_column(db):
     version = con.execute("PRAGMA user_version").fetchone()[0]
     con.close()
     assert "attempts" in cols
-    assert version == 1
+    assert version == max(v for v, _ in unlim_schema.MIGRATIONS)
     assert list(Path(db).parent.glob("unlim_state.db.bak_v0_*"))
 
 

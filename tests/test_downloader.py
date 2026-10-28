@@ -123,6 +123,37 @@ def test_failure_is_reported_not_raised(tmp_path):
     assert "PathNotFound" in (res.error or "")
 
 
+def test_missing_folder_is_failed_not_raised(tmp_path):
+    """Отключённый диск посреди прохода: файл сбойный, потоки живы.
+
+    В 35.5.7 здесь вылетал FileNotFoundError [WinError 3] и приложение
+    показывало окно «Unhandled exception in script».
+    """
+    blocker = tmp_path / "disk.txt"
+    blocker.write_text("x")  # файл на месте будущей папки — makedirs не сможет
+    cli = FakeClient(payload=b"1234")
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/photo.jpg", size=4, md5=None),
+        cli, str(blocker / "sub"),
+    )
+    assert res.status == "failed"
+    assert "Не удалось создать папку" in (res.error or "")
+    assert cli.calls == []
+
+
+def test_download_all_refuses_unavailable_target_dir(tmp_path):
+    """Перед стартом потоков папка проверяется целиком, а не по файлу."""
+    import pytest
+
+    import downloader
+
+    blocker = tmp_path / "disk.txt"
+    blocker.write_text("x")
+    with pytest.raises(SystemExit) as exc:
+        downloader.download_all("token", state=None, download_dir=str(blocker / "sub"))
+    assert exc.value.code == 2
+
+
 def test_download_stops_on_insufficient_disk_space(tmp_path, monkeypatch):
     import downloader
     # Эмулируем нехватку свободного места

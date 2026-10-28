@@ -39,8 +39,10 @@ from pathlib import Path
 import requests
 import urllib3.util.connection as urllib3_cn
 
+import db_migrations
 import paths
 import unlim_schema
+from utils import check_target_dir
 
 # Принудительно отключаем IPv6 для исключения таймаутов на неработающем IPv6 (VirtualBox / NAT)
 urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
@@ -304,9 +306,13 @@ def populate_db_from_cloud(
             with con:
                 con.execute("DROP TABLE IF EXISTS unlim_files")
                 con.execute("DROP TABLE IF EXISTS unlim_clusters")
+            # Вместе с таблицами сбрасываем версию схемы. Иначе миграция
+            # считается применённой (user_version=1), CREATE TABLE не выполняется,
+            # и следующий запуск падает с «no such table: unlim_clusters».
+            db_migrations.set_user_version(con, 0)
             con.close()
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 — пересоздание не должно ронять сбор
+            print(f"[!] Не удалось очистить базу: {e}", flush=True)
 
     print("\n" + "=" * 70)
     print("  Начинаем сбор списка файлов Безлимита из облака...")
@@ -679,7 +685,9 @@ def run_backup(
     sort_after: bool = False,
 ):
     out_dir = Path(out_dir_path)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    problem = check_target_dir(out_dir)
+    if problem:
+        sys.exit(f"[-] {problem}")
 
     print("=" * 70)
     print("  Yandex.Disk — Универсальный выгрузчик Безлимита (Sergey Pukhir, ex3544)")

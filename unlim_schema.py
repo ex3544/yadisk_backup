@@ -44,9 +44,22 @@ def _migration_1(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE unlim_files ADD COLUMN attempts INTEGER DEFAULT 0")
 
 
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """Повторно применяет схему: лечит базы, у которых таблицы пропали.
+
+    В 35.5.7 кнопка «Пересоздать базу» удаляла таблицы `unlim_files` и
+    `unlim_clusters`, но оставляла `user_version = 1`. Миграция 1 при этом уже
+    считалась применённой, `CREATE TABLE IF NOT EXISTS` не выполнялся, и любой
+    следующий запуск падал с `no such table: unlim_clusters`. Схема идемпотентна,
+    так что достаточно применить её ещё раз.
+    """
+    db_migrations.execute_script(conn, DB_SCHEMA)
+
+
 # История схемы. Добавлять только в конец, не переименовывать версии.
 MIGRATIONS: list[db_migrations.Migration] = [
     (1, _migration_1),
+    (2, _migration_2),
 ]
 
 

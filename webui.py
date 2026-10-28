@@ -42,7 +42,7 @@ import diagnostics
 import paths
 import updater
 import version
-from utils import auto_workers, ram_info
+from utils import auto_workers, check_target_dir, ram_info
 
 def sqlite_ro_uri(db_path: str | os.PathLike) -> str:
     path = os.path.abspath(db_path)
@@ -737,6 +737,11 @@ class FullCycle:
 
     def _disk_lane(self):
         lane = self.lanes["disk"]
+        cfg = get_config()
+        problem = check_target_dir(cfg.get("disk_dir") or cfg.get("download_dir")
+                                   or str(paths.DEFAULT_DISK_DIR))
+        if problem:
+            raise RuntimeError(problem)
         lane["state"] = "сканирование"
         self._update_step()
         self._log("🔍 Диск: сканирую облако (поиск новых файлов)…")
@@ -790,6 +795,9 @@ class FullCycle:
 
         cfg = get_config()
         out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+        problem = check_target_dir(out_dir)
+        if problem:
+            raise RuntimeError(problem)
 
         self._log("🗂 Безлимит: собираю список файлов из облака…")
         self._own_start("unlim_collect", "unlim_download.py", ["--collect"])
@@ -1640,6 +1648,16 @@ class DownloadControlPayload(BaseModel):
 def api_download_start(payload: DownloadControlPayload):
     log_action("/api/download/start", payload)
     cfg = get_config()
+    problem = check_target_dir(
+        (cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR))
+        if payload.mode == "unlim"
+        else (cfg.get("disk_dir") or cfg.get("download_dir")
+              or str(paths.DEFAULT_DISK_DIR))
+    )
+    if problem:
+        # Отключённый диск ловим до запуска процессов: иначе дочерний процесс
+        # падал с окном «Unhandled exception in script».
+        return {"ok": False, "msg": problem, "mode": payload.mode}
     if payload.mode == "unlim":
         out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
         args = [

@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from utils import (
+    check_target_dir,
     human_bytes,
     human_duration,
     sanitize_component,
@@ -95,6 +96,24 @@ def test_sqlite_ro_uri_is_readonly(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         c.execute("INSERT INTO files VALUES (1)")
     c.close()
+
+
+def test_check_target_dir_reports_unwritable_path(tmp_path):
+    """Недоступная папка должна давать текст, а не исключение."""
+    blocker = tmp_path / "file.txt"
+    blocker.write_text("x")
+
+    problem = check_target_dir(blocker / "sub")
+
+    assert problem is not None
+    assert "Папка выгрузки недоступна" in problem
+    assert str(blocker) in problem
+
+
+def test_check_target_dir_accepts_and_creates_folder(tmp_path):
+    target = tmp_path / "new_folder" / "Disk"
+    assert check_target_dir(target) is None
+    assert target.is_dir()
 
 
 def test_human_bytes():

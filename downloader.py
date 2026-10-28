@@ -66,6 +66,7 @@ import paths
 from state import State
 from utils import (
     avoid_case_collision,
+    check_target_dir,
     ensure_dir,
     file_size_safe,
     resolve_local_path,
@@ -354,7 +355,21 @@ def _download_one(
     start = time.monotonic()
     local_path = resolve_local_path(download_dir, job.remote_path)
     local_path = avoid_case_collision(local_path)
-    _ensure_local_dirs(local_path)
+    try:
+        _ensure_local_dirs(local_path)
+    except OSError as e:
+        # Диск мог отключиться посреди прохода: файл помечаем сбойным, чтобы
+        # потоки не падали с необработанным исключением.
+        dur = int((time.monotonic() - start) * 1000)
+        reason = getattr(e, "strerror", None) or str(e)
+        return DownloadResult(
+            job=job,
+            status="failed",
+            local_path=local_path,
+            bytes_written=0,
+            error=f"Не удалось создать папку: {reason}",
+            duration_ms=dur,
+        )
 
     # Resume-логика: если файл уже скачан корректно — skipped
     existing_size = file_size_safe(local_path)
@@ -503,7 +518,13 @@ def download_all(
         log.warning("workers=%d > 5 — Яндекс будет резать по rate limit. Снижаю до 5.", workers)
         workers = 5
 
-    ensure_dir(download_dir)
+    # Папку проверяем до запуска потоков: отключённый диск должен давать
+    # понятное сообщение, а не окно необработанного исключения.
+    problem = check_target_dir(download_dir)
+    if problem:
+        print(f"[ОШИБКА] {problem}", file=sys.stderr)
+        log.error(problem)
+        raise SystemExit(2)
 
     # Собираем список jobs из БД (или из переданного итератора — для retry-failed)
     if jobs is None:

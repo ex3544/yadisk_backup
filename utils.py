@@ -58,6 +58,25 @@ def ensure_dir(path: str | os.PathLike) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+def check_target_dir(path: str | os.PathLike) -> str | None:
+    """Проверяет, что в папку можно писать, и возвращает причину, если нельзя.
+
+    Отключённый диск (внешний HDD, флешка, сетевой ресурс) даёт при создании
+    папки FileNotFoundError [WinError 3] «Системе не удаётся найти указанный
+    путь». Раньше это исключение всплывало из потока скачивания и роняло всю
+    программу окном «Unhandled exception in script». Теперь проверяем заранее
+    и говорим о проблеме по-русски: None — всё в порядке, строка — что не так.
+    """
+    try:
+        ensure_dir(path)
+    except OSError as e:
+        reason = getattr(e, "strerror", None) or str(e)
+        return f"Папка выгрузки недоступна: {path} ({reason})"
+    if not os.access(path, os.W_OK):
+        return f"Нет прав на запись в папку выгрузки: {path}"
+    return None
+
+
 def to_long_path(path: str) -> str:
     r"""Для Windows — добавляет префикс \\?\ если путь длинный.
     На других платформах возвращает как есть.
