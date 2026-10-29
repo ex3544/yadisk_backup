@@ -266,6 +266,9 @@ def test_download_all_is_a_full_cycle_in_ui():
     assert "renderAutoRuns" not in html
     assert 'id="all-runs"' in html
     assert "Проходов по сбойным:" in html
+    # Ровно заданное число проходов: верхняя граница 10, без досрочного выхода.
+    assert 'id="all-runs" value="3" min="1" max="10"' in html
+    assert ", 10));" in html
     assert 'id="cycle-modal"' in html
     assert "function renderFullCycle(fc)" in html
     assert "renderFullCycle(s.full_cycle);" in html

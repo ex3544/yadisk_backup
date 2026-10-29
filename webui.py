@@ -533,14 +533,16 @@ class FullCycle:
     Диск:     scan → download --no-scan --retry → ещё проходы по failed
     Безлимит: collect → --target all → ещё проходы по skipped
 
-    Линии идут параллельно. В каждой — до ``passes`` проходов: после прохода
-    смотрим, стало ли сбойных меньше; между проходами пауза PAUSE_AFTER_PASS.
+    Линии идут параллельно. В каждой — ровно ``passes`` проходов (Сергей:
+    «поставил 5 — значит 5, поставил 10 — значит 10»); между проходами пауза
+    PAUSE_AFTER_PASS. Отсутствие прогресса пишется в журнал, но цикл не
+    останавливает: сбойные могут не уменьшиться, хотя файлы качаются.
     Итог по каждой линии считается по базе: сколько добавилось скачанных
     и сколько сбойных осталось.
     """
 
     PAUSE_AFTER_PASS = 60.0
-    MAX_PASSES = 5
+    MAX_PASSES = 10
 
     def __init__(self):
         self._thread: Optional[threading.Thread] = None
@@ -688,6 +690,21 @@ class FullCycle:
         except sqlite3.Error as e:
             raise RuntimeError(f"Не удалось прочитать базу {db_file.name}: {e}")
 
+    @staticmethod
+    def _progress_note(name: str, gained: int, before: int, after: int) -> str:
+        """Строка журнала после прохода.
+
+        Только сообщает цифры — остановить цикл она не может: сколько проходов
+        задано, столько и будет.
+        """
+        if gained > 0 or after < before:
+            return f"   {name}: +{gained} скачано, осталось сбойных {after}"
+        if after > before:
+            return (f"   {name}: +{gained} скачано, сбойных стало больше "
+                    f"({before} → {after}) — продолжаю заданное число проходов")
+        return (f"   {name}: новых файлов нет, сбойных {after} — "
+                f"продолжаю заданное число проходов")
+
     def _update_step(self):
         parts = []
         for name in ("disk", "unlim"):
@@ -789,10 +806,11 @@ class FullCycle:
             lane["downloaded"] += gained
             lane["bytes"] += max(0, after["bytes"] - before["bytes"])
             lane["errors"] = after["errors"]
-            self._log(f"   Диск: +{gained} скачано, осталось сбойных {after['errors']}")
-            if after["errors"] >= before["errors"]:
-                self._log("   Диск: прогресса нет — проходы прекращены")
-                break
+            self._log(self._progress_note("Диск", gained, before["errors"],
+                                          after["errors"]))
+            # Проходов ровно столько, сколько задано: досрочно не выходим.
+            # Сбойные могут не уменьшиться, хотя файлы качаются (новые падают,
+            # старые спасаются) — раньше это обрывало цикл после первого прохода.
             if p < self.passes:
                 self._pause(self.PAUSE_AFTER_PASS)
         lane["state"] = "готово"
@@ -856,10 +874,8 @@ class FullCycle:
             lane["downloaded"] += gained
             lane["bytes"] += max(0, after["bytes"] - before["bytes"])
             lane["errors"] = after["errors"]
-            self._log(f"   Безлимит: +{gained} скачано, осталось сбойных {after['errors']}")
-            if after["errors"] >= before["errors"]:
-                self._log("   Безлимит: прогресса нет — проходы прекращены")
-                break
+            self._log(self._progress_note("Безлимит", gained, before["errors"],
+                                          after["errors"]))
             if p < self.passes:
                 self._pause(self.PAUSE_AFTER_PASS)
 
@@ -1833,7 +1849,8 @@ def api_download_start(payload: DownloadControlPayload):
 
 class DownloadAllPayload(BaseModel):
     workers: int = 10
-    passes: int = 3  # сколько проходов по сбойным делать за запуск (1–5)
+    # Сколько проходов по сбойным делать за запуск. Ровно столько и будет.
+    passes: int = Field(default=3, ge=1, le=10)
     sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
 
 

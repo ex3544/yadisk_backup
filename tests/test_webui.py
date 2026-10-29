@@ -364,7 +364,7 @@ def test_full_cycle_refuses_while_task_slot_is_busy():
 
 
 def test_full_cycle_clamps_passes_and_workers(monkeypatch):
-    """Значения из формы не могут выйти за границы 1–5 проходов и 1–24 потоков."""
+    """Значения из формы не могут выйти за границы 1–10 проходов и 1–24 потоков."""
     captured = {}
 
     def fake_run(self):
@@ -384,7 +384,32 @@ def test_full_cycle_clamps_passes_and_workers(monkeypatch):
          webui.full_cycle._thread) = saved
 
     assert ok is True
-    assert captured == {"passes": 5, "workers": 24}
+    assert captured == {"passes": 10, "workers": 24}
+
+
+def test_full_cycle_never_stops_early(monkeypatch):
+    """Сколько проходов задано, столько и выполняется (правило Сергея).
+
+    Раньше линия выходила из цикла, если число сбойных не уменьшилось, хотя
+    файлы качались: Диск скачивал 21, сбойных оставалось 800 — и цикл
+    останавливался после первого прохода из пяти.
+    """
+    assert webui.FullCycle.MAX_PASSES >= 10
+    # Реальный случай 2026-10-29: 21 файл скачан, сбойных осталось 800.
+    note = webui.FullCycle._progress_note("Диск", 21, 800, 800)
+    assert "+21" in note
+    assert "прекращ" not in note
+
+    # Совсем без прогресса — всё равно продолжаем заданное число проходов.
+    idle = webui.FullCycle._progress_note("Безлимит", 0, 800, 800)
+    assert "продолжаю" in idle
+
+    worse = webui.FullCycle._progress_note("Безлимит", 0, 700, 750)
+    assert "продолжаю" in worse
+
+    good = webui.FullCycle._progress_note("Безлимит", 48, 856, 808)
+    assert "+48" in good
+    assert "продолжаю" not in good
 
 
 def test_download_all_passes_payload_to_full_cycle(monkeypatch):
