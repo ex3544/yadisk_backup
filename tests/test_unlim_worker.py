@@ -368,3 +368,63 @@ def test_deferred_batch_is_not_counted_as_skipped(monkeypatch):
     assert 'msg.startswith(("storage_down", "storage_skip"))' in src
     assert "total_deferred_files" in src
     assert "ждут Яндекса" in src
+
+
+# ── отложенные не крутят проход по кругу (35.6.5) ───────────────────────────
+
+
+def test_take_batch_puts_deferred_files_last(db):
+    """Отложенные уходят в конец очереди: иначе проход берёт только их."""
+    import unlim_backup
+
+    unlim_backup.init_db(Path(db))
+    con = sqlite3.connect(db)
+    con.execute("UPDATE unlim_files SET error='storage_down | s1' WHERE file_id='1'")
+    con.execute("INSERT INTO unlim_files (file_id, name, size) VALUES ('3', 'c.jpg', 30)")
+    con.commit()
+    con.close()
+
+    batch = unlim_backup.take_batch(Path(db), 10)
+    assert [b["file_id"] for b in batch] == ["2", "3", "1"]
+
+
+def test_run_backup_finishes_pass_when_everything_waits_for_yandex(db, tmp_path, monkeypatch, capsys):
+    """Батч, целиком ушедший ждать Яндекса, завершает проход.
+
+    Без стоп-условия `take_batch` возвращал те же файлы снова и снова, и в 35.6.4
+    проход «1 из 10» крутился часами, ничего не скачивая.
+    """
+    import unlim_backup
+
+    unlim_backup.init_db(Path(db))
+    monkeypatch.setattr(unlim_backup, "check_target_dir", lambda path: None)
+    monkeypatch.setattr(unlim_backup, "load_cookies", lambda path: [])
+    monkeypatch.setattr(unlim_backup, "make_session", lambda cookies, **kw: object())
+    monkeypatch.setattr(unlim_backup, "get_sk_uid", lambda s: ("sk12345678", "uid"))
+    monkeypatch.setattr(unlim_backup, "recover_stuck", lambda p: None)
+
+    calls = []
+
+    def fake_download(db_path, cookies, sk, uid, item, *rest, **kw):
+        if len(calls) > 20:
+            raise AssertionError("проход крутится по кругу: батч из отложенных не завершает загрузку")
+        calls.append(item["file_id"])
+        unlim_backup.mark_deferred(Path(db), item["file_id"], "s1")
+        return False, 0, "storage_down: сервер s1 не отвечает"
+
+    monkeypatch.setattr(unlim_backup, "download_one_file", fake_download)
+
+    unlim_backup.run_backup(
+        db_path=Path(db),
+        cookies_path=tmp_path / "cookies.json",
+        out_dir_path=tmp_path,
+        target_status="pending",
+        workers=2,
+        batch_size=10,
+        make_previews=False,
+    )
+
+    out = capsys.readouterr().out
+    assert "ждут Яндекса" in out
+    # Один батч из двух файлов, и ни одного лишнего круга.
+    assert sorted(calls) == ["1", "2"]

@@ -480,6 +480,10 @@ def check_free_space(path_str: str, min_mb: int = 500) -> bool:
 
 # ── Выборка батчей ──────────────────────────────────────────────────────────
 
+# Маркер «файл ждёт Яндекса» — тот же, что у Диска (state.py), чтобы веб-панель
+# считала отложенные файлы в обеих базах одинаково.
+DEFERRED_PREFIX = "storage_down"
+
 
 def take_batch(
     db_path: Path,
@@ -499,7 +503,16 @@ def take_batch(
             conds = [f"name LIKE '%{ext}'" for ext in VIDEO_EXTS]
             ext_filter = f"AND ({' OR '.join(conds)})"
 
-        order_clause = "attempts ASC, rowid DESC" if from_end else "attempts ASC, cluster_id ASC, file_id ASC"
+        # Отложенные («сервер Яндекса молчит») файлы — в конце очереди. У них
+        # attempts откатан при mark_deferred, поэтому без этой строки они снова
+        # оказываются первыми, и проход крутит одни и те же файлы, никогда не
+        # доходя до новых.
+        deferred_last = (
+            "CASE WHEN COALESCE(error, '') LIKE "
+            f"'{DEFERRED_PREFIX}%' THEN 1 ELSE 0 END ASC, "
+        )
+        tail = "attempts ASC, rowid DESC" if from_end else "attempts ASC, cluster_id ASC, file_id ASC"
+        order_clause = deferred_last + tail
         query = f"""
             SELECT file_id, name, size
             FROM unlim_files
@@ -544,10 +557,6 @@ def mark_skipped(db_path: Path, file_id: str, error: str):
         )
     con.close()
 
-
-# Маркер «файл ждёт Яндекса» — тот же, что у Диска (state.py), чтобы веб-панель
-# считала отложенные файлы в обеих базах одинаково.
-DEFERRED_PREFIX = "storage_down"
 
 # Реестр молчащих серверов хранения — общий на весь процесс.
 DEAD_HOSTS = DeadHosts()
@@ -889,6 +898,10 @@ def run_backup(
     # берутся повторно, и простой счётчик давал двойное число (1951 против 970
     # сбойных в базе).
     skipped_ids: set[str] = set()
+    # Отложенные файлы считаем так же — по уникальным id: пока серверы Яндекса
+    # молчат, проход может отложить один и тот же файл сотни раз, и простой
+    # счётчик выдавал в статус «319 465 ждут Яндекса» при 187 в базе.
+    deferred_ids: set[str] = set()
     fatal_error: str | None = None
     fatal_code: str | None = None
 
@@ -957,11 +970,13 @@ def run_backup(
                         # Файл, сбойнувший в первой фазе и скачанный во второй,
                         # сбойным уже не считается.
                         skipped_ids.discard(future_to_item[future]["file_id"])
+                        deferred_ids.discard(future_to_item[future]["file_id"])
                     elif msg.startswith(("storage_down", "storage_skip")):
                         # Яндекс не отдал файл: он остался pending и ждёт
                         # следующего раза — сбойным не считаем.
                         batch_deferred += 1
                         skipped_ids.discard(future_to_item[future]["file_id"])
+                        deferred_ids.add(future_to_item[future]["file_id"])
                     else:
                         batch_skipped += 1
                         skipped_ids.add(future_to_item[future]["file_id"])
@@ -979,7 +994,7 @@ def run_backup(
                             items_total=len(items),
                             success=total_downloaded_files + batch_success,
                             skipped=len(skipped_ids),
-                            deferred=total_deferred_files + batch_deferred,
+                            deferred=len(deferred_ids),
                             mb_s=cur_mb,
                             mbit_s=cur_mbit,
                             total_bytes=total_downloaded_bytes + batch_bytes,
@@ -1000,7 +1015,7 @@ def run_backup(
             total_downloaded_files += batch_success
             total_downloaded_bytes += batch_bytes
             total_skipped_files = len(skipped_ids)
-            total_deferred_files += batch_deferred
+            total_deferred_files = len(deferred_ids)
 
             print()
             print(
@@ -1021,6 +1036,28 @@ def run_backup(
             if DISK_FULL.is_set():
                 fatal_error = "Недостаточно места на диске (или диск отключился). Загрузка остановлена; остальные файлы остались в очереди (pending). Освободите место и запустите заново."
                 fatal_code = "disk_full"
+                break
+
+            # Батч, который целиком ушёл ждать Яндекса: ни одного скачанного, ни
+            # одного сбойного. Значит, других файлов в очереди не осталось —
+            # следующий take_batch вернул бы эти же самые, и проход крутился бы
+            # вечно (35.6.4 так и висел на «проходе 1 из 10»). Завершаем проход.
+            if batch_success == 0 and batch_skipped == 0 and batch_deferred > 0:
+                if not retry_phase_done:
+                    n = reset_skipped_files(db_path, media_type)
+                    retry_phase_done = True
+                    if n > 0:
+                        print(
+                            f"\n[🕓] Все оставшиеся файлы ждут Яндекса. "
+                            f"Фаза 2: повтор пропущенных ({n} файлов → pending)...",
+                            flush=True,
+                        )
+                        continue
+                print(
+                    f"\n[🕓] Все оставшиеся {batch_deferred} файлов ждут Яндекса — "
+                    "проход завершён, они останутся в очереди до следующего раза.",
+                    flush=True,
+                )
                 break
 
     finally:

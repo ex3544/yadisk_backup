@@ -813,8 +813,12 @@ def download_all(
                     pool.shutdown(wait=False, cancel_futures=True)
                     break
 
+                # waiting_count уже содержит все отложенные файлы на момент старта
+                # прохода, включая те, что сейчас в очереди. Прибавлять «снова
+                # отложенные» нельзя — иначе 400 файлов превращались в «ещё ждут: 800».
                 if res.status == "deferred":
-                    waiting_count += 1
+                    if not res.job.was_deferred:
+                        waiting_count += 1
                 elif res.status in ("downloaded", "skipped") and res.job.was_deferred:
                     deferred_ok += 1
                     waiting_count = max(0, waiting_count - 1)

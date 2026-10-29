@@ -391,3 +391,56 @@ def test_successful_file_resets_local_error_streak(tmp_path, monkeypatch):
         st.close()
     assert out["failed"] == 10
     assert out["skipped"] == 10
+
+
+def test_waiting_counter_is_not_doubled(tmp_path, monkeypatch):
+    """«Ещё ждут» — сколько файлов ждёт Яндекса сейчас, а не сумма двух подсчётов.
+
+    В 35.6.4 файл, отложенный ещё в прошлый раз, прибавлялся к счётчику из базы
+    второй раз: 400 файлов превращались в «ещё ждут: 800».
+    """
+    import json
+
+    import downloader
+    from downloader import DownloadResult
+    from state import State
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+    monkeypatch.setattr(downloader, "_waiting_stats", lambda state: 2)
+    monkeypatch.setattr(downloader, "_get_thread_client", lambda token: None)
+    monkeypatch.setattr(downloader, "_get_thread_http_session", lambda: None)
+    monkeypatch.setattr(downloader, "_close_all_clients", lambda: None)
+
+    outcomes = {
+        # ждал раньше и ждёт снова — цифра не меняется
+        "disk:/a.bin": DownloadResult(None, "deferred", None, 0, "storage_down | h", 1),
+        # ждал раньше, но скачался — минус один
+        "disk:/b.bin": DownloadResult(None, "downloaded", str(tmp_path / "b.bin"), 5, None, 1),
+        # новый файл, Яндекс не отдал — плюс один
+        "disk:/c.bin": DownloadResult(None, "deferred", None, 0, "storage_down | h", 1),
+    }
+
+    def fake(job, *a, **k):
+        return DownloadResult(
+            job, outcomes[job.remote_path].status, outcomes[job.remote_path].local_path,
+            outcomes[job.remote_path].bytes_written, outcomes[job.remote_path].error, 1,
+        )
+
+    monkeypatch.setattr(downloader, "_download_one", fake)
+
+    st = State(str(tmp_path / "state.db"))
+    jobs = [
+        DownloadJob(remote_path="disk:/a.bin", size=1, md5=None, error="storage_down | h"),
+        DownloadJob(remote_path="disk:/b.bin", size=1, md5=None, error="storage_down | h"),
+        DownloadJob(remote_path="disk:/c.bin", size=1, md5=None),
+    ]
+    try:
+        downloader.download_all(
+            "token", state=st, download_dir=str(tmp_path), jobs=iter(jobs), workers=1
+        )
+    finally:
+        st.close()
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["waiting"] == 2
