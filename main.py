@@ -46,6 +46,8 @@ from utils import (
     file_size_safe,
     human_bytes,
     human_duration,
+    normalize_scan_roots,
+    normalize_unlim_media,
 )
 
 # Пути программы и данных — в paths.py, здесь только короткие псевдонимы.
@@ -107,12 +109,19 @@ def load_config(require_token: bool = True) -> dict:
     # Превью отложенных фото: включены по умолчанию, выключаются PREVIEWS=0.
     previews = (os.getenv("PREVIEWS", "1") or "1").strip().lower() not in ("0", "false", "no")
 
+    # Какие облачные папки обходить (C2). Пусто — весь Диск.
+    scan_roots = normalize_scan_roots(os.getenv("DISK_SCAN_ROOTS", "/"))
+    # Что качать у Безлимита по умолчанию: фото, видео или всё (C2).
+    unlim_media = normalize_unlim_media(os.getenv("UNLIM_MEDIA", "all"), "all")
+
     return {
         "token": token,
         "download_dir": download_dir,
         "max_workers": max_workers,
         "log_level": log_level,
         "previews": previews,
+        "scan_roots": scan_roots,
+        "unlim_media": unlim_media,
     }
 
 
@@ -138,11 +147,13 @@ def cmd_scan(cfg: dict, args: argparse.Namespace) -> int:
         state.reset()
     client = yadisk.Client(token=cfg["token"])
 
-    roots = (
-        [r.strip() for r in args.roots.split(",") if r.strip()]
-        if args.roots
-        else [args.root]
-    )
+    # Приоритет: явные флаги командной строки, затем выбор из настроек окна.
+    if args.roots:
+        roots = [r.strip() for r in args.roots.split(",") if r.strip()]
+    elif args.root and args.root != "/":
+        roots = [args.root]
+    else:
+        roots = list(cfg.get("scan_roots") or ["/"])
 
     total_files = 0
     total_bytes = 0
@@ -229,8 +240,15 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
         if not args.no_scan:
             print("Запускаю scan автоматически (--no-scan чтобы отключить)...")
             client = yadisk.Client(token=cfg["token"])
+            auto_roots = (
+                [args.root] if args.root and args.root != "/"
+                else list(cfg.get("scan_roots") or ["/"])
+            )
             try:
-                scan_tree(client, state, root=args.root)
+                for auto_root in auto_roots:
+                    if len(auto_roots) > 1:
+                        print(f"Обхожу {auto_root}...")
+                    scan_tree(client, state, root=auto_root)
             finally:
                 client.close()
 

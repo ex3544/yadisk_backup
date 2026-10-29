@@ -42,8 +42,16 @@ import diagnostics
 import monitor
 import paths
 import updater
+import verify as verify_mod
 import version
-from utils import auto_workers, check_target_dir, check_target_path, ram_info
+from utils import (
+    auto_workers,
+    check_target_dir,
+    check_target_path,
+    normalize_scan_roots,
+    normalize_unlim_media,
+    ram_info,
+)
 
 def sqlite_ro_uri(db_path: str | os.PathLike) -> str:
     path = os.path.abspath(db_path)
@@ -103,6 +111,9 @@ def get_config() -> dict:
         "disk_dir": (os.getenv("DISK_DIR", os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR))) or "").strip(),
         "max_workers": int(os.getenv("MAX_WORKERS", "4") or "4"),
         "previews": _env_flag("PREVIEWS", True),
+        # C2: какие папки облака обходить и что брать из Безлимита.
+        "scan_roots": normalize_scan_roots(os.getenv("DISK_SCAN_ROOTS", "/")),
+        "unlim_media": normalize_unlim_media(os.getenv("UNLIM_MEDIA", "all"), "all"),
     }
 
 
@@ -865,7 +876,7 @@ class FullCycle:
             reset_session_counters("unlim")
             unlim_args = [
                 "--out-dir", out_dir,
-                "--media", "all",
+                "--media", cfg.get("unlim_media") or "all",
                 "--target", "all",
                 "--workers", str(self.workers),
             ]
@@ -1772,6 +1783,7 @@ def api_status():
         "legacy_install": legacy_install_status(),
         "watchdog": watchdog.status(),
         "tasks": tasks,
+        "verify": _verify_status(verify_mod.read_status(), tasks),
         "pipeline": pipeline.status(),
         "speed": download_status,
         "disk_speed": disk_status,
@@ -2083,6 +2095,116 @@ def api_set_previews(payload: PreviewsPayload):
     set_key(str(ENV_FILE), "PREVIEWS", "1" if payload.enabled else "0", quote_mode="never")
     load_dotenv(ENV_FILE, override=True)
     return {"ok": True, "previews": payload.enabled}
+
+
+# ── Облачные папки и типы файлов (C2) ───────────────────────────────────────
+
+MEDIA_LABELS = {"photos": "только фото", "videos": "только видео", "all": "фото и видео"}
+
+
+class ScanRootsPayload(BaseModel):
+    roots: list[str] = []
+
+
+@app.post("/api/config/scan_roots")
+def api_set_scan_roots(payload: ScanRootsPayload):
+    """Запоминает, какие папки облачного Диска обходить."""
+    roots = normalize_scan_roots(payload.roots)
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    set_key(str(ENV_FILE), "DISK_SCAN_ROOTS", ",".join(roots), quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+    log_action("/api/config/scan_roots", {"roots": roots})
+    if roots == ["/"]:
+        msg = "Сохранено: обходить весь Диск"
+    else:
+        msg = "Сохранено папок: " + str(len(roots))
+    return {"ok": True, "msg": msg, "scan_roots": roots}
+
+
+class UnlimMediaPayload(BaseModel):
+    media: str = "all"
+
+
+@app.post("/api/config/unlim_media")
+def api_set_unlim_media(payload: UnlimMediaPayload):
+    """Запоминает тип контента Безлимита для полного цикла."""
+    media = normalize_unlim_media(payload.media, "")
+    if not media:
+        return {"ok": False, "msg": "Неизвестный тип контента"}
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    set_key(str(ENV_FILE), "UNLIM_MEDIA", media, quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+    log_action("/api/config/unlim_media", {"media": media})
+    return {"ok": True, "msg": "Сохранено: " + MEDIA_LABELS[media], "media": media}
+
+
+def cloud_folders_from(items) -> list[dict]:
+    """Только папки из ответа Яндекс.Диска, по алфавиту."""
+    folders = []
+    for item in items:
+        if getattr(item, "type", "") != "dir":
+            continue
+        item_path = (getattr(item, "path", "") or "").strip()
+        if not item_path:
+            continue
+        name = (getattr(item, "name", "") or "").strip() or item_path.rsplit("/", 1)[-1]
+        folders.append({"name": name, "path": item_path})
+    folders.sort(key=lambda f: f["name"].lower())
+    return folders
+
+
+def db_top_folders(db_file: Path) -> list[dict]:
+    """Верхние папки Диска, известные из базы, — когда облако недоступно."""
+    if not db_file.exists():
+        return []
+    try:
+        con = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
+        try:
+            rows = con.execute("SELECT remote_path FROM files")
+            seen: dict[str, dict] = {}
+            for (remote,) in rows:
+                text = str(remote or "")
+                if text.startswith("disk:"):
+                    text = text[len("disk:"):]
+                parts = [p for p in text.split("/") if p]
+                if len(parts) > 1 and parts[0] not in seen:
+                    seen[parts[0]] = {"name": parts[0], "path": "/" + parts[0]}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
+    return sorted(seen.values(), key=lambda f: f["name"].lower())
+
+
+@app.get("/api/disk/folders")
+def api_disk_folders(path: str = "/"):
+    """Папки облачного Диска — чтобы выбрать корни обхода мышкой."""
+    cfg = get_config()
+    if not cfg.get("token"):
+        return {"ok": False, "msg": "Токен не задан", "folders": []}
+    path = normalize_scan_roots([path])[0]
+    try:
+        import yadisk
+
+        cli = yadisk.Client(token=cfg["token"])
+        try:
+            items = list(cli.listdir(path))
+        finally:
+            cli.close()
+    except Exception as e:  # noqa: BLE001 — в окне нужна причина, а не трейсбек
+        # В текст ошибки не попадают ни токен, ни ссылки: только тип исключения.
+        # Облако недоступно — показываем папки, которые уже знаем из базы.
+        known = db_top_folders(DB_FILE)
+        if known:
+            return {"ok": True, "path": path, "folders": known, "from_db": True,
+                    "msg": f"Облако сейчас недоступно ({type(e).__name__}) — "
+                           "показываю папки из базы."}
+        return {"ok": False, "msg": f"Не удалось получить список: {type(e).__name__}",
+                "folders": []}
+    folders = cloud_folders_from(items)
+    return {"ok": True, "path": path, "folders": folders}
 
 
 class BrowseDirPayload(BaseModel):
@@ -3119,6 +3241,54 @@ def api_diagnostics_reports():
     return {"ok": True, "reports": diagnostics.latest_reports()}
 
 
+# ── Проверка скачанных файлов (C1) ──────────────────────────────────────────
+
+
+class VerifyPayload(BaseModel):
+    scope: str = "disk"
+    deep: bool = False
+
+
+@app.post("/api/verify/start")
+def api_verify_start(payload: VerifyPayload):
+    """Запускает проверку файлов фоновой задачей — окно остаётся живым."""
+    log_action("/api/verify/start", payload)
+    scope = (payload.scope or "disk").strip().lower()
+    if scope not in ("disk", "unlim", "both"):
+        return {"ok": False, "msg": "Неизвестная база для проверки"}
+    args = ["--scope", scope]
+    if payload.deep:
+        args.append("--deep")
+    ok, msg = tm.start("verify", "verify_local.py", args)
+    return {"ok": ok, "msg": msg, "scope": scope}
+
+
+@app.post("/api/verify/stop")
+def api_verify_stop():
+    log_action("/api/verify/stop")
+    ok, msg = tm.stop("verify")
+    return {"ok": ok, "msg": msg}
+
+
+@app.get("/api/verify/report")
+def api_verify_report():
+    """Последний отчёт проверки текстом — показывается в окне."""
+    try:
+        text = paths.VERIFY_REPORT_FILE.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    return {"ok": True, "report": text}
+
+
+def _verify_status(data: dict, tasks: dict) -> dict:
+    """Статус проверки для UI: прогресс из файла + жива ли задача."""
+    out = dict(data or {})
+    task = (tasks or {}).get("verify") or {}
+    out["running"] = bool(task.get("running"))
+    out["report_available"] = paths.VERIFY_REPORT_FILE.exists()
+    return out
+
+
 class UpdateOpenPayload(BaseModel):
     url: str = ""
 
@@ -3281,6 +3451,7 @@ WORKER_SCRIPTS = {
     "extract_cookies.py": "extract_cookies",
     "report_status.py": "report_status",
     "watch.py": "watch",
+    "verify_local.py": "verify_local",
 }
 
 

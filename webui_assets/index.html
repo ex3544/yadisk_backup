@@ -28,6 +28,44 @@
        полосы прокрутки — без этого они рисуются светлыми. */
     color-scheme:dark;
   }
+
+  /* Светлая тема (C4): те же имена переменных, другой набор цветов.
+     Выбирается кнопкой в шапке, выбор хранится в localStorage. */
+  html[data-theme="light"]{
+    --bg:#f2f2f7;
+    --bg2:#ffffff;
+    --surface:#ffffff;
+    --surface2:#f2f2f7;
+    --surface3:#d9d9de;
+    --hairline:rgba(0,0,0,.08);
+    --hairline-strong:rgba(0,0,0,.16);
+    --text:#1c1c1e;
+    --text-secondary:#48484a;
+    --text-tertiary:#6c6c70;
+    --accent:#007aff;
+    --accent-hover:#0062cc;
+    --green:#1f8b3c;
+    --red:#d70015;
+    --yellow:#9a7b00;
+    --orange:#b86200;
+    --purple:#8944ab;
+    --pink:#c9184a;
+    color-scheme:light;
+  }
+  /* Белые «стеклянные» подложки на светлой теме не видны — даём серую. */
+  html[data-theme="light"] .pill.service{background:rgba(0,0,0,.04)}
+  html[data-theme="light"] .pill .dot{box-shadow:none}
+  html[data-theme="light"] .card{box-shadow:0 1px 3px rgba(0,0,0,.07)}
+
+  /* Доступность (C4): заметный фокус с клавиатуры и щадящие анимации. */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .tab:focus-visible,.pill:focus-visible,.active-tasks:focus-visible{outline-offset:1px}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{
+      animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important;
+    }
+  }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 
   /* Полосы прокрутки в цветах приложения вместо системных светлых */
@@ -650,6 +688,16 @@
   .setup-hint{font-size:12.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px}
   .setup-hint.ok{color:var(--green)}
   .setup-hint.err{color:var(--red)}
+  .setup-hint.warn{color:var(--orange)}
+  /* Выбор облачных папок (C2): список «фишек» с крестиком. */
+  .root-list{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px;min-height:2px}
+  .root-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;
+    background:var(--surface2);border:0.5px solid var(--hairline-strong);
+    border-radius:999px;font-size:12px}
+  .root-chip button{background:none;border:0;color:var(--text-dim);cursor:pointer;
+    font-size:13px;line-height:1;padding:2px 4px;border-radius:50%}
+  .root-chip button:hover{color:var(--red,#e0533d);background:rgba(255,255,255,.08)}
+  .root-chip.pick button{color:var(--accent);font-size:15px}
   .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
   .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
@@ -729,6 +777,10 @@
   .backup-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
   .backup-actions button{padding:5px 10px;font-size:12px}
 </style>
+<script>
+/* Светлая тема применяется до отрисовки — иначе окно мигает тёмным. */
+try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.dataset.theme='light';}catch(e){}
+</script>
 
 <!-- SVG sprite -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -808,10 +860,14 @@
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yad.backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.5.9</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.4</span></div>
     </div>
   </div>
   <div class="pills">
+    <button id="theme-btn" class="ghost tipnode" onclick="toggleTheme()"
+      data-tip="Светлая или тёмная тема. Выбор запоминается."
+      aria-label="Переключить тему" aria-pressed="false"
+      style="padding:3px 9px;font-size:14px;line-height:1.2;border-radius:99px">🌙</button>
     <span class="active-tasks clickable" id="active-tasks" role="button" tabindex="0" data-tip="Идут фоновые задачи. Нажмите — откроет журнал выполнения на «Главной».">
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
@@ -868,11 +924,11 @@
   </span>
 </div>
 
-<div class="tabs" id="tabs">
-  <div class="tab active" data-tab="home">Главная</div>
-  <div class="tab" data-tab="setup">Настройки</div>
-  <div class="tab" data-tab="organize">Организация</div>
-  <div class="tab" data-tab="diagnostics">Диагностика</div>
+<div class="tabs" id="tabs" role="tablist" aria-label="Разделы программы">
+  <div class="tab active" data-tab="home" role="tab" tabindex="0" aria-selected="true">Главная</div>
+  <div class="tab" data-tab="setup" role="tab" tabindex="-1" aria-selected="false">Настройки</div>
+  <div class="tab" data-tab="organize" role="tab" tabindex="-1" aria-selected="false">Организация</div>
+  <div class="tab" data-tab="diagnostics" role="tab" tabindex="-1" aria-selected="false">Диагностика</div>
 </div>
 
 <!-- ============= ГЛАВНАЯ ============= -->
@@ -1331,6 +1387,56 @@
     </div>
   </div>
 
+  <!-- Облачные папки и типы файлов (C2) -->
+  <div class="card" id="cloud-card">
+    <div class="card-title">Что копировать из облака</div>
+    <div class="card-sub">
+      Какие папки Диска обходить и что брать из Безлимита. По умолчанию — весь Диск
+      и только фото.
+    </div>
+
+    <label class="field-label">Папки Диска</label>
+    <div id="scan-roots-list" class="root-list"></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input type="text" id="scan-root-input" placeholder="например: /Фото" style="flex:1">
+      <button class="ghost" onclick="addScanRoot()" style="white-space:nowrap">Добавить</button>
+    </div>
+    <div class="actions">
+      <button class="ghost" onclick="loadCloudFolders()">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Папки в облаке
+      </button>
+      <button class="primary" onclick="saveScanRoots()">
+        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить папки
+      </button>
+    </div>
+    <div id="scan-roots-status" class="setup-hint" role="status" aria-live="polite"></div>
+    <div id="cloud-folders" class="root-list" style="margin-top:6px"></div>
+
+    <label class="field-label" style="margin-top:14px">Тип контента Безлимита</label>
+    <div style="display:flex;gap:8px">
+      <select id="unlim-media-select" style="flex:1;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+        <option value="photos">Только фото</option>
+        <option value="videos">Только видео</option>
+        <option value="all">Фото и видео</option>
+      </select>
+      <button class="primary" onclick="saveUnlimMedia()" style="white-space:nowrap">Сохранить</button>
+    </div>
+    <div id="unlim-media-status" class="setup-hint" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- Уведомления браузера (C3) -->
+  <div class="card" id="notify-card">
+    <div class="watchdog-line">
+      <span class="watchdog-title tipnode" data-tip="Браузер сообщит, когда выгрузка закончится или остановится с ошибкой — даже если окно свёрнуто. Заголовок вкладки во время работы показывает прогресс.">🔔 Уведомления о завершении</span>
+      <button id="notify-btn" class="ghost" onclick="toggleNotifications()">Включить</button>
+      <span id="notify-status" class="badge">—</span>
+    </div>
+    <div class="card-sub" style="margin-top:8px">
+      Сообщим о конце работы и при остановке — например, если диск отключился.
+      Работает, пока окно программы открыто.
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">Cookies браузера</div>
     <div class="card-sub">Опционально — для скачивания безлимитного фото-хранилища.</div>
@@ -1436,6 +1542,43 @@
       <button class="ghost" onclick="clearReportKey()">Удалить</button>
     </div>
     <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске. Ключ хранится только на этом компьютере и в отчёт не включается.</div>
+  </div>
+
+  <div class="card" id="verify-card">
+    <div class="card-title">Проверка файлов</div>
+    <div class="card-sub">Сверяет скачанное с базой: на месте ли файлы и того ли они размера.</div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <select id="verify-scope" aria-label="Что проверять">
+        <option value="disk">Обычный Диск</option>
+        <option value="unlim">Безлимит</option>
+        <option value="both">Обе базы</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer">
+        <input type="checkbox" id="verify-deep" style="width:16px;height:16px;accent-color:var(--accent)">
+        Сверять MD5 — читает весь объём с диска, идёт долго
+      </label>
+    </div>
+
+    <div class="actions" style="margin-top:12px">
+      <button class="primary" id="verify-start-btn" onclick="startVerify()">
+        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
+      </button>
+      <button class="ghost" id="verify-stop-btn" onclick="stopVerify()" style="display:none">Остановить</button>
+    </div>
+
+    <div id="verify-status" class="setup-hint" role="status" aria-live="polite" style="margin-top:10px"></div>
+
+    <div id="verify-result" style="display:none;margin-top:10px">
+      <div class="list-toggle" id="verify-result-toggle" onclick="toggleVerifyReport()">
+        <span class="list-toggle-chevron" id="verify-result-chevron">▸</span>
+        <span>Отчёт проверки</span>
+        <span class="list-toggle-hint" id="verify-result-hint">показать</span>
+      </div>
+      <pre id="verify-output" class="diag-pre" style="display:none"></pre>
+    </div>
+
+    <div class="setup-hint">Файлы не удаляются, статусы в базе не меняются — это только осмотр.</div>
   </div>
 
   <div class="card">
@@ -1738,6 +1881,14 @@ document.addEventListener('keydown', (e)=>{
 });
 
 // ────── tabs ──────
+function syncTabsA11y(){
+  document.querySelectorAll('.tab').forEach(t=>{
+    const on = t.classList.contains('active');
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+    t.tabIndex = on ? 0 : -1;
+  });
+}
+
 function showPanel(name){
   const tab = document.querySelector(`.tab[data-tab="${name}"]`);
   const panel = document.querySelector(`.panel[data-panel="${name}"]`);
@@ -1746,6 +1897,7 @@ function showPanel(name){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   tab.classList.add('active');
   panel.classList.add('active');
+  syncTabsA11y();
   // Резервные копии живут в «Организации»: при входе на вкладку список
   // снова свёрнут, но счётчик копий обновляем сразу.
   if(name === 'organize'){ toggleBackupsList(false); loadBackups(); }
@@ -1799,9 +1951,30 @@ function bindPillNavigation(){
   });
 }
 
-document.querySelectorAll('.tab').forEach(t=>{
+const _tabList = Array.from(document.querySelectorAll('.tab'));
+_tabList.forEach((t, i)=>{
   t.onclick=()=>showPanel(t.dataset.tab);
+  // Клавиатура: Enter/Space открывают вкладку, стрелки ходят по кругу (C4).
+  t.addEventListener('keydown', e=>{
+    if(e.key === 'Enter' || e.key === ' '){
+      e.preventDefault();
+      showPanel(t.dataset.tab);
+    } else if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      e.preventDefault();
+      const step = e.key === 'ArrowRight' ? 1 : _tabList.length - 1;
+      const next = _tabList[(i + step) % _tabList.length];
+      showPanel(next.dataset.tab);
+      next.focus();
+    }
+  });
 });
+const PANEL_NAMES = {home:'Главная', setup:'Настройки',
+                     organize:'Организация', diagnostics:'Диагностика'};
+document.querySelectorAll('.panel').forEach(p=>{
+  p.setAttribute('role', 'tabpanel');
+  p.setAttribute('aria-label', PANEL_NAMES[p.dataset.panel] || p.dataset.panel || '');
+});
+syncTabsA11y();
 bindPillNavigation();
 
 // ────── Setup actions ──────
@@ -3071,6 +3244,309 @@ function renderPreviews(cfg){
   }
 }
 
+// ── Что копировать из облака (C2): папки Диска и тип контента Безлимита ──
+
+function _normRoot(v){
+  let s = String(v || '').trim().replace(/\\/g, '/');
+  if(!s) return '';
+  if(s[0] !== '/') s = '/' + s;
+  s = s.replace(/\/+$/, '') || '/';
+  return s;
+}
+
+function renderScanRoots(roots){
+  const box = document.getElementById('scan-roots-list');
+  if(!box) return;
+  const list = (roots && roots.length ? roots : ['/']).map(_normRoot).filter(Boolean);
+  window._scanRoots = list;
+  window._scanRootsLoaded = true;
+  box.innerHTML = '';
+  list.forEach(r => {
+    const chip = document.createElement('span');
+    chip.className = 'root-chip';
+    const label = document.createElement('span');
+    label.textContent = (r === '/') ? 'весь Диск' : r;
+    chip.appendChild(label);
+    if(list.length > 1){
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.setAttribute('aria-label', `Убрать папку ${r}`);
+      x.textContent = '×';
+      x.onclick = () => renderScanRoots(window._scanRoots.filter(v => v !== r));
+      chip.appendChild(x);
+    }
+    box.appendChild(chip);
+  });
+}
+
+function addScanRoot(value){
+  const input = document.getElementById('scan-root-input');
+  const r = _normRoot(value !== undefined ? value : (input ? input.value : ''));
+  if(!r) return;
+  if(r === '/'){
+    renderScanRoots(['/']);
+  } else {
+    const list = (window._scanRoots || ['/']).filter(v => v !== '/');
+    if(!list.includes(r)) list.push(r);
+    renderScanRoots(list);
+  }
+  if(input && value === undefined) input.value = '';
+}
+
+async function loadCloudFolders(){
+  const box = document.getElementById('cloud-folders');
+  if(box) box.textContent = 'Запрашиваю список у Яндекса…';
+  try {
+    const r = await fetch('/api/disk/folders?path=/');
+    const d = await r.json();
+    if(!box) return;
+    box.innerHTML = '';
+    if(!d.ok){ box.textContent = d.msg || 'Не удалось получить список папок'; return; }
+    if(d.msg){
+      const note = document.createElement('div');
+      note.className = 'setup-hint' + (d.from_db ? ' warn' : '');
+      note.textContent = d.msg;
+      box.appendChild(note);
+    }
+    if(!d.folders || !d.folders.length){ box.appendChild(document.createTextNode('В корне облака нет папок.')); return; }
+    d.folders.forEach(f => {
+      const chip = document.createElement('span');
+      chip.className = 'root-chip pick';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = '+ ' + f.name;
+      b.setAttribute('aria-label', `Добавить папку ${f.name}`);
+      b.onclick = () => { addScanRoot(f.path); toast(`Добавлено: ${f.path}. Не забудьте сохранить папки.`, 'ok'); };
+      chip.appendChild(b);
+      box.appendChild(chip);
+    });
+  } catch(e){
+    if(box) box.textContent = 'Нет связи с программой: ' + e.message;
+  }
+}
+
+async function saveScanRoots(){
+  const st = document.getElementById('scan-roots-status');
+  try {
+    const r = await fetch('/api/config/scan_roots', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({roots: window._scanRoots || ['/']})
+    });
+    const d = await r.json();
+    if(d.ok && d.scan_roots) renderScanRoots(d.scan_roots);
+    if(st){
+      st.className = 'setup-hint' + (d.ok ? '' : ' warn');
+      st.textContent = d.msg || (d.ok ? 'Сохранено' : 'Не удалось сохранить');
+    }
+    toast(d.msg || (d.ok ? 'Папки сохранены' : 'Не удалось сохранить'), d.ok ? 'ok' : 'err');
+  } catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function saveUnlimMedia(){
+  const sel = document.getElementById('unlim-media-select');
+  const st = document.getElementById('unlim-media-status');
+  try {
+    const r = await fetch('/api/config/unlim_media', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({media: sel ? sel.value : 'all'})
+    });
+    const d = await r.json();
+    if(st){
+      st.className = 'setup-hint' + (d.ok ? '' : ' warn');
+      st.textContent = d.msg || '';
+    }
+    const formSel = document.getElementById('ctrl-media');
+    if(d.ok && formSel && sel) formSel.value = sel.value;
+    toast(d.msg || (d.ok ? 'Тип контента сохранён' : 'Не удалось сохранить'), d.ok ? 'ok' : 'err');
+  } catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+function renderCloudConfig(cfg){
+  if(!cfg) return;
+  if(!window._scanRootsLoaded && Array.isArray(cfg.scan_roots)){
+    renderScanRoots(cfg.scan_roots);
+  }
+  if(!window._unlimMediaLoaded && cfg.unlim_media){
+    window._unlimMediaLoaded = true;
+    const sel = document.getElementById('unlim-media-select');
+    if(sel) sel.value = cfg.unlim_media;
+    const formSel = document.getElementById('ctrl-media');
+    if(formSel) formSel.value = cfg.unlim_media;
+  }
+}
+
+// ── Светлая и тёмная тема (C4) ──
+
+function _themeNow(){
+  try { return localStorage.getItem('yad.theme') === 'light' ? 'light' : 'dark'; } catch(e){ return 'dark'; }
+}
+
+function applyTheme(theme){
+  const light = theme === 'light';
+  if(light) document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  const btn = document.getElementById('theme-btn');
+  if(btn){
+    btn.textContent = light ? '☀️' : '🌙';
+    btn.setAttribute('aria-pressed', light ? 'true' : 'false');
+    btn.setAttribute('aria-label', light
+      ? 'Включена светлая тема — переключить на тёмную'
+      : 'Включена тёмная тема — переключить на светлую');
+  }
+}
+
+function toggleTheme(){
+  const next = _themeNow() === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('yad.theme', next); } catch(e){}
+  applyTheme(next);
+  toast(next === 'light' ? 'Светлая тема включена' : 'Тёмная тема включена', 'ok');
+}
+
+applyTheme(_themeNow());
+
+// ── Уведомления браузера и заголовок вкладки (C3) ──
+
+const APP_TITLE = document.title;
+const APP_TITLE_SHORT = APP_TITLE.split(' — ')[0];
+
+function _notifyWanted(){
+  try { return localStorage.getItem('yad.notify') === '1'; } catch(e){ return false; }
+}
+
+function _notifyPerm(){
+  return (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+}
+
+function renderNotify(){
+  const btn = document.getElementById('notify-btn');
+  const st = document.getElementById('notify-status');
+  if(!btn || !st) return;
+  const perm = _notifyPerm();
+  if(perm === 'unsupported'){
+    btn.disabled = true;
+    st.textContent = 'не поддерживаются';
+    st.className = 'badge';
+    return;
+  }
+  const on = _notifyWanted() && perm === 'granted';
+  btn.textContent = on ? 'Выключить' : 'Включить';
+  btn.classList.toggle('ghost', !on);
+  btn.classList.toggle('danger', on);
+  if(perm === 'denied'){
+    st.textContent = 'запрещены';
+    st.className = 'badge warn';
+  } else if(on){
+    st.textContent = 'включены';
+    st.className = 'badge ok';
+  } else {
+    st.textContent = 'выключены';
+    st.className = 'badge';
+  }
+}
+
+async function toggleNotifications(){
+  const want = !(_notifyWanted() && _notifyPerm() === 'granted');
+  const perm = _notifyPerm();
+  if(want && perm === 'unsupported'){
+    toast('Это окно не умеет показывать уведомления', 'err');
+    return;
+  }
+  if(want && perm === 'denied'){
+    toast('Уведомления запрещены в настройках окна — разрешите их там и нажмите снова', 'err');
+    return;
+  }
+  if(want && perm === 'default'){
+    try {
+      const p = await Notification.requestPermission();
+      if(p !== 'granted') toast('Разрешение на уведомления не выдано', 'err');
+    } catch(e){
+      toast('Не удалось запросить разрешение: ' + e.message, 'err');
+    }
+  }
+  try { localStorage.setItem('yad.notify', want ? '1' : '0'); } catch(e){}
+  renderNotify();
+  if(want && _notifyPerm() === 'granted'){
+    notifyUser('Уведомления включены', 'Сообщим, когда выгрузка закончится.');
+  }
+}
+
+function notifyUser(title, body){
+  if(_notifyPerm() !== 'granted' || !_notifyWanted()) return;
+  try {
+    const n = new Notification(title, {body: body || '', tag: 'yad-backup'});
+    n.onclick = () => { try { window.focus(); } catch(e){} n.close(); };
+  } catch(e){
+    /* уведомление не должно ломать работу программы */
+  }
+}
+
+function _progressPercent(s){
+  const dd = (s && s.disk && s.disk.db) || {};
+  const ud = (s && s.unlim && s.unlim.db) || {};
+  const done = (dd.downloaded || 0) + (ud.downloaded || 0);
+  const left = (dd.pending || 0) + (ud.pending || 0);
+  const total = done + left;
+  return total ? Math.min(100, Math.floor(done * 100 / total)) : null;
+}
+
+function updateTabTitle(isRunning, s){
+  if(!isRunning){
+    document.title = APP_TITLE;
+    return;
+  }
+  const ses = (s && s.session) || {};
+  const preparing = (ses.disk && ses.disk.preparing) || (ses.unlim && ses.unlim.preparing);
+  if(preparing){
+    document.title = `⏳ Подготовка · ${APP_TITLE_SHORT}`;
+    return;
+  }
+  const pct = _progressPercent(s);
+  document.title = pct === null
+    ? `⬇ Идёт выгрузка · ${APP_TITLE_SHORT}`
+    : `⬇ Выгрузка ${pct}% · ${APP_TITLE_SHORT}`;
+}
+
+function _sessionSummaryText(s){
+  const ses = (s && s.session) || {};
+  const parts = [];
+  ['disk', 'unlim'].forEach(k => {
+    const v = ses[k];
+    if(!v) return;
+    const name = k === 'disk' ? 'Диск' : 'Безлимит';
+    parts.push(`${name}: скачано ${v.success || 0}, сбойных ${v.failed || 0}`);
+  });
+  return parts.join(' · ');
+}
+
+function checkRunFinished(isRunning, s){
+  const wasRunning = window._prevRunning === true;
+  window._prevRunning = isRunning;
+  if(!wasRunning || isRunning) return;
+  notifyUser('Выгрузка завершена', _sessionSummaryText(s) || 'Задача завершена.');
+}
+
+function checkRunErrors(s){
+  // Ошибки во время работы: отключённый диск и фатальные статусы выгрузки.
+  const state = (s && s.disk_state) || '';
+  const err = (s && s.download_error) || '';
+  const sig = [state, err].filter(Boolean).join('|');
+  if(!sig || sig === window._notifyErrSig) return;
+  window._notifyErrSig = sig;
+  const map = {
+    disk_offline: 'Диск отключён — подключите его и нажмите «Продолжить».',
+    disk_full: 'На диске закончилось место.'
+  };
+  notifyUser('Выгрузка остановилась', map[state] || err || 'Произошла ошибка.');
+}
+
 function renderWatchdog(w){
   const btn = document.getElementById('watchdog-btn');
   const st = document.getElementById('watchdog-status');
@@ -3205,6 +3681,8 @@ async function refresh(){
     }
     renderWatchdog(s.watchdog);
     renderPreviews(s.config);
+    renderCloudConfig(s.config);
+    renderVerify(s.verify);
     renderResetCounts(s);
     renderRebuildCounts(s);
 
@@ -3326,8 +3804,16 @@ async function refresh(){
     const isUnlimRunning = unlimTask && unlimTask.running;
     const isDiskRunning = diskTask && diskTask.running;
     const isPipeRunning = pl && pl.running;
-    const runningSlots = Object.keys(tasks).filter(k => tasks[k].running).sort((a,b) => slotOrder(a) - slotOrder(b));
+    // Фоновая проверка файлов (слот verify) идёт со своей карточкой и не должна
+    // прятать кнопки выгрузки: она ничего не выгружает.
+    const runningSlots = Object.keys(tasks).filter(k => tasks[k].running && k !== 'verify').sort((a,b) => slotOrder(a) - slotOrder(b));
     const isRunning = runningSlots.length > 0 || isPipeRunning;
+
+    // C3: заголовок вкладки с прогрессом и уведомления о конце работы.
+    if(!window._notifyRendered){ window._notifyRendered = true; renderNotify(); }
+    updateTabTitle(isRunning, s);
+    checkRunErrors(s);
+    checkRunFinished(isRunning, s);
 
     // Live DB status banner
     updateDbStatusBanner(s);
@@ -3947,6 +4433,112 @@ async function openUpdatePage(){
     if(!d.ok) toast(d.error || 'Не удалось открыть ссылку', 'err');
   }catch(e){
     toast('Не удалось открыть ссылку', 'err');
+  }
+}
+
+// ── Проверка файлов (C1) ──
+async function startVerify(){
+  const scope = (document.getElementById('verify-scope') || {}).value || 'disk';
+  const deep = !!(document.getElementById('verify-deep') || {}).checked;
+  if(deep && !await askConfirm({
+    title: 'Проверить с MD5?',
+    text: 'Программа прочитает каждый скачанный файл целиком — на большой базе это часы. '
+        + 'Без MD5 проверяются только наличие и размер, это быстро.',
+    ok: 'Проверить с MD5'
+  })) return;
+  const status = document.getElementById('verify-status');
+  if(status){ status.className = 'setup-hint'; status.textContent = 'Запускаю проверку…'; }
+  try{
+    const r = await fetch('/api/verify/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scope, deep})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.msg || 'Не удалось запустить проверку');
+    toast('Проверка запущена', 'ok');
+  }catch(e){
+    if(status){ status.className = 'setup-hint err'; status.textContent = 'Ошибка: ' + e.message; }
+    toast('Не удалось запустить проверку', 'err');
+  }
+  refresh();
+}
+
+async function stopVerify(){
+  if(!await askConfirm({
+    title: 'Остановить проверку?',
+    text: 'Проверка прекратится. Файлы и база не изменятся — можно запустить снова.',
+    ok: 'Остановить', danger: true
+  })) return;
+  try{
+    const r = await fetch('/api/verify/stop', {method:'POST'});
+    const d = await r.json();
+    toast(d.msg || 'Проверка остановлена', d.ok ? 'ok' : 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function loadVerifyReport(){
+  try{
+    const r = await fetch('/api/verify/report');
+    const d = await r.json();
+    const out = document.getElementById('verify-output');
+    if(out) out.textContent = d.report || 'Отчёт пока не готов.';
+  }catch(e){ /* отчёт — необязателен */ }
+}
+
+function toggleVerifyReport(force){
+  const box = document.getElementById('verify-output');
+  const hint = document.getElementById('verify-result-hint');
+  const chevron = document.getElementById('verify-result-chevron');
+  if(!box) return;
+  const show = force === undefined ? box.style.display === 'none' : !!force;
+  box.style.display = show ? 'block' : 'none';
+  if(hint) hint.textContent = show ? 'скрыть' : 'показать';
+  if(chevron) chevron.textContent = show ? '▾' : '▸';
+  if(show) loadVerifyReport();
+}
+
+function renderVerify(v){
+  const startBtn = document.getElementById('verify-start-btn');
+  const stopBtn = document.getElementById('verify-stop-btn');
+  const status = document.getElementById('verify-status');
+  const wrap = document.getElementById('verify-result');
+  if(!status) return;
+  const running = !!(v && v.running);
+  if(startBtn) startBtn.disabled = running;
+  if(stopBtn) stopBtn.style.display = running ? 'inline-flex' : 'none';
+
+  const checked = +(v && v.checked || 0);
+  const total = +(v && v.total || 0);
+  const problems = +(v && (v.missing || 0) + (v.size || 0) + (v.md5 || 0) + (v.errors || 0));
+  if(running){
+    status.className = 'setup-hint';
+    status.textContent = total
+      ? `Проверяю: ${checked.toLocaleString('ru')} из ${total.toLocaleString('ru')}`
+        + ` · в порядке ${(+(v.ok || 0)).toLocaleString('ru')}`
+        + (problems ? ` · проблем ${problems.toLocaleString('ru')}` : '')
+      : 'Собираю список файлов…';
+  } else if(v && v.finished_at){
+    if(problems){
+      status.className = 'setup-hint warn';
+      status.textContent = `Проверено ${checked.toLocaleString('ru')} из ${total.toLocaleString('ru')}`
+        + ` · проблем ${problems.toLocaleString('ru')} — подробности в отчёте ниже`;
+    } else if(checked){
+      status.className = 'setup-hint ok';
+      status.textContent = `✅ Проверено ${checked.toLocaleString('ru')} файлов — все на месте`;
+    }
+  } else if(!v || !v.started_at){
+    status.className = 'setup-hint';
+    status.textContent = '';
+  }
+  if(wrap) wrap.style.display = (v && v.started_at) ? 'block' : 'none';
+
+  // Один раз после окончания раскрываем готовый отчёт.
+  if(!running && v && v.finished_at && window._verifyDoneAt !== v.finished_at){
+    window._verifyDoneAt = v.finished_at;
+    toggleVerifyReport(true);
   }
 }
 

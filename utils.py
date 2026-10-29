@@ -327,6 +327,42 @@ def human_duration(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+UNLIM_MEDIA_VALUES = ("photos", "videos", "all")
+
+
+def normalize_scan_roots(roots) -> list[str]:
+    """Корни обхода Яндекс.Диска: строка из `.env` или список из окна.
+
+    Возвращает пути вида ["/", "/Фото"] — с ведущим слешем, без хвостового и
+    без повторов. Если выбран корень "/", остальные не нужны.
+    """
+    if isinstance(roots, str):
+        items: list = roots.split(",")
+    elif roots is None:
+        items = []
+    else:
+        items = list(roots)
+    out: list[str] = []
+    for raw in items:
+        value = str(raw or "").strip().replace("\\", "/")
+        if not value:
+            continue
+        if not value.startswith("/"):
+            value = "/" + value
+        value = value.rstrip("/") or "/"
+        if value not in out:
+            out.append(value)
+    if "/" in out:
+        return ["/"]
+    return out or ["/"]
+
+
+def normalize_unlim_media(value, default: str = "photos") -> str:
+    """Тип контента Безлимита: photos | videos | all."""
+    text = str(value or "").strip().lower()
+    return text if text in UNLIM_MEDIA_VALUES else default
+
+
 def _total_ram_gb() -> float:
     """Общий объём ОЗУ в гигабайтах (кроссплатформенно, без внешних зависимостей).
 

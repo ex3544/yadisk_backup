@@ -78,6 +78,8 @@ hidden_imports = [
     'extract_cookies',
     'report_status',
     'watch',
+    'verify',
+    'verify_local',
 ]
 
 datas = [
