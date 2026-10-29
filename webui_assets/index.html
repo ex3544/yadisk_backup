@@ -1367,7 +1367,14 @@
     </div>
 
     <div id="diag-status" class="setup-hint" style="margin-top:12px"></div>
-    <pre id="diag-output" class="diag-pre"></pre>
+    <div id="diag-result" style="display:none;margin-top:10px">
+      <div class="list-toggle" id="diag-result-toggle" onclick="toggleDiagResult()">
+        <span class="list-toggle-chevron" id="diag-result-chevron">▸</span>
+        <span id="diag-result-title">Результат</span>
+        <span class="list-toggle-hint" id="diag-result-hint">показать</span>
+      </div>
+      <pre id="diag-output" class="diag-pre" style="display:none"></pre>
+    </div>
   </div>
 
   <div class="card">
@@ -1386,7 +1393,12 @@
   <div class="card">
     <div class="card-title">Последние отчёты</div>
     <div class="card-sub">Файлы лежат в папке данных приложения.</div>
-    <div id="diag-reports" class="muted">—</div>
+    <div class="list-toggle" id="reports-toggle" onclick="toggleReportsList()">
+      <span class="list-toggle-chevron" id="reports-chevron">▸</span>
+      <span>Список отчётов</span>
+      <span class="list-toggle-hint" id="reports-toggle-hint">показать</span>
+    </div>
+    <div id="diag-reports" class="muted" style="display:none">—</div>
   </div>
 
   <div class="card" id="reset-queue-card">
@@ -2633,20 +2645,45 @@ function isStopped(code){
 // остановки, пока не начнётся новая сессия.
 function renderSessionCounters(s){
   const sess = s.session || {};
-  renderSessionPill('pill-session', 'pill-session-text', sess.unlim, 'Безлимит', 'unlim');
-  renderSessionPill('pill-disk-session', 'pill-disk-session-text', sess.disk, 'Диск', 'disk');
+  renderSessionPill('pill-session', 'pill-session-text', sess.unlim, 'Безлимит', 'unlim', (s.unlim||{}).db);
+  renderSessionPill('pill-disk-session', 'pill-disk-session-text', sess.disk, 'Диск', 'disk', (s.disk||{}).db);
   renderEta(s);
 }
 
-function renderSessionPill(id, textId, d, label, kind){
+// Сколько ещё не скачано: новые + сбойные (у Безлимита сбойные — это skipped).
+function queueLeft(db, kind){
+  const failedKey = kind === 'unlim' ? 'skipped' : 'failed';
+  const pending = +((db||{}).pending || 0);
+  const failed = +((db||{})[failedKey] || 0);
+  const by = (db||{}).bytes_by_status || {};
+  return {count: pending + failed, bytes: (+by.pending || 0) + (+by[failedKey] || 0)};
+}
+
+function renderSessionPill(id, textId, d, label, kind, db){
   const el = document.getElementById(id);
   if(!el) return;
-  if(!d){ el.style.display = 'none'; return; }
-  el.style.display = 'inline-flex';
   const text = document.getElementById(textId);
-  if(d.preparing){
+  const left = queueLeft(db, kind);
+  const leftText = left.bytes > 0
+    ? `${left.count.toLocaleString('ru')} · ${human(left.bytes)}`
+    : `${left.count.toLocaleString('ru')}`;
+  // Плашка видна всегда: в покое — сколько осталось докачать, во время
+  // работы — итог сессии и остаток в подсказке.
+  el.style.display = 'inline-flex';
+  if(d && d.preparing){
     el.className = 'pill clickable';
     if(text) text.textContent = `⏳ ${label}: подготовка…`;
+    el.dataset.tip = `Сбор списка файлов ${label}. Нажмите — откроет папку выгрузки.`;
+    return;
+  }
+  if(!d){
+    el.className = left.count ? 'pill clickable' : 'pill ok clickable';
+    if(text) text.textContent = left.count ? `⚠ ${leftText}` : '✅ всё скачано';
+    el.dataset.tip = left.count
+      ? `Не докачано ${label}: ${left.count.toLocaleString('ru')} файлов`
+        + (left.bytes ? ` (${human(left.bytes)})` : '')
+        + '. Это новые и сбойные вместе. Нажмите — откроет папку выгрузки.'
+      : `${label}: всё скачано. Нажмите — откроет папку выгрузки.`;
     return;
   }
   el.className = 'pill ok clickable';
@@ -2655,14 +2692,23 @@ function renderSessionPill(id, textId, d, label, kind){
   if(text) text.textContent = value;
   const pass = d.passes > 1 ? ` Проход ${d.pass || 1} из ${d.passes}.` : '';
   el.dataset.tip = `Итог сессии ${label}: скачано за все проходы / сбойных сейчас.${pass} `
+    + `Осталось докачать: ${leftText}. `
     + (kind === 'unlim' ? 'Нажмите — откроет папку выгрузки Безлимита.'
                         : 'Нажмите — откроет папку выгрузки Диска.');
 }
 
 // ── Оценка времени до конца задания ──
-// Остаток берём из базы (сколько ещё предстоит скачать), среднюю скорость —
-// из файла статуса текущего процесса: попытки / время работы. Это усреднение
-// без дрожания; цифра приблизительная, так и подписана.
+// Скорость считаем только по успешным скачиваниям за последние 3 минуты, а не
+// по всем попыткам с самого старта. Иначе повторы сбойных выдавались за работу:
+// 400 сбойных с `--retry` давали 800 «попыток» и оценку «~1 мин», хотя не
+// скачалось ничего. Для Диска — по байтам (файлы разного размера), для
+// Безлимита — по файлам, пока в базе нет размеров.
+const ETA_WINDOW = 180;       // секунды: окно усреднения
+const ETA_MIN_ELAPSED = 120;  // первые 2 минуты оценку не показываем
+const ETA_MIN_SPAN = 20;      // без 20 секунд наблюдений считать нечего
+const _etaSamples = {disk: [], unlim: []};
+const _etaSession = {disk: null, unlim: null};
+
 function fmtEta(sec){
   if(!isFinite(sec) || sec <= 0) return null;
   const total = Math.round(sec);
@@ -2674,24 +2720,56 @@ function fmtEta(sec){
   return rest ? `~${hours} ч ${rest} мин` : `~${hours} ч`;
 }
 
-// Сколько секунд осталось линии. null — оценить нельзя (нет свежего статуса,
-// слишком мало данных, остаток неизвестен).
-function etaSeconds(kind, s){
+function _etaOk(st, kind){
+  return +(kind === 'unlim' ? st.success : st.downloaded) || 0;
+}
+
+function pushEtaSample(kind, st){
+  const t = Number((st || {}).updated_at || 0);
+  if(!t) return;
+  const buf = _etaSamples[kind];
+  const last = buf[buf.length - 1];
+  if(last && t <= last.t) return;   // тот же замер или часы поплыли
+  const ok = _etaOk(st, kind), bytes = +(st.bytes || 0);
+  // Счётчики сбросились (начался новый проход или процесс) — начинаем заново,
+  // иначе разница окажется отрицательной и оценка пропадёт надолго.
+  if(last && (ok < last.ok || bytes < last.bytes)) buf.length = 0;
+  buf.push({t, ok, bytes});
+  const cutoff = t - ETA_WINDOW;
+  while(buf.length > 2 && buf[0].t < cutoff) buf.shift();
+}
+
+// Сколько секунд осталось линии. null — оценить нельзя (нет данных,
+// остаток неизвестен, ничего не скачивается). now — текущее время, сек.
+function etaSeconds(kind, s, now){
   const d = (s.session || {})[kind];
   const st = (kind === 'unlim' ? s.speed : s.disk_speed) || {};
   if(!d || !d.running || d.preparing) return null;
   if(!(d.remaining > 0)) return null;
-  const started = Number(st.started_at || 0);
+  if(_etaSession[kind] !== d.started_at){
+    _etaSession[kind] = d.started_at;
+    _etaSamples[kind].length = 0;
+  }
+  pushEtaSample(kind, st);
+  // Статус не обновлялся две минуты — процесс завис, оценка была бы выдумкой.
   const updated = Number(st.updated_at || 0);
-  if(!started || !updated) return null;
-  const elapsed = updated - started;
-  // Первые полминуты скорость ещё не показательна — оценка была бы дикой.
-  if(elapsed < 30) return null;
-  const attempts = kind === 'unlim'
-    ? (+st.success || 0) + (+st.skipped || 0)
-    : (+st.downloaded || 0) + (+st.skipped || 0) + (+st.failed || 0);
-  if(attempts <= 0) return null;
-  return d.remaining / (attempts / elapsed);
+  if(updated && now - updated > 120) return null;
+  const started = Number(d.started_at || st.started_at || 0);
+  if(started && now - started < ETA_MIN_ELAPSED) return null;
+  const buf = _etaSamples[kind];
+  if(buf.length < 2) return null;
+  const first = buf[0], last = buf[buf.length - 1];
+  const span = last.t - first.t;
+  if(span < ETA_MIN_SPAN) return null;
+  const dBytes = last.bytes - first.bytes;
+  const dOk = last.ok - first.ok;
+  // Байты точнее, но только если известен остаток в байтах.
+  if(dBytes > 0 && (+d.remaining_bytes || 0) > 0){
+    return (+d.remaining_bytes) / (dBytes / span);
+  }
+  if(dOk > 0) return d.remaining / (dOk / span);
+  // За окно ничего не скачалось — честнее не показывать цифру.
+  return null;
 }
 
 function renderEta(s){
@@ -2699,8 +2777,9 @@ function renderEta(s){
   const txt = document.getElementById('eta-text');
   if(!box || !txt) return;
   const lines = [];
-  const diskSec = etaSeconds('disk', s);
-  const unlimSec = etaSeconds('unlim', s);
+  const now = Date.now() / 1000;
+  const diskSec = etaSeconds('disk', s, now);
+  const unlimSec = etaSeconds('unlim', s, now);
   if(diskSec) lines.push({name: 'Диск', sec: diskSec});
   if(unlimSec) lines.push({name: 'Безлимит', sec: unlimSec});
   if(!lines.length){
@@ -2714,11 +2793,13 @@ function renderEta(s){
   box.style.display = 'block';
   box.className = 'tipnode';
   txt.textContent = fmtEta(longest.sec);
+  const basis = 'Считается по успешным скачиваниям за последние 3 минуты; '
+    + 'если ничего не скачивается, цифры нет. Оценка приблизительная.';
   box.dataset.tip = lines.length === 1
-    ? `Оценка по средней скорости линии «${lines[0].name}». Цифра приблизительная.`
+    ? `Оценка по линии «${lines[0].name}». ${basis}`
     : `Задание идёт по двум линиям сразу, останется столько, сколько нужно самой долгой: `
       + lines.map(l => `${l.name} ${fmtEta(l.sec)}`).join(' · ')
-      + '. Цифра приблизительная.';
+      + `. ${basis}`;
 }
 
 function renderFullCycle(fc){
@@ -3431,13 +3512,43 @@ async function skipSetup(){
 }
 
 // ────── диагностика ──────
-function showDiagnostics(data){
+function showDiagnostics(data, collapsed){
   const out = document.getElementById('diag-output');
+  const wrap = document.getElementById('diag-result');
   if(out && data.summary){
     out.textContent = data.summary;
-    out.style.display = 'block';
+    if(wrap) wrap.style.display = 'block';
+    // После отправки результат сразу свёрнут — разворачивается кликом.
+    toggleDiagResult(collapsed !== true);
   }
   if(data.reports) renderReportList(data.reports);
+}
+
+let _diagResultOpen = false;
+function toggleDiagResult(force){
+  _diagResultOpen = (force === undefined) ? !_diagResultOpen : !!force;
+  const out = document.getElementById('diag-output');
+  const toggle = document.getElementById('diag-result-toggle');
+  const hint = document.getElementById('diag-result-hint');
+  if(out) out.style.display = _diagResultOpen ? 'block' : 'none';
+  if(toggle) toggle.classList.toggle('open', _diagResultOpen);
+  if(hint) hint.textContent = _diagResultOpen ? 'свернуть' : 'показать';
+}
+
+function setDiagResultTitle(text){
+  const el = document.getElementById('diag-result-title');
+  if(el) el.textContent = text;
+}
+
+let _reportsOpen = false;
+function toggleReportsList(force){
+  _reportsOpen = (force === undefined) ? !_reportsOpen : !!force;
+  const box = document.getElementById('diag-reports');
+  const toggle = document.getElementById('reports-toggle');
+  const hint = document.getElementById('reports-toggle-hint');
+  if(box) box.style.display = _reportsOpen ? 'block' : 'none';
+  if(toggle) toggle.classList.toggle('open', _reportsOpen);
+  if(hint) hint.textContent = _reportsOpen ? 'свернуть' : 'показать';
 }
 
 function renderReportList(list){
@@ -3655,7 +3766,8 @@ async function buildDiagnostics(){
     const r = await fetch('/api/diagnostics', {method:'POST'});
     const d = await r.json();
     if(!r.ok || !d.ok) throw new Error(d.error || d.detail || 'Не удалось собрать отчёт');
-    showDiagnostics(d);
+    showDiagnostics(d, false);
+    setDiagResultTitle(`✅ Отчёт собран · ${d.size_mb} МБ`);
     const status = document.getElementById('diag-status');
     status.className = 'setup-hint ok';
     status.textContent = `Готово: ${d.report_id} · ${d.size_mb} МБ · ${d.path}`;
@@ -3683,7 +3795,12 @@ async function sendDiagnostics(){
     const r = await fetch('/api/diagnostics/send', {method:'POST'});
     const d = await r.json();
     if(!r.ok) throw new Error(d.error || d.detail || 'Не удалось отправить отчёт');
-    showDiagnostics(d);
+    // После отправки свёрнуто: длинная сводка больше не занимает полэкрана.
+    showDiagnostics(d, true);
+    setDiagResultTitle(d.ok
+      ? `✅ Отчёт отправлен · ${d.size || ''}`.trim()
+      : `⚠ Отчёт не отправлен · ${d.size || ''}`.trim());
+    toggleReportsList(false);
     const status = document.getElementById('diag-status');
     if(d.ok){
       status.className = 'setup-hint ok';

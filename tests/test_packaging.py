@@ -677,7 +677,12 @@ def test_eta_box_counts_down_on_home_page():
 
     assert 'id="eta-box"' in html
     assert 'id="eta-text"' in html
-    assert "function etaSeconds(kind, s)" in html
+    assert "function etaSeconds(kind, s, now)" in html
+    # Скорость — только по успешным скачиваниям за окно в 3 минуты: повторы
+    # сбойных не считаются работой (иначе «~1 мин» при нуле скачанного).
+    assert "const ETA_WINDOW = 180;" in html
+    assert "if(dOk > 0) return d.remaining / (dOk / span);" in html
+    assert "const ETA_MIN_ELAPSED = 120;" in html
     assert "function renderEta(s)" in html
     assert "function fmtEta(sec)" in html
     assert "#eta-box{" in html
@@ -687,6 +692,29 @@ def test_eta_box_counts_down_on_home_page():
     assert "box.dataset.tip" in html
     # Остаток считает сервер: UI не выдумывает, сколько файлов ещё впереди.
     assert "session[\"remaining\"]" in (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+
+def test_pills_show_remaining_queue_and_report_is_collapsible():
+    """Плашки показывают остаток очереди, результат отчёта сворачивается."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    # Плашка видна всегда: в покое — сколько осталось докачать (файлы и объём).
+    assert "function queueLeft(db, kind)" in html
+    assert "if(!d){" in html
+    assert "⚠ ${leftText}" in html
+    # Остаток в байтах считает сервер, а не UI.
+    assert '"bytes_by_status"' in py
+    assert 'session["remaining_bytes"]' in py
+    # В журнале полного цикла видно, сколько файлов вернулось в очередь.
+    assert "сброшено в очередь" in py
+    assert "в повтор пойдут" in py
+    # Результат отправки и список отчётов сворачиваются.
+    assert 'id="diag-result-toggle"' in html
+    assert 'id="reports-toggle"' in html
+    assert "function toggleDiagResult(force)" in html
+    assert "function toggleReportsList(force)" in html
+    assert "showDiagnostics(d, true)" in html
 
 
 def test_update_download_button_is_one_shot():

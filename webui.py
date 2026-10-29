@@ -789,6 +789,10 @@ class FullCycle:
             self._update_step()
             self._log(f"⬇️ Диск: проход {p}/{self.passes} — новые и сбойные файлы…")
             before = self._db_snapshot(DB_FILE, "files", ("failed",))
+            if before["errors"]:
+                # Прозрачность: `--retry` вернёт эти файлы в очередь, и это
+                # видно в журнале, а не только по косвенным цифрам.
+                self._log(f"   Диск: сброшено в очередь: {before['errors']} сбойных файлов")
             reset_session_counters("disk")
             self._own_start("disk", "main.py",
                             ["download", "--workers", str(disk_workers),
@@ -848,6 +852,8 @@ class FullCycle:
             self._update_step()
             self._log(f"⬇️ Безлимит: проход {p}/{self.passes} — новые и пропущенные…")
             before = self._db_snapshot(UNLIM_DB_FILE, "unlim_files", ("skipped",))
+            if before["errors"]:
+                self._log(f"   Безлимит: в повтор пойдут: {before['errors']} пропущенных файлов")
             reset_session_counters("unlim")
             self._own_start("unlim", "unlim_backup.py", [
                 "--out-dir", out_dir,
@@ -1374,14 +1380,14 @@ def db_stats(db_file: Path, table: str = "files",
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0,
-                "bytes_total": 0, "bytes_done": 0, "recent": []}
+                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
         c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0,
-               "bytes_total": 0, "bytes_done": 0}
+               "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
             f"FROM {table} GROUP BY status"
@@ -1392,6 +1398,9 @@ def db_stats(db_file: Path, table: str = "files",
             out[st] = r["n"]
             out["total"] += r["n"]
             out["bytes_total"] += r["b"]
+            # Объём по каждому статусу: по нему считается остаток в гигабайтах
+            # для плашек и таймера.
+            out["bytes_by_status"][st] = r["b"]
             if st in ("downloaded", "skipped"):
                 out["bytes_done"] += r["b"]
         recent = list(c.execute(
@@ -1680,6 +1689,13 @@ def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
         retry_failed = session.pop("retry_failed")
         session["remaining"] = int(db.get("pending") or 0) + (
             session["failed"] if retry_failed else 0)
+        # Остаток в байтах — для оценки времени по объёму, а не по числу файлов
+        # (у Диска файлы разного размера, и счёт по штукам скачет в разы).
+        by_status = db.get("bytes_by_status") or {}
+        left_bytes = int(by_status.get("pending") or 0)
+        if retry_failed:
+            left_bytes += int(by_status.get(failed_key) or 0)
+        session["remaining_bytes"] = left_bytes
         out[kind] = session
     return out
 

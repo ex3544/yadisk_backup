@@ -165,6 +165,8 @@ def test_db_stats_counts(disk_db):
     assert out["downloaded"] == 1
     assert out["bytes_total"] == 100
     assert out["bytes_done"] == 40
+    # Объём по статусам — основа остатка в гигабайтах для плашек и таймера.
+    assert sum(out["bytes_by_status"].values()) == out["bytes_total"]
 
 
 def test_db_stats_missing_file(tmp_path):
@@ -807,6 +809,31 @@ def test_session_retry_mode_counts_failed_as_remaining():
     )
 
     assert sess["unlim"]["remaining"] == 10
+
+
+def test_session_remaining_bytes_for_eta():
+    """Остаток в байтах: по нему таймер считает время, а не по числу файлов."""
+    sess = _build_session(
+        tasks={"disk": {"running": True, "started_at": 100.0, "exit_code": None}},
+        disk_st={"started_at": 100.0, "updated_at": 200.0, "downloaded": 1},
+        disk_db={"pending": 4, "failed": 6,
+                 "bytes_by_status": {"pending": 1000, "failed": 5000,
+                                     "downloaded": 90000}},
+        retry={"disk": True},
+    )
+
+    assert sess["disk"]["remaining_bytes"] == 6000
+
+
+def test_session_remaining_bytes_without_retry_is_pending_only():
+    sess = _build_session(
+        tasks={"disk": {"running": True, "started_at": 100.0, "exit_code": None}},
+        disk_st={"started_at": 100.0, "updated_at": 200.0, "downloaded": 1},
+        disk_db={"pending": 4, "failed": 6,
+                 "bytes_by_status": {"pending": 1000, "failed": 5000}},
+    )
+
+    assert sess["disk"]["remaining_bytes"] == 1000
 
 
 # ── базы: общие помощники пересоздания и перепривязки ───────────────────────

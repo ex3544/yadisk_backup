@@ -361,12 +361,20 @@ def populate_db_from_cloud(
     total_added = 0
     cur = con.cursor()
     fetched_clusters = 0
+    # Кластеры, которые сервер не вернул в ответе. Раньше они оставались
+    # fetched=0 навсегда и цикл запрашивал их бесконечно: у первого тестера
+    # 29.10.2026 счётчик дошёл до 1 052 403 из 3 197 кластеров, а «сбор базы»
+    # крутился 5,5 часов. Теперь считаем попытки и после MISSING_TRIES
+    # помечаем такой кластер обработанным, чтобы не застрять.
+    missing_tries: dict[str, int] = {}
+    MISSING_TRIES = 3
 
     while True:
         rows = list(cur.execute("SELECT cluster_id, size FROM unlim_clusters WHERE fetched = 0 LIMIT ?", (batch_size,)))
         if not rows:
             break
 
+        selected = [r["cluster_id"] for r in rows]
         clusters_map = {r["cluster_id"]: {"range": [0, max(int(r["size"] or 0) - 1, 0)]} for r in rows}
         res = api_call(s, sk, uid, "intapi/photo-get-clusters-with-resources", {
             "photosliceId": psid,
@@ -374,6 +382,7 @@ def populate_db_from_cloud(
             "hideScreenshots": False,
         })
         fetched = (res.get("clusters") or {}).get("fetched") or []
+        returned = {cl.get("id") for cl in fetched}
 
         with con:
             for cl in fetched:
@@ -389,14 +398,37 @@ def populate_db_from_cloud(
                     con.execute(
                         """INSERT INTO unlim_files (file_id, cluster_id, name, size, md5, mime, status)
                            VALUES (?, ?, ?, ?, ?, ?, 'pending')
-                           ON CONFLICT(file_id) DO NOTHING""",
+                           ON CONFLICT(file_id) DO UPDATE SET
+                               size = CASE
+                                   WHEN unlim_files.size IS NULL OR unlim_files.size = 0
+                                   THEN excluded.size ELSE unlim_files.size END,
+                               md5 = COALESCE(unlim_files.md5, excluded.md5),
+                               mime = COALESCE(unlim_files.mime, excluded.mime)""",
                         (fid, cid, name, size, md5, mime),
                     )
                     total_added += 1
-                con.execute("UPDATE unlim_clusters SET fetched=1 WHERE cluster_id=?", (cid,))
+            for cid in selected:
+                if cid in returned:
+                    con.execute("UPDATE unlim_clusters SET fetched=1 WHERE cluster_id=?", (cid,))
 
-        fetched_clusters += len(rows)
-        pct = int(fetched_clusters / total_clusters * 100) if total_clusters else 0
+        for cid in selected:
+            if cid in returned:
+                missing_tries.pop(cid, None)
+            else:
+                missing_tries[cid] = missing_tries.get(cid, 0) + 1
+
+        # Кластеры, которых сервер не отдал несколько раз подряд, считаем
+        # недоступными и больше не запрашиваем.
+        dead = [cid for cid, n in missing_tries.items() if n >= MISSING_TRIES]
+        if dead:
+            with con:
+                for cid in dead:
+                    con.execute("UPDATE unlim_clusters SET fetched=1 WHERE cluster_id=?", (cid,))
+                    missing_tries.pop(cid, None)
+            print(f"  [!] Сервер не отдал {len(dead)} кластер(ов) за {MISSING_TRIES} попытки — пропущены.", flush=True)
+
+        fetched_clusters += len(selected)
+        pct = min(100, int(fetched_clusters / total_clusters * 100)) if total_clusters else 100
         print(f"  [Кластеры: {fetched_clusters}/{total_clusters} ({pct}%)] Собрано файлов в базу: {total_added:,}...", flush=True)
 
     cnt_total = con.execute("SELECT count(*) FROM unlim_files").fetchone()[0]
