@@ -41,6 +41,7 @@ import backups
 import diagnostics
 import monitor
 import paths
+import previews
 import updater
 import verify as verify_mod
 import version
@@ -101,6 +102,14 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return raw not in ("0", "false", "no", "off", "нет")
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = (os.getenv(name, "") or "").strip().replace(",", ".")
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
 def get_config() -> dict:
     """Перечитывает .env заново."""
     load_dotenv(ENV_FILE, override=True)
@@ -111,6 +120,14 @@ def get_config() -> dict:
         "disk_dir": (os.getenv("DISK_DIR", os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR))) or "").strip(),
         "max_workers": int(os.getenv("MAX_WORKERS", "4") or "4"),
         "previews": _env_flag("PREVIEWS", True),
+        # Папка превью по умолчанию — на диске C рядом с базами: превью
+        # занимают копейки, а папки выгрузки (внешние диски) меняются.
+        "previews_dir": ((os.getenv("PREVIEWS_DIR", "") or "").strip()
+                         or previews.preview_root()),
+        # Сторож места включён «из коробки» с порогом 20 ГБ; человек может
+        # выключить, и выключение запоминается.
+        "watchdog": _env_flag("WATCHDOG", True),
+        "watchdog_gb": _env_float("WATCHDOG_GB", 20.0),
         # C2: какие папки облака обходить и что брать из Безлимита.
         "scan_roots": normalize_scan_roots(os.getenv("DISK_SCAN_ROOTS", "/")),
         "unlim_media": normalize_unlim_media(os.getenv("UNLIM_MEDIA", "all"), "all"),
@@ -1310,13 +1327,16 @@ class DiskWatchdog:
     """Сторож свободного места: останавливает выгрузку при падении ниже порога."""
 
     INTERVAL = 30.0
+    # Порог по умолчанию: сторож включён «из коробки» и останавливает выгрузку,
+    # когда свободного места остаётся меньше 20 ГБ.
+    DEFAULT_THRESHOLD_GB = 20.0
 
     def __init__(self):
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._stop = False
         self.state = "idle"  # idle | watching | triggered | stopped
-        self.threshold_gb: float = 50.0
+        self.threshold_gb: float = self.DEFAULT_THRESHOLD_GB
         self.free_gb: Optional[float] = None
         self.message: str = ""
         self.started_at: Optional[float] = None
@@ -1397,18 +1417,25 @@ watchdog = DiskWatchdog()
 # ── Чтение состояния ────────────────────────────────────────────────────────
 
 
+def _storage_host(error: object) -> str:
+    """«storage_down | storage.yandex.net» → «storage.yandex.net»."""
+    if not isinstance(error, str) or "|" not in error:
+        return ""
+    return error.split("|", 1)[1].strip()
+
+
 def db_stats(db_file: Path, table: str = "files",
              id_col: str = "remote_path") -> dict:
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
-                "failed": 0, "in_progress": 0, "waiting": 0,
+                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
         c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
-               "failed": 0, "in_progress": 0,
+               "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
@@ -1427,14 +1454,28 @@ def db_stats(db_file: Path, table: str = "files",
                 out["bytes_done"] += r["b"]
         # «Ждут Яндекса»: файлы, которые не сбойные, а отложены до ответа
         # сервера хранения. Считаем отдельно от failed — иначе плашка пугает.
+        # status IN ('pending','in_progress'), иначе цифра прыгает: пока батч
+        # в работе, take_batch держит файлы в in_progress, и они «исчезают».
+        out["waiting"] = 0
+        out["waiting_host"] = ""
         try:
             row_w = c.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE status='pending' "
+                f"SELECT COUNT(*) FROM {table} "
+                f"WHERE status IN ('pending','in_progress') "
                 f"AND error LIKE 'storage_down%'"
             ).fetchone()
             out["waiting"] = int(row_w[0] if row_w else 0)
+            row_h = c.execute(
+                f"SELECT error, COUNT(*) AS n FROM {table} "
+                f"WHERE status IN ('pending','in_progress') "
+                f"AND error LIKE 'storage_down%' "
+                f"GROUP BY error ORDER BY n DESC LIMIT 1"
+            ).fetchone()
+            if row_h is not None:
+                out["waiting_host"] = _storage_host(row_h[0])
         except sqlite3.Error:
             out["waiting"] = 0
+            out["waiting_host"] = ""
         recent = list(c.execute(
             f"SELECT {id_col} AS path, status, size FROM {table} "
             f"WHERE downloaded_at IS NOT NULL "
@@ -1820,6 +1861,20 @@ def start_background_services() -> None:
         monitor.start_monitor(_monitor_snapshot)
     except Exception:  # noqa: BLE001 - мониторинг необязателен
         pass
+    # Сторож места включён по умолчанию (порог 20 ГБ). Если человек его
+    # выключил, в .env лежит WATCHDOG=0 — тогда не навязываемся.
+    try:
+        cfg = get_config()
+        if cfg.get("watchdog") and not watchdog.is_running():
+            watchdog.start(float(cfg.get("watchdog_gb") or DiskWatchdog.DEFAULT_THRESHOLD_GB))
+    except Exception:  # noqa: BLE001 - без сторожа приложение работает
+        pass
+    # Старые превью лежали внутри папки выгрузки — переносим их на диск C,
+    # иначе они пропадут при смене внешнего диска.
+    try:
+        migrate_legacy_previews()
+    except Exception:  # noqa: BLE001 - превью не должны мешать запуску
+        pass
 
 
 class StartPayload(BaseModel):
@@ -1917,19 +1972,37 @@ def api_download_all(payload: DownloadAllPayload):
 
 
 class WatchdogPayload(BaseModel):
-    threshold_gb: float = 50.0
+    threshold_gb: float = 20.0
+
+
+def _remember_watchdog(enabled: bool, threshold_gb: Optional[float] = None) -> None:
+    """Запоминает выбор человека в .env: сторож включён по умолчанию."""
+    try:
+        if not ENV_FILE.exists():
+            ENV_FILE.write_text("", encoding="utf-8")
+        set_key(str(ENV_FILE), "WATCHDOG", "1" if enabled else "0",
+                quote_mode="never")
+        if threshold_gb is not None:
+            set_key(str(ENV_FILE), "WATCHDOG_GB", f"{float(threshold_gb):g}",
+                    quote_mode="never")
+        load_dotenv(ENV_FILE, override=True)
+    except Exception:  # noqa: BLE001 — память о настройке не должна мешать
+        pass
 
 
 @app.post("/api/watchdog/start")
 def api_watchdog_start(payload: WatchdogPayload):
     log_action("/api/watchdog/start", payload)
     ok, msg = watchdog.start(payload.threshold_gb)
+    if ok:
+        _remember_watchdog(True, payload.threshold_gb)
     return {"ok": ok, "msg": msg}
 
 
 @app.post("/api/watchdog/stop")
 def api_watchdog_stop():
     ok, msg = watchdog.stop()
+    _remember_watchdog(False)
     return {"ok": ok, "msg": msg}
 
 
@@ -2095,6 +2168,126 @@ def api_set_previews(payload: PreviewsPayload):
     set_key(str(ENV_FILE), "PREVIEWS", "1" if payload.enabled else "0", quote_mode="never")
     load_dotenv(ENV_FILE, override=True)
     return {"ok": True, "previews": payload.enabled}
+
+
+class PreviewsDirPayload(BaseModel):
+    dir: str = ""
+
+
+def migrate_previews_dir(old_root: str, new_root: str) -> dict:
+    """Переносит превью в новую папку и переписывает пути в обеих базах.
+
+    Возвращает счётчики для сообщения человеку: сколько файлов перенесено и
+    сколько записей в базах поправлено. Ошибки не бросает — превью не должны
+    ломать настройку.
+    """
+    moved = 0
+    old_abs = os.path.abspath(old_root) if old_root else ""
+    new_abs = os.path.abspath(new_root) if new_root else ""
+    if not old_abs or not new_abs or old_abs == new_abs:
+        return {"moved": 0, "updated": 0}
+    if os.path.isdir(old_abs):
+        for dirpath, _dirnames, filenames in os.walk(old_abs):
+            rel = os.path.relpath(dirpath, old_abs)
+            target_dir = new_abs if rel in (".", "") else os.path.join(new_abs, rel)
+            for name in filenames:
+                src = os.path.join(dirpath, name)
+                dst = os.path.join(target_dir, name)
+                try:
+                    if os.path.exists(dst):
+                        os.remove(src)  # уже перенесён раньше
+                    else:
+                        os.makedirs(target_dir, exist_ok=True)
+                        shutil.move(src, dst)
+                    moved += 1
+                except OSError:
+                    pass
+
+    updated = 0
+    for db_file, table in ((DB_FILE, "files"), (UNLIM_DB_FILE, "unlim_files")):
+        if not Path(db_file).exists():
+            continue
+        conn = None
+        try:
+            conn = sqlite3.connect(str(db_file), timeout=30)
+            cur = conn.execute(
+                f"UPDATE {table} SET preview_path = ? || substr(preview_path, ?) "
+                f"WHERE substr(preview_path, 1, ?) = ?",
+                (new_abs, len(old_abs) + 1, len(old_abs), old_abs),
+            )
+            updated += cur.rowcount
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            if conn is not None:
+                conn.close()
+    return {"moved": moved, "updated": updated}
+
+
+def migrate_legacy_previews() -> dict:
+    """Переносит превью из старых версий: они лежали в `<папка выгрузки>/_превью`.
+
+    Без переноса они терялись при смене внешнего диска. Пустые папки-остатки
+    убираем, чтобы не путали.
+    """
+    cfg = get_config()
+    new_root = previews.preview_root()
+    total = {"moved": 0, "updated": 0}
+    bases = (cfg.get("unlim_dir"), cfg.get("disk_dir") or cfg.get("download_dir"))
+    for base in bases:
+        if not base:
+            continue
+        old = os.path.join(str(base), previews.LEGACY_PREVIEW_DIR_NAME)
+        if not os.path.isdir(old):
+            continue
+        if os.path.abspath(old) == os.path.abspath(new_root):
+            continue
+        res = migrate_previews_dir(old, new_root)
+        total["moved"] += res["moved"]
+        total["updated"] += res["updated"]
+        # Убираем только опустевшие папки — то, что не перенеслось, не трогаем.
+        try:
+            for dirpath, _dirnames, _filenames in os.walk(old, topdown=False):
+                os.rmdir(dirpath)
+        except OSError:
+            pass
+    return total
+
+
+@app.post("/api/config/previews_dir")
+def api_set_previews_dir(payload: PreviewsDirPayload):
+    """Папка превью. По умолчанию — на диске C рядом с базами."""
+    new_dir = (payload.dir or "").strip()
+    old_dir = previews.preview_root()
+    if new_dir:
+        new_dir = os.path.abspath(os.path.expanduser(new_dir))
+        try:
+            os.makedirs(new_dir, exist_ok=True)
+        except OSError as e:
+            return {"ok": False, "msg": f"Не удалось создать папку: {e}"}
+        if not os.access(new_dir, os.W_OK):
+            return {"ok": False, "msg": "В эту папку нельзя писать"}
+    else:
+        # Пустое поле — вернуть папку по умолчанию (диск C).
+        new_dir = str(paths.DATA_DIR / previews.PREVIEW_DIR_NAME)
+
+    res = migrate_previews_dir(old_dir, new_dir)
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    # Пустое значение в .env означает «папка по умолчанию».
+    set_key(str(ENV_FILE), "PREVIEWS_DIR",
+            new_dir if new_dir != str(paths.DATA_DIR / previews.PREVIEW_DIR_NAME) else "",
+            quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+    final_dir = previews.preview_root()
+    log_action("/api/config/previews_dir",
+               {"dir": final_dir, "moved": res["moved"], "updated": res["updated"]})
+    msg = f"Превью теперь в {final_dir}"
+    if res["moved"]:
+        msg += f" · перенесено файлов: {res['moved']}"
+    return {"ok": True, "msg": msg, "dir": final_dir,
+            "moved": res["moved"], "updated": res["updated"]}
 
 
 # ── Облачные папки и типы файлов (C2) ───────────────────────────────────────

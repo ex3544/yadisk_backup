@@ -780,3 +780,96 @@ def test_previews_toggle_lives_in_settings():
     assert "/api/config/previews" in html and "/api/config/previews" in py
     assert 'set_key(str(ENV_FILE), "PREVIEWS"' in py
     assert '"--no-previews"' in py
+
+
+def test_waiting_banner_is_a_compact_single_line():
+    """35.6.6: «ждут Яндекса» — одна узкая строка под шапкой, а не блок на пол-экрана."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index('id="waiting-banner"')
+    chunk = html[start:start + 1200]
+    # Подробности переехали в подсказку, в самой плашке остались цифра, сервер и кнопка.
+    assert "data-tip=" in chunk
+    assert "padding:6px 10px 6px 12px" in chunk
+    assert 'id="waiting-banner-host"' in chunk
+    assert ">Попробовать</button>" in chunk
+    assert "waitingNow > 0 ? 'flex' : 'none'" in html
+
+
+def test_retry_waiting_starts_both_lines():
+    """Отложенные есть и на Диске, и в Безлимите — запускаем обе линии, а не одну."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index("async function retryWaiting()")
+    chunk = html[start:start + 2600]
+    assert "if (unlimW > 0) targets.push" in chunk
+    assert "if (diskW > 0) targets.push" in chunk
+    assert "for (const t of targets)" in chunk
+
+
+def test_waiting_count_includes_in_progress_files():
+    """Цифра не должна прыгать: файлы батча лежат в in_progress, но всё ещё ждут."""
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert "status IN ('pending','in_progress')" in py
+    assert "def _storage_host(" in py
+    assert '"waiting_host"' in py
+
+
+def test_cards_can_be_stretched_by_height():
+    """Все перечисленные карточки тянутся по высоте без обёртки (не ломает сетку)."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for card_id in ("unlim-dir-card", "token-card", "disk-dir-card",
+                    "previews-card", "cloud-card", "launch-all-card",
+                    "launch-manual-card"):
+        assert f'id="{card_id}"' in html
+    assert "opts.inline ? el : document.createElement('div')" in html
+    assert "{axis: 'y', inline: true, key: id}" in html
+    assert ".resizable-inline{padding-bottom:22px}" in html
+    assert ".resizable-sized{overflow-y:auto;overflow-x:hidden}" in html
+
+
+def test_watchdog_is_on_by_default_with_20gb():
+    """Сторож включён «из коробки» с порогом 20 ГБ; выключение запоминается."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert 'DEFAULT_THRESHOLD_GB = 20.0' in py
+    assert '"watchdog": _env_flag("WATCHDOG", True)' in py
+    assert '_env_float("WATCHDOG_GB", 20.0)' in py
+    assert 'watchdog.start(float(' in py
+    assert '_remember_watchdog(False)' in py
+    assert '<option value="20" selected>20 ГБ</option>' in html
+
+
+def test_updates_are_checked_on_startup_with_a_centered_dialog():
+    """Автопроверка при старте: окно по центру «Обновить / Позже», без сети — молча."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "async function startupUpdateCheck()" in html
+    assert "setTimeout(startupUpdateCheck, 2500)" in html
+    start = html.index("async function startupUpdateCheck()")
+    chunk = html[start:start + 1800]
+    assert "askConfirm({" in chunk
+    assert "ok: 'Обновить'" in chunk
+    assert "cancel: 'Позже'" in chunk
+    assert "catch(e){ /* нет сети — молча */ }" in chunk
+
+
+def test_stop_button_is_available_in_the_quick_launch_card():
+    """«Скачать всё» во время работы меняется на «Остановить»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert 'id="ctrl-all-stop"' in html
+    assert "onclick=\"stopCustomDownload()\" style=\"display:none\"" in html
+    assert "if (allStopBtn) allStopBtn.style.display = 'inline-flex';" in html
+
+
+def test_previews_dir_can_be_chosen_and_defaults_to_drive_c():
+    """Папка превью настраивается, по умолчанию — рядом с базами на диске C."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    prev = (PROJECT_DIR / "previews.py").read_text(encoding="utf-8")
+
+    assert 'id="previews-dir-input"' in html
+    assert "function savePreviewsDir()" in html
+    assert "/api/config/previews_dir" in html and "/api/config/previews_dir" in py
+    assert "def migrate_previews_dir(" in py
+    assert '"PREVIEWS_DIR"' in py
+    assert "Рекомендуем оставить на диске" in html
+    assert "def preview_root()" in prev
+    assert 'os.getenv("PREVIEWS_DIR")' in prev

@@ -600,7 +600,7 @@ def save_preview_for_deferred(
     link = preview_mod.unlim_preview_url(session, sk, uid, file_id, BASE_URL)
     if not link:
         return None
-    dst = preview_mod.preview_path_for(str(out_dir), name)
+    dst = preview_mod.preview_path_for(name)
     try:
         preview_mod.save_from_link(link, dst, dead_hosts=DEAD_HOSTS)
     except Exception:  # noqa: BLE001 — превью необязательно

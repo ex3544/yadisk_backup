@@ -1,8 +1,11 @@
 """Превью отложенных фото.
 
-Если Яндекс не отдаёт оригинал (сервер хранения молчит), в папке выгрузки
-появляется уменьшенная копия снимка в `_превью/`. Человек видит, что именно
-ещё не скачалось, а не пустые места. Когда оригинал докачается, превью
+Если Яндекс не отдаёт оригинал (сервер хранения молчит), появляется
+уменьшенная копия снимка — по умолчанию в `<данные>/previews/` (на Windows это
+`%LOCALAPPDATA%\\YandexDiskBackup\\previews`, диск C). Раньше превью лежали в
+`_превью/` внутри папки выгрузки и терялись вместе со сменой диска; теперь папка
+одна на программу и задаётся настройкой `PREVIEWS_DIR`. База хранит путь превью,
+поэтому смена диска выгрузки их не трогает. Когда оригинал докачается, превью
 удаляется.
 
 Правила:
@@ -20,12 +23,15 @@ from typing import Optional
 
 import requests
 
+import paths
 from fetch import DeadHosts, fetch_to_file
 from utils import ensure_dir, sanitize_remote_path, to_long_path
 
-# Папка превью внутри папки выгрузки. Подчёркивание впереди — чтобы сортировка
-# и «разложить по датам» не путали её с настоящими папками.
-PREVIEW_DIR_NAME = "_превью"
+# Имя папки по умолчанию внутри каталога данных программы (диск C).
+PREVIEW_DIR_NAME = "previews"
+# Где превью лежали до 35.6.6 — внутри папки выгрузки. Нужно только для
+# совместимости со старыми записями в базах.
+LEGACY_PREVIEW_DIR_NAME = "_превью"
 
 PHOTO_EXTS = frozenset(
     {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".gif",
@@ -40,15 +46,28 @@ def is_photo(path: str) -> bool:
     return os.path.splitext(path or "")[1].lower() in PHOTO_EXTS
 
 
-def preview_dir(download_dir: str) -> str:
-    return os.path.join(download_dir, PREVIEW_DIR_NAME)
+def preview_root() -> str:
+    """Куда складывать превью.
+
+    Настройка `PREVIEWS_DIR` важнее всего; по умолчанию — `<данные>/previews`,
+    то есть рядом с базами на диске C. Папка одна на Диск и Безлимит: пути
+    превью хранятся в базах, поэтому смена диска выгрузки их не теряет.
+    """
+    raw = (os.getenv("PREVIEWS_DIR") or "").strip()
+    if raw:
+        return os.path.abspath(os.path.expanduser(raw))
+    return str(paths.DATA_DIR / PREVIEW_DIR_NAME)
 
 
-def preview_path_for(download_dir: str, remote_path: str) -> str:
-    """`disk:/Фото/2019/a.jpg` → `<папка>/_превью/Фото/2019/a.jpg`."""
+def preview_dir() -> str:
+    return preview_root()
+
+
+def preview_path_for(remote_path: str) -> str:
+    """`disk:/Фото/2019/a.jpg` → `<папка превью>/Фото/2019/a.jpg`."""
     rel = sanitize_remote_path(remote_path)
     stem, _ext = os.path.splitext(rel)
-    return os.path.join(download_dir, PREVIEW_DIR_NAME, stem.replace("/", os.sep) + ".jpg")
+    return os.path.join(preview_root(), stem.replace("/", os.sep) + ".jpg")
 
 
 def save_from_link(
@@ -88,7 +107,6 @@ def remove_preview(path: Optional[str]) -> bool:
 def make_disk_preview(
     client,
     remote_path: str,
-    download_dir: str,
     *,
     dead_hosts: Optional[DeadHosts] = None,
     session: Optional[requests.Session] = None,
@@ -110,7 +128,7 @@ def make_disk_preview(
             break
     if not link:
         return None
-    dst = preview_path_for(download_dir, remote_path)
+    dst = preview_path_for(remote_path)
     try:
         return save_from_link(link, dst, dead_hosts=dead_hosts, session=session)
     except Exception:  # noqa: BLE001
@@ -164,7 +182,7 @@ def unlim_preview_url(
     return None
 
 
-def sweep(state, download_dir: str) -> int:
+def sweep(state) -> int:
     """Убирает превью, чей оригинал уже скачан, и брошенные `.part`.
 
     Вызывается перед проходом: превью должно жить, только пока файл ждёт.
@@ -193,7 +211,7 @@ def sweep(state, download_dir: str) -> int:
                 pass
 
     # .part от прерванных превью старше суток
-    root = preview_dir(download_dir)
+    root = preview_root()
     try:
         cutoff = time.time() - 24 * 3600
         for dirpath, _dirnames, filenames in os.walk(root):

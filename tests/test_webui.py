@@ -976,6 +976,111 @@ def test_db_stats_counts_deferred_as_waiting(tmp_path):
 def test_db_stats_waiting_is_zero_without_db(tmp_path):
     stats = webui.db_stats(tmp_path / "missing.db", "files", "remote_path")
     assert stats["waiting"] == 0
+    assert stats["waiting_host"] == ""
+
+
+def test_db_stats_waiting_does_not_jump_while_batch_runs(tmp_path):
+    """Пока батч в работе, take_batch держит файлы в in_progress.
+
+    Раньше такие файлы выпадали из счётчика и цифра «ждут Яндекса» прыгала
+    вверх-вниз на каждом опросе /api/status.
+    """
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (remote_path TEXT, status TEXT, size INTEGER, "
+        "error TEXT, downloaded_at REAL)"
+    )
+    rows = [
+        ("disk:/a.jpg", "pending", 10, "storage_down | storage.yandex.net"),
+        ("disk:/b.jpg", "in_progress", 10, "storage_down | storage.yandex.net"),
+        ("disk:/c.jpg", "in_progress", 10, None),
+    ]
+    con.executemany("INSERT INTO files VALUES (?,?,?,?,NULL)", rows)
+    con.commit()
+    con.close()
+
+    stats = webui.db_stats(db, "files", "remote_path")
+    assert stats["waiting"] == 2
+    assert stats["waiting_host"] == "storage.yandex.net"
+
+
+def test_storage_host_parsing():
+    assert webui._storage_host("storage_down | storage.yandex.net") == "storage.yandex.net"
+    assert webui._storage_host("storage_down") == ""
+    assert webui._storage_host(None) == ""
+
+
+def test_watchdog_is_on_by_default_with_20gb(monkeypatch):
+    monkeypatch.delenv("WATCHDOG", raising=False)
+    monkeypatch.delenv("WATCHDOG_GB", raising=False)
+    cfg = webui.get_config()
+    assert cfg["watchdog"] is True
+    assert cfg["watchdog_gb"] == 20.0
+    assert webui.DiskWatchdog.DEFAULT_THRESHOLD_GB == 20.0
+
+
+def test_config_previews_dir_defaults_to_program_data(monkeypatch):
+    monkeypatch.delenv("PREVIEWS_DIR", raising=False)
+    cfg = webui.get_config()
+    assert cfg["previews_dir"] == webui.previews.preview_root()
+
+
+def test_legacy_previews_are_moved_out_of_the_download_folder(tmp_path, monkeypatch):
+    """`<папка выгрузки>/_превью` из старых версий переезжает на диск C."""
+    unlim_dir = tmp_path / "unlim"
+    legacy = unlim_dir / webui.previews.LEGACY_PREVIEW_DIR_NAME / "2019"
+    legacy.mkdir(parents=True)
+    (legacy / "a.jpg").write_bytes(b"x")
+    new_root = tmp_path / "previews"
+    monkeypatch.setenv("PREVIEWS_DIR", str(new_root))
+    monkeypatch.setattr(webui, "get_config",
+                        lambda: {"unlim_dir": str(unlim_dir), "disk_dir": "", "download_dir": ""})
+    monkeypatch.setattr(webui, "DB_FILE", tmp_path / "нет-диск.db")
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", tmp_path / "нет-безлимит.db")
+
+    res = webui.migrate_legacy_previews()
+
+    assert res["moved"] == 1
+    assert (new_root / "2019" / "a.jpg").exists()
+    # пустая папка-остаток убрана
+    assert not (unlim_dir / webui.previews.LEGACY_PREVIEW_DIR_NAME).exists()
+
+
+def test_migrate_previews_dir_moves_files_and_updates_db(tmp_path):
+    """Смена папки превью переносит файлы и правит пути в базах."""
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    preview = old_root / "Фото" / "2019" / "a.jpg"
+    preview.parent.mkdir(parents=True)
+    preview.write_bytes(b"x")
+
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (remote_path TEXT, status TEXT, size INTEGER, "
+        "error TEXT, downloaded_at REAL, preview_path TEXT)"
+    )
+    con.execute("INSERT INTO files VALUES ('disk:/a.jpg','pending',10,'storage_down',NULL,?)",
+                (str(preview),))
+    con.commit()
+    con.close()
+
+    import webui as w
+    old_file, old_unlim = w.DB_FILE, w.UNLIM_DB_FILE
+    try:
+        w.DB_FILE, w.UNLIM_DB_FILE = db, tmp_path / "нет.db"
+        res = w.migrate_previews_dir(str(old_root), str(new_root))
+    finally:
+        w.DB_FILE, w.UNLIM_DB_FILE = old_file, old_unlim
+
+    assert res["moved"] == 1
+    assert res["updated"] == 1
+    assert (new_root / "Фото" / "2019" / "a.jpg").exists()
+    con = sqlite3.connect(db)
+    path = con.execute("SELECT preview_path FROM files").fetchone()[0]
+    con.close()
+    assert path.startswith(str(new_root))
 
 
 def test_status_reports_disk_state(monkeypatch, tmp_path):

@@ -532,7 +532,7 @@ def _download_one(
                 # видел, чего не хватает. Тот же мёртвый сервер её не отдаст:
                 # пропуск мгновенный, без сети.
                 preview = preview_mod.make_disk_preview(
-                    client, job.remote_path, download_dir,
+                    client, job.remote_path,
                     dead_hosts=dead_hosts, session=http_session,
                 )
             return DownloadResult(
@@ -739,7 +739,7 @@ def download_all(
     # Превью живут, только пока файл ждёт Яндекса. Убираем те, что уже не нужны,
     # и брошенные .part от прерванных проходов.
     try:
-        swept = preview_mod.sweep(state, download_dir)
+        swept = preview_mod.sweep(state)
         if swept:
             log.info("Убрано лишних превью: %d", swept)
     except Exception:  # noqa: BLE001 — превью не должны мешать скачиванию

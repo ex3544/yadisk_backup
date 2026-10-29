@@ -483,6 +483,10 @@
     background-size:100% 100%;
   }
   .resize-corner:hover{background-color:rgba(10,132,255,.18)}
+  /* Карточки тянутся без обёртки (нельзя ломать grid/flex «Главной»):
+     место под ручку и внутренняя прокрутка, когда блок сжали. */
+  .resizable-inline{padding-bottom:22px}
+  .resizable-sized{overflow-y:auto;overflow-x:hidden}
   /* Консоль получает фокус по клику, чтобы журнал листался клавиатурой. */
   .console:focus{outline:none;border-color:var(--hairline-strong)}
   .console:focus-visible{outline:1px solid var(--hairline-strong)}
@@ -860,7 +864,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yad.backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.5</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.6</span></div>
     </div>
   </div>
   <div class="pills">
@@ -907,13 +911,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </span>
 </div>
 
-<div id="waiting-banner" style="display:none; background:rgba(255,159,10,.12); border:0.5px solid rgba(255,159,10,.45); color:var(--text); padding:16px 20px; border-radius:14px; margin-bottom:20px;">
-  <div style="font-weight:600; margin-bottom:6px;">🕓 <span id="waiting-banner-count">0</span> ждут Яндекса</div>
-  <span style="font-weight:400; font-size:14px; color:var(--text-secondary); display:block; margin-bottom:12px;">
-    Это не сбойные файлы: серверы хранения Яндекса их сейчас не отдают. Они остались
-    в очереди и докачаются сами при следующем запуске. Если хотите — попробуйте прямо сейчас.
-  </span>
-  <button class="primary" onclick="retryWaiting()">Попробовать сейчас</button>
+<div id="waiting-banner" class="tipnode tip-up" role="status"
+  data-tip="Это не сбойные файлы: серверы хранения Яндекса их сейчас не отдают. Они остались в очереди и докачаются сами при следующем запуске. Нажмите «Попробовать» — запросим прямо сейчас."
+  style="display:none; align-items:center; gap:10px; background:rgba(255,159,10,.12); border:0.5px solid rgba(255,159,10,.45); color:var(--text); padding:6px 10px 6px 12px; border-radius:10px; margin-bottom:12px; font-size:13.5px;">
+  <span style="opacity:.85">🕓</span>
+  <span><strong id="waiting-banner-count">0</strong> ждут Яндекса<span id="waiting-banner-host" style="color:var(--text-secondary)"></span></span>
+  <button class="ghost" style="padding:2px 10px; font-size:12.5px; margin-left:auto; white-space:nowrap;" onclick="retryWaiting()">Попробовать</button>
 </div>
 
 <div id="disk-offline-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
@@ -943,7 +946,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
 
     <!-- Быстрый запуск: всё сразу, без ручной настройки -->
-    <div class="card launch-card auto">
+    <div class="card launch-card auto" id="launch-all-card">
       <div class="launch-title">🚀 Быстрый запуск: скачать всё <span class="launch-badge">1 клик</span></div>
       <div class="launch-desc">
         Обычный Диск (все файлы) + Безлимит (все фото и видео) одновременно.
@@ -972,13 +975,16 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
           <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()">
             <svg class="ico"><use href="#i-play"/></svg>Скачать всё
           </button>
-          <div class="btn-hint">Диск + Безлимит сразу, без ручной настройки.</div>
+          <button id="ctrl-all-stop" class="big-btn danger" onclick="stopCustomDownload()" style="display:none">
+            <svg class="ico"><use href="#i-stop"/></svg>Остановить
+          </button>
+          <div class="btn-hint" id="ctrl-all-hint">Диск + Безлимит сразу, без ручной настройки.</div>
         </div>
       </div>
     </div>
 
     <!-- Пошаговый режим: только выбранный раздел и очередь -->
-    <div class="card launch-card manual">
+    <div class="card launch-card manual" id="launch-manual-card">
       <div class="launch-title">🧭 Пошаговый режим <span class="launch-badge">вручную</span></div>
       <div class="launch-desc">
         Скачивает только выбранный раздел по настройкам ниже. «Обновить список файлов»
@@ -1257,7 +1263,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="setup-col">
 
-  <div class="card">
+  <div class="card" id="unlim-dir-card">
     <div class="card-title">Папка для Безлимита</div>
     <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
     <label class="field-label">Путь к папке Безлимита</label>
@@ -1289,9 +1295,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
       <select id="watchdog-threshold" onchange="applyWatchdogThreshold()">
         <option value="10">10 ГБ</option>
-        <option value="20">20 ГБ</option>
+        <option value="20" selected>20 ГБ</option>
         <option value="30">30 ГБ</option>
-        <option value="50" selected>50 ГБ</option>
+        <option value="50">50 ГБ</option>
         <option value="100">100 ГБ</option>
       </select>
       <button id="watchdog-btn" class="ghost" onclick="toggleWatchdog()">Включить</button>
@@ -1299,7 +1305,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="token-card">
     <div class="card-title">OAuth-токен</div>
     <div class="card-sub">Нужен для скачивания обычного диска через официальный API.</div>
 
@@ -1349,7 +1355,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="setup-col">
 
-  <div class="card">
+  <div class="card" id="disk-dir-card">
     <div class="card-title">Папка для обычного Диска</div>
     <div class="card-sub">Куда складывать файлы и структуру основного Диска. Папка создастся автоматически.</div>
     <label class="field-label">Путь к папке Диска</label>
@@ -1377,13 +1383,28 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   <!-- Превью отложенных фото -->
   <div class="card" id="previews-card">
     <div class="watchdog-line">
-      <span class="watchdog-title tipnode" data-tip="Если Яндекс не отдаёт фото, в папке выгрузки появится уменьшенная копия (до 1280 px) в папке «_превью». Так видно, что именно ещё не скачалось. Когда оригинал докачается, превью удалится само.">🖼 Превью отложенных фото</span>
+      <span class="watchdog-title tipnode" data-tip="Если Яндекс не отдаёт фото, появится уменьшенная копия (до 1280 px). Так видно, что именно ещё не скачалось. Когда оригинал докачается, превью удалится само.">🖼 Превью отложенных фото</span>
       <button id="previews-btn" class="ghost" onclick="togglePreviews()">Включить</button>
       <span id="previews-status" class="badge">—</span>
     </div>
     <div class="card-sub" style="margin-top:8px">
       Отдельные снимки помечаются, когда серверы Яндекса их не отдают: вместо пустого
-      места в папке лежит маленькая копия, а оригинал остаётся в очереди.
+      места лежит маленькая копия, а оригинал остаётся в очереди.
+    </div>
+    <label class="field-label" for="previews-dir-input">Папка для превью</label>
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <input type="text" id="previews-dir-input" placeholder="по умолчанию — на диске C рядом с базами" style="flex:1">
+      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки превью" onclick="browseFolder('previews')" style="white-space:nowrap;padding:8px 14px">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+      <button class="primary" onclick="savePreviewsDir()">
+        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+      </button>
+    </div>
+    <div class="setup-hint">
+      Рекомендуем оставить на диске <strong>C</strong>: превью занимают копейки, а базы
+      и папки выгрузки на внешних дисках вы меняете — превью останутся на месте.
+      При смене папки уже сохранённые превью перенесутся сами.
     </div>
   </div>
 
@@ -1675,7 +1696,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div id="rebuild-status" class="setup-hint" style="margin-top:10px"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="update-card">
     <div class="card-title">Обновления</div>
     <div class="card-sub">Проверка последнего релиза и обновление прямо из программы. Установщик скачивается с GitHub, сверяется SHA-256 и запускается после закрытия приложения.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -2916,31 +2937,38 @@ async function retryWaiting(){
   const unlimW = +((((s.unlim || {}).db) || {}).waiting || 0);
   const total = diskW + unlimW;
   if (!total) return;
-  const mode = unlimW > diskW ? 'unlim' : 'disk';
+  // Запускаем обе линии, у которых есть ожидающие: раньше выбиралась только
+  // та, где отложенных больше, и вторая линия молча оставалась стоять.
+  const targets = [];
+  if (unlimW > 0) targets.push({ name: 'Безлимит', payload: {
+    mode: 'unlim', media: 'all', target: 'pending', from_end: false, workers: 10,
+    batch_size: 1000, batches: 0, timeout: 7.0, sort_after: false } });
+  if (diskW > 0) targets.push({ name: 'Диск', payload: { mode: 'disk' } });
+  const where = targets.length > 1 ? 'обе линии (Диск и Безлимит)' : targets[0].name;
   const sure = await askConfirm({
     title: 'Попробовать сейчас?',
     text: `Программа заново запросит ${total.toLocaleString('ru')} файлов, которые ждут `
       + 'ответа серверов Яндекса. Если серверы всё ещё молчат, файлы останутся '
-      + 'в очереди — ничего не потеряется.',
+      + 'в очереди — ничего не потеряется. Запустится: ' + where + '.',
     ok: 'Попробовать сейчас'
   });
   if (!sure) return;
-  const payload = mode === 'unlim'
-    ? { mode: 'unlim', media: 'all', target: 'pending', from_end: false, workers: 10,
-        batch_size: 1000, batches: 0, timeout: 7.0, sort_after: false }
-    : { mode: 'disk' };
-  try {
-    const r = await fetch('/api/download/start', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const d = await r.json();
-    if (d.ok) toast('Запущено: ' + (mode === 'unlim' ? 'Безлимит' : 'Диск'), 'ok');
-    else toast('Ошибка: ' + (d.msg || 'Не удалось запустить'), 'err');
-  } catch (e) {
-    toast('Нет связи с программой: ' + e.message, 'err');
+  const started = [];
+  for (const t of targets) {
+    try {
+      const r = await fetch('/api/download/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(t.payload)
+      });
+      const d = await r.json();
+      if (d.ok) started.push(t.name);
+      else toast('Ошибка (' + t.name + '): ' + (d.msg || 'не удалось запустить'), 'err');
+    } catch (e) {
+      toast('Нет связи с программой: ' + e.message, 'err');
+    }
   }
+  if (started.length) toast('Запущено: ' + started.join(' и '), 'ok');
   refresh();
 }
 
@@ -3172,7 +3200,7 @@ async function applyWatchdogThreshold(){
   // его на каждом круге проверки. Раньше выбор молча возвращался назад.
   const st = window._lastStatus && window._lastStatus.watchdog;
   if(!st || !st.running) return;
-  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 50;
+  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 20;
   if(Number(st.threshold_gb) === threshold) return;
   try{
     const r = await fetch('/api/watchdog/start', {
@@ -3191,7 +3219,7 @@ async function toggleWatchdog(){
   const st = window._lastStatus && window._lastStatus.watchdog;
   const running = !!(st && st.running);
   const url = running ? '/api/watchdog/stop' : '/api/watchdog/start';
-  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 50;
+  const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 20;
   try {
     const r = await fetch(url, {
       method: 'POST',
@@ -3242,6 +3270,32 @@ function renderPreviews(cfg){
     st.textContent = 'выключены';
     st.className = 'badge';
   }
+  // Папка превью приходит из /api/status. Не затираем то, что человек
+  // печатает прямо сейчас (опрос идёт каждые 1.5 сек).
+  const dirInput = document.getElementById('previews-dir-input');
+  if(dirInput && document.activeElement !== dirInput && cfg && cfg.previews_dir){
+    if(dirInput.value !== cfg.previews_dir) dirInput.value = cfg.previews_dir;
+  }
+}
+
+// Сохранить папку превью: программа перенесёт уже скачанные превью и
+// поправит пути в обоих базах.
+async function savePreviewsDir(){
+  const el = document.getElementById('previews-dir-input');
+  const dir = el ? el.value.trim() : '';
+  try {
+    const r = await fetch('/api/config/previews_dir', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dir})
+    });
+    const d = await r.json();
+    toast(d.msg || (d.ok ? 'Сохранено' : 'Не удалось сохранить'), d.ok ? 'ok' : 'err');
+    if(d.ok && el) el.value = d.dir || '';
+  } catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
 }
 
 // ── Что копировать из облака (C2): папки Диска и тип контента Безлимита ──
@@ -3733,9 +3787,20 @@ async function refresh(){
     const waitBanner = document.getElementById('waiting-banner');
     if (waitBanner) {
       const waitingNow = waitingTotal(s);
-      waitBanner.style.display = waitingNow > 0 ? 'block' : 'none';
+      waitBanner.style.display = waitingNow > 0 ? 'flex' : 'none';
       const waitCount = document.getElementById('waiting-banner-count');
       if (waitCount) waitCount.textContent = waitingNow.toLocaleString('ru');
+      // Имя молчащего сервера — чтобы было видно, чей это сбой. Если линии
+      // разные, показываем тот, у кого отложенных больше.
+      const waitHost = document.getElementById('waiting-banner-host');
+      if (waitHost) {
+        const dHost = (((s.disk || {}).db) || {}).waiting_host || '';
+        const uHost = (((s.unlim || {}).db) || {}).waiting_host || '';
+        const dN = +((((s.disk || {}).db) || {}).waiting || 0);
+        const uN = +((((s.unlim || {}).db) || {}).waiting || 0);
+        const host = uN >= dN ? (uHost || dHost) : (dHost || uHost);
+        waitHost.textContent = host ? ' · ' + host : '';
+      }
     }
 
     // Диск отключили посреди прохода — downloader его распознал (B0).
@@ -3835,6 +3900,8 @@ async function refresh(){
     const scanBtn = document.getElementById('ctrl-scan-btn');
     const stopBtn = document.getElementById('ctrl-stop-btn');
     const allBtn = document.getElementById('ctrl-all-btn');
+    const allStopBtn = document.getElementById('ctrl-all-stop');
+    const allHint = document.getElementById('ctrl-all-hint');
     const startWrap = document.getElementById('ctrl-start-wrap');
     const scanWrap = document.getElementById('ctrl-scan-wrap');
     const stopWrap = document.getElementById('ctrl-stop-wrap');
@@ -3852,10 +3919,14 @@ async function refresh(){
       if (startBtn) startBtn.style.display = 'none';
       if (scanBtn) scanBtn.style.display = 'none';
       if (allBtn) allBtn.style.display = 'none';
+      // «Стоп» в быстром запуске: пока идёт работа, та же кнопка меняется на
+      // остановку — раньше она появлялась только в пошаговом режиме.
+      if (allStopBtn) allStopBtn.style.display = 'inline-flex';
+      if (allHint) allHint.textContent = 'Прерывает скачивание. Прогресс и очередь сохраняются.';
       if (stopBtn) stopBtn.style.display = 'inline-flex';
       if (startWrap) startWrap.style.display = 'none';
       if (scanWrap) scanWrap.style.display = 'none';
-      if (allWrap) allWrap.style.display = 'none';
+      if (allWrap) allWrap.style.display = 'flex';
       if (stopWrap) stopWrap.style.display = 'flex';
       if (ps) { ps.textContent = runningSlots.length > 1 ? `идёт ${runningSlots.length} процесса` : 'идёт процесс'; ps.className = 'badge run'; }
 
@@ -3878,6 +3949,8 @@ async function refresh(){
       if (startBtn) startBtn.style.display = 'inline-flex';
       if (scanBtn) scanBtn.style.display = 'inline-flex';
       if (allBtn) allBtn.style.display = 'inline-flex';
+      if (allStopBtn) allStopBtn.style.display = 'none';
+      if (allHint) allHint.textContent = 'Диск + Безлимит сразу, без ручной настройки.';
       if (stopBtn) stopBtn.style.display = 'none';
       if (startWrap) startWrap.style.display = 'flex';
       if (scanWrap) scanWrap.style.display = 'flex';
@@ -4306,6 +4379,39 @@ async function checkUpdates(){
 }
 
 let _lastUpdate = {};
+
+// Проверка обновлений при старте программы: одно окно по центру с вопросом.
+// Если сети нет или GitHub молчит — тихо, без красных ошибок.
+let _startupUpdateChecked = false;
+async function startupUpdateCheck(){
+  if(_startupUpdateChecked) return;
+  _startupUpdateChecked = true;
+  try{
+    const r = await fetch('/api/updates/check', {cache:'no-store'});
+    const d = await r.json();
+    if(!d || !d.ok || !d.update_available) return;
+    if(!(d.installer || d.portable)) return;   // обновиться нечем — не мешаем
+    lastUpdateUrl = d.url || '';
+    const sure = await askConfirm({
+      title: `Доступна версия ${d.latest}`,
+      text: `У вас ${d.current}. Скачать обновление сейчас? Программа скачает установщик, `
+        + 'проверит его по SHA-256 и предложит перезапуститься. Настройки и скачанные '
+        + 'файлы не затрагиваются.',
+      ok: 'Обновить',
+      cancel: 'Позже'
+    });
+    if(!sure) return;
+    showPanel('setup');
+    const card = document.getElementById('update-card');
+    if(card){
+      card.scrollIntoView({block:'center'});
+      card.classList.remove('flash');
+      void card.offsetWidth;
+      card.classList.add('flash');
+    }
+    startUpdateDownload();
+  }catch(e){ /* нет сети — молча */ }
+}
 
 async function startUpdateDownload(){
   // Кнопка одноразовая: после скачивания остаётся только «Перезапустить и
@@ -5085,15 +5191,21 @@ function makeResizable(el, opts){
   el.dataset.resizable = '1';
   const key = 'ui-resize:' + (opts.key || el.id || 'block');
   const both = opts.axis === 'both';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'resizable';
-  el.parentNode.insertBefore(wrap, el);
-  wrap.appendChild(el);
+  // inline: ручка вешается на сам блок, без обёртки. Нужно для карточек:
+  // они лежат в сетках и flex-колонках, и лишний <div> ломает раскладку.
+  const wrap = opts.inline ? el : document.createElement('div');
+  if(opts.inline){
+    el.classList.add('resizable', 'resizable-inline');
+  }else{
+    wrap.className = 'resizable';
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+  }
 
   const saved = _readSize(key);
   if(saved && saved.h) el.style.height = saved.h + 'px';
   if(saved && saved.w && both) el.style.width = saved.w + 'px';
+  if(saved && saved.h) el.classList.add('resizable-sized');
 
   const grip = document.createElement('div');
   grip.className = 'resize-grip';
@@ -5141,6 +5253,7 @@ function makeResizable(el, opts){
       if(!start) return;
       start = null;
       handle.classList.remove('dragging');
+      el.classList.add('resizable-sized');
       const size = {h: el.offsetHeight};
       if(both) size.w = el.offsetWidth;
       _saveSize(key, size);
@@ -5151,6 +5264,7 @@ function makeResizable(el, opts){
       el.style.height = '';
       el.style.width = '';
       el.style.maxHeight = '';
+      el.classList.remove('resizable-sized');
       try{ localStorage.removeItem(key); }catch(e){ /* не критично */ }
     });
   }
@@ -5164,11 +5278,21 @@ makeResizable(document.getElementById('pipeline-console'), {axis: 'both'});
 makeResizable(document.getElementById('diag-output'), {axis: 'y'});
 makeResizable(document.getElementById('update-notes'), {axis: 'y'});
 
+// Карточки: тянутся только по высоте и без обёртки — они лежат в сетках и
+// flex-колонках, лишний <div> сломал бы раскладку.
+['unlim-dir-card', 'token-card', 'disk-dir-card', 'previews-card', 'cloud-card',
+ 'launch-all-card', 'launch-manual-card'].forEach(id => {
+  makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
+});
+
 initVersion();
 initSetup();
 initDiagnostics();
 refresh();
 setInterval(refresh, 1500);
+// Автопроверка обновлений при запуске: окно по центру появится, только если
+// действительно есть новая версия.
+setTimeout(startupUpdateCheck, 2500);
 </script>
 </body>
 </html>

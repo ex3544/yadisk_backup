@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import paths
 from previews import (
     PREVIEW_DIR_NAME,
     is_photo,
@@ -54,7 +55,10 @@ class _Session:
 
 
 @pytest.fixture()
-def st(tmp_path):
+def st(tmp_path, monkeypatch):
+    # sweep ищет брошенные .part в папке превью — уводим её во временный каталог,
+    # чтобы тесты не ходили в настоящие данные программы.
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path / "_превью"))
     s = State(str(tmp_path / "state.db"))
     yield s
     s.close()
@@ -67,16 +71,25 @@ def test_is_photo_by_extension():
     assert not is_photo("")
 
 
-def test_preview_path_mirrors_structure(tmp_path):
-    p = preview_path_for(str(tmp_path), "disk:/Фото/2019/a.jpg")
-    assert PREVIEW_DIR_NAME in p
+def test_preview_path_mirrors_structure(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    p = preview_path_for("disk:/Фото/2019/a.jpg")
     assert p.endswith("a.jpg")
     assert os.sep + "Фото" in p
     assert p.startswith(str(tmp_path))
 
 
-def test_preview_dir_inside_download_dir(tmp_path):
-    assert preview_dir(str(tmp_path)) == os.path.join(str(tmp_path), PREVIEW_DIR_NAME)
+def test_preview_dir_defaults_to_program_data(monkeypatch):
+    monkeypatch.delenv("PREVIEWS_DIR", raising=False)
+    default = preview_dir()
+    assert default == os.path.join(str(paths.DATA_DIR), PREVIEW_DIR_NAME)
+    # по умолчанию превью лежат рядом с базами, а не в папке выгрузки
+    assert "previews" in default
+
+
+def test_preview_dir_follows_setting(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    assert preview_dir() == str(tmp_path)
 
 
 def test_remove_preview_is_quiet_on_missing(tmp_path):
@@ -115,7 +128,7 @@ def test_sweep_removes_preview_of_downloaded_file(st, tmp_path):
 
     # mark_downloaded сам чистит preview_path, восстановим для проверки sweep.
     st.set_preview_path("disk:/a.jpg", str(preview))
-    assert sweep(st, str(tmp_path)) == 1
+    assert sweep(st) == 1
     assert not preview.exists()
     assert list(st.get_preview_paths()) == []
 
@@ -123,7 +136,7 @@ def test_sweep_removes_preview_of_downloaded_file(st, tmp_path):
 def test_sweep_forgets_missing_preview(st, tmp_path):
     st.mark_pending("disk:/a.jpg", 1, None)
     st.set_preview_path("disk:/a.jpg", str(tmp_path / "_превью" / "gone.jpg"))
-    sweep(st, str(tmp_path))
+    sweep(st)
     assert list(st.get_preview_paths()) == []
 
 
@@ -133,7 +146,7 @@ def test_sweep_keeps_preview_of_pending_file(st, tmp_path):
     preview.write_bytes(b"x")
     st.mark_pending("disk:/a.jpg", 1, None)
     st.set_preview_path("disk:/a.jpg", str(preview))
-    assert sweep(st, str(tmp_path)) == 0
+    assert sweep(st) == 0
     assert preview.exists()
 
 
