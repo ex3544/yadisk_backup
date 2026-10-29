@@ -287,3 +287,19 @@ def test_report_key_save_and_clear(temp_paths):
     diagnostics.save_report_key("")
     assert diagnostics.report_key_configured() is False
     assert not paths.REPORT_KEY_FILE.exists()
+
+
+def test_logs_info_reads_paths_at_call_time(temp_paths, monkeypatch):
+    """Пути логов берутся из `paths` при вызове, а не при импорте.
+
+    Иначе отчёт смотрел в каталог, который был актуален на момент импорта:
+    тесты в чистом окружении получали пустую секцию логов, и отчёт в CI
+    выглядел «чистым», хотя журнал лежал в другом месте.
+    """
+    fresh = temp_paths / "late-binding.log"
+    fresh.write_text("2026-10-29 | ERROR | late binding\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "BACKUP_LOG", fresh)
+
+    info = diagnostics.logs_info()
+    assert info["files"]["backup.log"]["exists"] is True
+    assert any("late binding" in e["line"] for e in info["errors"])

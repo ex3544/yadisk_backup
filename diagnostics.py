@@ -398,23 +398,30 @@ def status_info() -> dict:
     }
 
 
+# Имя файла → имя атрибута в `paths`. Именно атрибут, а не сам Path: тесты и
+# `YADISK_DATA_DIR` подменяют пути уже после импорта, и зафиксированные здесь
+# объекты указывали бы в старый каталог (из-за этого отчёт в CI был пустым).
 LOG_FILES = [
-    ("backup.log", paths.BACKUP_LOG),
-    ("unlim_backup.log", paths.UNLIM_LOG),
-    ("unlim_worker.log", paths.UNLIM_WORKER_LOG),
-    ("unlim.log", paths.UNLIM_COLLECT_LOG),
-    ("unlim_direct.log", paths.UNLIM_DIRECT_LOG),
-    ("webui_actions.log", paths.ACTION_LOG),
-    ("migrations.log", paths.MIGRATIONS_LOG),
-    ("launcher.log", paths.LAUNCHER_LOG),
-    ("launcher_output.log", paths.LAUNCHER_OUTPUT_LOG),
-    ("crash.log", paths.CRASH_LOG),
+    ("backup.log", "BACKUP_LOG"),
+    ("unlim_backup.log", "UNLIM_LOG"),
+    ("unlim_worker.log", "UNLIM_WORKER_LOG"),
+    ("unlim.log", "UNLIM_COLLECT_LOG"),
+    ("unlim_direct.log", "UNLIM_DIRECT_LOG"),
+    ("webui_actions.log", "ACTION_LOG"),
+    ("migrations.log", "MIGRATIONS_LOG"),
+    ("launcher.log", "LAUNCHER_LOG"),
+    ("launcher_output.log", "LAUNCHER_OUTPUT_LOG"),
+    ("crash.log", "CRASH_LOG"),
 ]
+
+
+def _log_paths() -> list[tuple[str, Path]]:
+    return [(name, getattr(paths, attr)) for name, attr in LOG_FILES]
 
 
 def logs_info() -> dict:
     out: dict[str, Any] = {"files": {}, "tails": {}, "errors": []}
-    for name, path in LOG_FILES:
+    for name, path in _log_paths():
         tail = read_tail(path)
         out["files"][name] = {"exists": tail["exists"], "size_mb": _mb(tail["size"]),
                               "truncated": tail["truncated"]}
@@ -995,7 +1002,7 @@ def write_report(report: dict | None = None) -> Path:
             "logs/ — последние 2 МБ каждого журнала (полные логи не входят).\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )
-        for name, path in LOG_FILES:
+        for name, path in _log_paths():
             sample = read_tail(path, max_bytes=LOG_FILE_BYTES, max_lines=20000)
             if sample["exists"] and sample["lines"]:
                 zf.writestr(f"logs/{name}", "\n".join(sample["lines"]))
