@@ -2,15 +2,22 @@
  * Приём диагностических отчётов Yandex.Disk Backup и пересылка в Telegram.
  *
  * Маршруты (все требуют заголовок X-Report-Key):
- *   GET  /health  — проверка бота и чата
- *   POST /report  — multipart/form-data, поле file (ZIP)
- *   POST /message — {"text": "..."} для теста
+ *   GET  /health    — проверка бота и чата
+ *   POST /report    — multipart/form-data, поле file (ZIP)
+ *   POST /message   — {"text": "..."} для теста
+ *   POST /heartbeat — JSON-сводка от клиента; алерты уходят в Telegram
+ *   GET  /summary   — сводка по всем установкам (нужна привязка KV)
  *
  * Секреты (wrangler secret put):
  *   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REPORT_KEY
+ *
+ * Хранилище (необязательно): KV-пространство HEARTBEATS. Без него heartbeat
+ * принимается, алерты отправляются, но /summary пустой.
  */
 
 const MAX_BYTES = 45 * 1024 * 1024; // Telegram: до 50 МБ на документ
+const MAX_HEARTBEAT_BYTES = 64 * 1024;
+const HEARTBEAT_TTL_SEC = 30 * 24 * 60 * 60;
 
 export default {
   async fetch(request, env) {
@@ -27,6 +34,12 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/message") {
         return await message(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/heartbeat") {
+        return await heartbeat(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/summary") {
+        return await summary(env);
       }
       return json({ ok: false, error: "not_found" }, 404);
     } catch (e) {
@@ -184,6 +197,109 @@ async function message(request, env) {
     );
   }
   return json({ ok: true, message_id: data.result.message_id });
+}
+
+/**
+ * Приём heartbeat. Алерты (уже отдедуплицированные на клиенте) сразу уходят
+ * в Telegram, сама сводка кладётся в KV для GET /summary.
+ */
+async function heartbeat(request, env) {
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > MAX_HEARTBEAT_BYTES) {
+    return json({ ok: false, error: "too_large" }, 413);
+  }
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ ok: false, error: "bad_json" }, 400);
+  }
+  const installId = clip(body.install_id, 64);
+  if (!/^[0-9a-f]{12,32}$/i.test(installId)) {
+    return json({ ok: false, error: "install_id_required" }, 400);
+  }
+
+  const record = {
+    install_id: installId,
+    app_version: clip(body.app_version, 32),
+    received_at: new Date().toISOString(),
+    phase: clip(body.phase, 32),
+    disk: body.disk || {},
+    unlim: body.unlim || {},
+    free_gb: body.free_gb,
+  };
+
+  let stored = false;
+  if (env.HEARTBEATS && typeof env.HEARTBEATS.put === "function") {
+    try {
+      await env.HEARTBEATS.put(`hb:${installId}`, JSON.stringify(record), {
+        expirationTtl: HEARTBEAT_TTL_SEC,
+      });
+      stored = true;
+    } catch (e) {
+      console.error("kv put failed:", e && e.message);
+    }
+  }
+
+  let sent = 0;
+  const alerts = Array.isArray(body.alerts) ? body.alerts.slice(0, 10) : [];
+  for (const alert of alerts) {
+    const text = clip(alert && alert.text, 900);
+    if (!text) continue;
+    const line = `⚠ ${record.app_version || "?"} · ${installId}\n${text}`;
+    const res = await tg(env, "sendMessage", {
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text: line.slice(0, 4096),
+    });
+    if (res.ok) sent += 1;
+  }
+
+  return json({ ok: true, stored, alerts_sent: sent });
+}
+
+/** Сводка по всем установкам за последние 30 дней. */
+async function summary(env) {
+  if (!env.HEARTBEATS || typeof env.HEARTBEATS.list !== "function") {
+    return json({ ok: false, error: "kv_not_bound" }, 501);
+  }
+  const list = await env.HEARTBEATS.list({ prefix: "hb:", limit: 1000 });
+  const installs = [];
+  const now = Date.now();
+  let active24 = 0;
+  let failed = 0;
+  let downloaded = 0;
+  for (const key of list.keys) {
+    const raw = await env.HEARTBEATS.get(key.name);
+    if (!raw) continue;
+    let item;
+    try {
+      item = JSON.parse(raw);
+    } catch (_) {
+      continue;
+    }
+    const ageSec = (now - Date.parse(item.received_at || 0)) / 1000;
+    if (ageSec < 24 * 3600) active24 += 1;
+    failed += Number((item.disk && item.disk.failed) || 0)
+      + Number((item.unlim && item.unlim.failed) || 0);
+    downloaded += Number((item.disk && item.disk.downloaded) || 0)
+      + Number((item.unlim && item.unlim.downloaded) || 0);
+    installs.push({
+      install_id: item.install_id,
+      app_version: item.app_version,
+      received_at: item.received_at,
+      phase: item.phase,
+      free_gb: item.free_gb,
+    });
+  }
+  installs.sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at));
+  return json({
+    ok: true,
+    total: installs.length,
+    active_24h: active24,
+    downloaded_files: downloaded,
+    failed_files: failed,
+    installs: installs.slice(0, 200),
+  });
 }
 
 function clip(value, max) {

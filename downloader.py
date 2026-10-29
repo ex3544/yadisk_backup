@@ -78,6 +78,68 @@ log = logging.getLogger("yadisk_backup")
 # Скип-листы для путей которые НИКОГДА не качаем
 SKIP_PATH_PREFIXES = ("disk:/Корзина", "disk:/Trash", "/Корзина", "/Trash")
 
+# ── сбор HTTP-ошибок для отчёта ─────────────────────────────────────────────
+# Без тела ответа и заголовков отчёт показывает только «HTTP 500», и понять,
+# сгорел шард или это 503 с Retry-After, невозможно.
+
+HTTP_ERRORS_MAX = 25
+_http_errors_lock = threading.Lock()
+
+
+def _http_error_details(exc: BaseException) -> Optional[dict]:
+    """Статус, полезные заголовки и начало тела ответа из исключения ya-disk."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    try:
+        status = int(getattr(response, "status_code", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if status < 400:
+        return None
+    out: dict = {"status": status}
+    headers = getattr(response, "headers", None) or {}
+    for name in ("Retry-After", "X-Request-Id", "X-Yandex-Req-Id", "Server"):
+        try:
+            value = str(headers.get(name, "") or "")
+        except Exception:  # noqa: BLE001 — заголовки бывают любыми
+            value = ""
+        if value:
+            out[name.lower()] = value[:200]
+    try:
+        out["body_head"] = str(getattr(response, "text", "") or "")[:1024]
+    except Exception:  # noqa: BLE001
+        out["body_head"] = ""
+    return out
+
+
+def record_http_error(remote_path: str, exc: BaseException) -> None:
+    """Дописывает HTTP-ошибку в общий файл. Никогда не бросает исключений."""
+    details = _http_error_details(exc)
+    if not details:
+        return
+    details["path"] = remote_path[:300]
+    details["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _http_errors_lock:
+        try:
+            current: list = []
+            if paths.HTTP_ERRORS_FILE.exists():
+                try:
+                    data = json.loads(paths.HTTP_ERRORS_FILE.read_text(encoding="utf-8"))
+                    if isinstance(data, list):
+                        current = data
+                except (OSError, ValueError):
+                    current = []
+            current.append(details)
+            tmp = paths.HTTP_ERRORS_FILE.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps(current[-HTTP_ERRORS_MAX:], ensure_ascii=False, indent=1),
+                encoding="utf-8",
+            )
+            os.replace(tmp, paths.HTTP_ERRORS_FILE)
+        except OSError:
+            pass
+
 
 # ── retry-обёртка для сетевых вызовов ───────────────────────────────────────
 
@@ -412,10 +474,12 @@ def _download_one(
     except yadisk.exceptions.TooManyRequestsError as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
+        record_http_error(job.remote_path, e)
         return DownloadResult(job, "failed", None, 0, f"429 TooManyRequests: {e}", dur)
     except yadisk.exceptions.PathNotFoundError as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
+        record_http_error(job.remote_path, e)
         return DownloadResult(job, "failed", None, 0, f"PathNotFound: {e}", dur)
     except OSError as e:
         dur = int((time.monotonic() - start) * 1000)
@@ -426,6 +490,8 @@ def _download_one(
     except Exception as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
+        # Тело и заголовки сохраняем до того, как исключение потеряется.
+        record_http_error(job.remote_path, e)
         return DownloadResult(job, "failed", None, 0, f"{type(e).__name__}: {e}", dur)
 
     bytes_written = file_size_safe(local_path) or 0

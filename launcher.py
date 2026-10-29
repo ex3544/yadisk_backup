@@ -600,6 +600,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(1) from None
 
     _setup_logging()
+    # Хук исключений и heartbeat: до старта сервера, чтобы падение запуска тоже
+    # попало в crash.log, а мониторинг заработал вместе с приложением.
+    webui.start_background_services()
     host = _env_host()
     start_port = _env_port()
     log.info(

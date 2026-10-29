@@ -43,6 +43,12 @@ def temp_paths(tmp_path, monkeypatch):
         "DISK_STATUS_FILE": logs / "disk_download_status.json",
         "UNLIM_STATUS_FILE": logs / "download_status.json",
         "COOKIES_FETCH_STATUS": logs / "cookies_fetch_status.json",
+        "HTTP_ERRORS_FILE": logs / "http_errors.json",
+        "CRASH_LOG": logs / "crash.log",
+        "MONITOR_STATE_FILE": data / ".monitor_state.json",
+        "LAUNCHER_LOG": logs / "launcher.log",
+        "LAUNCHER_OUTPUT_LOG": logs / "launcher_output.log",
+        "DOWNLOAD_REPORT": logs / "download_report.md",
     }
     for name, value in mapping.items():
         monkeypatch.setattr(paths, name, value)
@@ -118,7 +124,10 @@ def test_zip_contains_only_safe_files(temp_paths):
     with zipfile.ZipFile(target) as zf:
         names = set(zf.namelist())
         payload = "".join(zf.read(n).decode("utf-8") for n in names)
-    assert names == {"report.json", "report.txt", "README.txt"}
+    # С 35.6.0 в архив кладутся хвосты логов: report.json/… плюс logs/<файл>.log.
+    assert {"report.json", "report.txt", "README.txt"} <= names
+    extra = names - {"report.json", "report.txt", "README.txt"}
+    assert all(n.startswith("logs/") and n.endswith(".log") for n in extra)
     assert TOKEN not in payload
     assert COOKIE_VALUE not in payload
 
@@ -130,6 +139,105 @@ def test_summary_is_human_readable(temp_paths):
     assert "state.db" in summary
     assert TOKEN not in summary
     assert COOKIE_VALUE not in summary
+
+
+def _make_db(path, rows):
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE files (remote_path TEXT PRIMARY KEY, size INTEGER, "
+        "status TEXT, error TEXT, attempts INTEGER DEFAULT 0)"
+    )
+    conn.executemany(
+        "INSERT INTO files (remote_path, size, status, error) VALUES (?, ?, 'failed', ?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_failure_groups_merge_by_host_and_signature(temp_paths):
+    db = temp_paths / "failures.db"
+    # Три ошибки одного вида (разные номера запросов) и одна другого хоста.
+    _make_db(db, [
+        ("disk:/a/1.jpg", 1024, "HTTPSConnectionPool(host='downloader.disk.yandex.ru', "
+                                "port=443): Timeout, request id 8f3a1b2c4d5e6f70"),
+        ("disk:/a/2.jpg", 1024, "HTTPSConnectionPool(host='downloader.disk.yandex.ru', "
+                                "port=443): Timeout, request id 4a4a4a4a4b4b4b4b"),
+        ("disk:/a/3.jpg", 1024, "HTTPSConnectionPool(host='downloader.disk.yandex.ru', "
+                                "port=443): Timeout, request id 9999999999999999"),
+        ("disk:/a/4.jpg", 2048, "Response 502 from uploader.disk.yandex.net"),
+    ])
+    groups = diagnostics.failure_groups(db, "files", "remote_path")
+    assert groups["total"] == 4
+    top = groups["groups"][0]
+    assert top["count"] == 3
+    assert top["host"] == "downloader.disk.yandex.ru"
+    assert len(top["examples"]) == 3
+    assert top["examples"][0].startswith("disk:/a/")
+    assert groups["groups_total"] == 2
+
+
+def test_report_delta_compares_with_previous_report(temp_paths):
+    previous = {
+        "report_id": "old",
+        "statuses": {"disk_download": {"downloaded": 10, "failed": 4}},
+        "databases": {"state.db": {"status": {"pending": 7}}},
+    }
+    old_zip = paths.REPORT_DIR / "diagnostics_2026-01-01_000000.zip"
+    with zipfile.ZipFile(old_zip, "w") as zf:
+        zf.writestr("report.json", json.dumps(previous))
+
+    report = {
+        "statuses": {"disk_download": {"downloaded": 15, "failed": 1}},
+        "databases": {"state.db": {"status": {"pending": 2}}},
+    }
+    delta = diagnostics.report_delta(report)
+    assert delta["available"] is True
+    assert delta["previous_report_id"] == "old"
+    assert delta["changes"]["disk.downloaded"] == {"was": 10, "now": 15, "delta": 5}
+    assert delta["changes"]["disk.failed"] == {"was": 4, "now": 1, "delta": -3}
+    assert delta["changes"]["disk_db.pending"] == {"was": 7, "now": 2, "delta": -5}
+
+
+def test_path_access_checks_existence_and_writability(temp_paths):
+    folder = temp_paths / "out"
+    result = diagnostics.path_access(str(folder))
+    assert result["exists"] is False
+
+    folder.mkdir()
+    result = diagnostics.path_access(str(folder))
+    assert result["exists"] is True
+    assert result["is_dir"] is True
+    assert result["writable"] is True
+
+
+def test_crash_hook_writes_redacted_log(temp_paths):
+    import sys
+
+    try:
+        raise RuntimeError(f"boom {TOKEN}")
+    except RuntimeError:
+        diagnostics._handle_exception(*sys.exc_info(), "test")
+
+    text = paths.CRASH_LOG.read_text(encoding="utf-8")
+    assert "RuntimeError" in text
+    assert "boom" in text
+    assert TOKEN not in text
+    assert "test" in text
+
+
+def test_install_crash_hook_is_idempotent(monkeypatch):
+    import sys
+
+    saved = sys.excepthook
+    try:
+        diagnostics.install_crash_hook()
+        ours = sys.excepthook
+        diagnostics.install_crash_hook()
+        assert sys.excepthook is ours
+        assert ours is diagnostics._sys_excepthook
+    finally:
+        sys.excepthook = saved
 
 
 def test_send_without_key_keeps_file(temp_paths):

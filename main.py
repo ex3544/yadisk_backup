@@ -128,6 +128,9 @@ def cmd_scan(cfg: dict, args: argparse.Namespace) -> int:
     print(msg)
 
     state = State(str(DB_FILE))
+    if getattr(args, "force", False):
+        print("[!] Флаг --force: пересоздаём базу state.db заново с нуля...", flush=True)
+        state.reset()
     client = yadisk.Client(token=cfg["token"])
 
     roots = (
@@ -409,6 +412,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--roots",
         default=None,
         help="Несколько корней через запятую, напр.: /Фотокамера,/Видео,/Скриншоты",
+    )
+    p_scan.add_argument(
+        "--force",
+        action="store_true",
+        help="Пересоздать базу с нуля: все статусы скачанного теряются",
     )
     p_scan.set_defaults(func=cmd_scan)
 

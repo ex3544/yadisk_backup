@@ -2,3 +2,11 @@ name = "yadisk-backup-reports"
 main = "src/index.js"
 compatibility_date = "2026-10-26"
 workers_dev = true
+
+# Хранилище heartbeat-сводок (GET /summary). Без привязки /heartbeat работает:
+# алерты уходят в Telegram, но сводка по установкам не накапливается.
+# 1) npx wrangler kv namespace create HEARTBEATS
+# 2) вставить полученный id ниже и раскомментировать блок.
+# [[kv_namespaces]]
+# binding = "HEARTBEATS"
+# id = "<id из вывода wrangler>"

@@ -61,6 +61,7 @@ hidden_imports = [
     'db_migrations',
     'version',
     'diagnostics',
+    'monitor',
     'launcher',
     'main',
     'downloader',

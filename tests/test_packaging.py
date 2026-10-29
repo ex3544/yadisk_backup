@@ -123,8 +123,8 @@ def test_readme_offers_ready_build_before_python_source():
     )
 
 
-def test_unlim_rebuild_lives_in_diagnostics_with_warning_and_backup():
-    """Полное пересоздание базы — только в «Диагностике», с предупреждением."""
+def test_db_cards_live_in_diagnostics_with_warning_and_backup():
+    """Пересоздание, перепривязка и повторная загрузка — в «Диагностике»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     # Кнопка не на главной: ищем её внутри панели диагностики.
@@ -132,20 +132,30 @@ def test_unlim_rebuild_lives_in_diagnostics_with_warning_and_backup():
     diag_end = html.index("<!-- =============", diag_start) if "<!-- =============" in html[diag_start:] else len(html)
     diag_html = html[diag_start:diag_end]
     assert 'data-panel="launch"' not in diag_html
-    assert "Пересоздание базы Безлимита" in diag_html
+    assert "Базы данных" in diag_html
     assert 'id="rebuild-btn"' in diag_html
+    # База выбирается одна: блок общий для Диска и Безлимита.
+    assert 'id="db-scope"' in diag_html
+    assert 'value="disk"' in diag_html and 'value="unlim"' in diag_html
 
     # Последствия описаны прямо в окне.
     assert "файлы на диске" in diag_html and "не удаляются" in diag_html
     assert "будут <strong>скачаны заново</strong>" in diag_html
-    assert "копия текущей базы сохраняется автоматически" in diag_html
+    assert "копия текущей базы сохраняется рядом с ней" in diag_html
 
     # Подтверждение словом и защита от случайного нажатия.
     assert "ПЕРЕСОЗДАТЬ" in diag_html
     assert "oninput=\"updateRebuildBtn()\"" in diag_html
     assert "inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ'" in html
-    assert "/api/unlim/rebuild" in html
+    assert "/api/db/rebuild" in html
     assert "updateRebuildBtn();" in html
+
+    # Переезд на другой диск: перепривязка без скачивания и повторная загрузка.
+    assert 'id="db-new-dir"' in diag_html
+    assert "onclick=\"relocateDb()\"" in diag_html
+    assert "onclick=\"redownloadDb()\"" in diag_html
+    assert "/api/db/relocate" in html
+    assert "/api/db/redownload" in html
 
     # Счётчики в предупреждении берутся из живого статуса.
     assert "function renderRebuildCounts(s)" in html
@@ -227,15 +237,15 @@ def test_backups_and_reset_buttons_explain_themselves_without_confirm():
         assert "askConfirm" not in body, func
 
 
-def test_watchdog_is_a_compact_strip_next_to_the_token():
-    """Сторож — одна строка между «OAuth-токен» и «Папка для Безлимита»."""
+def test_watchdog_is_a_compact_strip_between_the_folders_and_token():
+    """Сторож — одна строка между «Папка для Безлимита» и «OAuth-токен»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     setup = _panel_html(html, "setup")
 
-    token_pos = setup.index("OAuth-токен")
-    watchdog_pos = setup.index('id="watchdog-card"')
     unlim_pos = setup.index("Папка для Безлимита")
-    assert token_pos < watchdog_pos < unlim_pos
+    watchdog_pos = setup.index('id="watchdog-card"')
+    token_pos = setup.index("OAuth-токен")
+    assert unlim_pos < watchdog_pos < token_pos
 
     # Компактная строка, а не карточка с абзацем описания.
     assert 'class="watchdog-line"' in setup
@@ -553,8 +563,11 @@ def test_service_pills_look_different_from_download_totals():
     assert 'class="pills-sep"' in html
     assert ".pill.service{" in html
     assert ".pill.info{" in html
-    # Сторож включён — синий, а не зелёный и не серый.
-    assert "pill.className = 'pill info';" in html
+    # Сторож включён — тот же овал без заливки и рамки: состояние показывают
+    # только точка и цвет текста, поэтому плашка не выглядит выше соседних.
+    assert "pill.className = 'pill service on';" in html
+    assert ".pill.service.on{background:transparent;border-color:transparent" in html
+    assert "pill.className = 'pill info';" not in html
 
 
 def test_watchdog_threshold_applies_without_restart():
@@ -661,9 +674,14 @@ def test_eta_box_counts_down_on_home_page():
 
     assert 'id="eta-box"' in html
     assert 'id="eta-text"' in html
-    assert "function etaFor(kind, s)" in html
+    assert "function etaSeconds(kind, s)" in html
+    assert "function renderEta(s)" in html
     assert "function fmtEta(sec)" in html
     assert "#eta-box{" in html
+    # Одна цифра на всё задание = максимум по линиям, а не сумма: линии идут
+    # параллельно. Детали по линиям — в подсказке.
+    assert "lines.reduce((a, b) => (b.sec > a.sec ? b : a))" in html
+    assert "box.dataset.tip" in html
     # Остаток считает сервер: UI не выдумывает, сколько файлов ещё впереди.
     assert "session[\"remaining\"]" in (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
 

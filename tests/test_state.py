@@ -2,7 +2,7 @@
 
 import pytest
 
-from state import State
+from state import SCHEMA, State
 
 
 @pytest.fixture()
@@ -75,3 +75,43 @@ def test_existing_remote_paths(st):
     st.mark_pending("disk:/a.jpg", 1, None)
     st.mark_pending("disk:/b.jpg", 1, None)
     assert st.get_existing_remote_paths() == {"disk:/a.jpg", "disk:/b.jpg"}
+
+
+def test_attempts_grow_on_every_failure(st):
+    st.mark_pending("disk:/a.jpg", 1, None)
+    st.mark_failed("disk:/a.jpg", "timeout")
+    st.mark_failed("disk:/a.jpg", "timeout")
+    row = next(iter(st.get_failed()))
+    assert row["attempts"] == 2
+
+
+def test_old_database_gets_attempts_column(tmp_path):
+    """База версии 1 (без attempts) должна обновиться, а не упасть."""
+    import sqlite3
+
+    import db_migrations
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    db_migrations.migrate(conn, "state.db", [(1, SCHEMA)])
+    conn.execute(
+        "INSERT INTO files (remote_path, size, status) VALUES ('disk:/a.jpg', 5, 'failed')"
+    )
+    conn.commit()
+    conn.close()
+
+    s = State(str(path))
+    try:
+        s.mark_failed("disk:/a.jpg", "again")
+        row = next(iter(s.get_failed()))
+        assert row["attempts"] == 1
+    finally:
+        s.close()
+
+
+def test_reset_recreates_schema_and_resets_version(st):
+    st.mark_pending("disk:/a.jpg", 1, "md5")
+    st.reset()
+    assert st.get_stats()["total"] == 0
+    st.mark_pending("disk:/b.jpg", 2, None)
+    assert st.get_stats()["pending"] == 1

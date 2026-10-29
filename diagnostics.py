@@ -25,6 +25,8 @@ import socket
 import sqlite3
 import ssl
 import sys
+import threading
+import traceback
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +46,9 @@ MAX_UPLOAD_BYTES = 45 * 1024 * 1024
 TAIL_BYTES = 64 * 1024
 TAIL_LINES = 80
 MAX_ERROR_LINES = 40
+# Сколько каждого журнала кладём в ZIP. Полный unlim_backup.log бывает
+# в сотни мегабайт — его не трогаем, читаем только хвост копии.
+LOG_FILE_BYTES = 2 * 1024 * 1024
 
 ERROR_RE = re.compile(
     r"(?i)(\berror\b|\bexception\b|traceback|\bcritical\b|\bfailed\b|"
@@ -278,6 +283,13 @@ def _ro_uri(path: Path) -> str:
     return f"file:{value}?mode=ro"
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        return {str(r[1]) for r in conn.execute(f'PRAGMA table_info("{table}")')}
+    except sqlite3.Error:
+        return set()
+
+
 def database_info(path: Path, status_table: str | None = None) -> dict:
     out = {"exists": path.exists(), "size_mb": _mb(_size_h(path)),
            "wal_mb": _mb(_size_h(path.with_name(path.name + "-wal"))),
@@ -313,6 +325,40 @@ def database_info(path: Path, status_table: str | None = None) -> dict:
                 out["total"] = sum(out["status"].values())
             except sqlite3.Error as e:
                 out["status_error"] = f"{type(e).__name__}: {e}"
+        # Целостность базы: повреждённый файл виден сразу, без разбора логов.
+        try:
+            out["quick_check"] = str(
+                conn.execute("PRAGMA quick_check").fetchone()[0]
+            )[:200]
+        except sqlite3.Error as e:
+            out["quick_check"] = f"ошибка: {type(e).__name__}"
+        # Дубли по имени: один и тот же файл, зарегистрированный дважды.
+        columns = _table_columns(conn, status_table) if status_table else set()
+        if "name" in columns:
+            try:
+                row = conn.execute(
+                    f'SELECT COUNT(*) AS names, COALESCE(SUM(n - 1), 0) AS extra '
+                    f'FROM (SELECT name, COUNT(*) AS n FROM "{status_table}" '
+                    f"WHERE name IS NOT NULL GROUP BY name HAVING COUNT(*) > 1)"
+                ).fetchone()
+                out["duplicates"] = {"names": row["names"], "extra": row["extra"]}
+            except sqlite3.Error:
+                pass
+        # Распределение попыток: 1 — упал один раз, 10+ — бьётся стабильно.
+        if "attempts" in columns:
+            try:
+                buckets = {"0-1": 0, "2-3": 0, "4-9": 0, "10+": 0}
+                for row in conn.execute(
+                    f'SELECT attempts AS a, COUNT(*) AS n FROM "{status_table}" '
+                    f"GROUP BY attempts"
+                ):
+                    a = int(row["a"] or 0)
+                    key = ("0-1" if a <= 1 else "2-3" if a <= 3
+                           else "4-9" if a <= 9 else "10+")
+                    buckets[key] += int(row["n"])
+                out["attempts"] = buckets
+            except sqlite3.Error:
+                pass
     except sqlite3.Error as e:
         out["error"] = f"{type(e).__name__}: {e}"
     finally:
@@ -352,20 +398,23 @@ def status_info() -> dict:
     }
 
 
+LOG_FILES = [
+    ("backup.log", paths.BACKUP_LOG),
+    ("unlim_backup.log", paths.UNLIM_LOG),
+    ("unlim_worker.log", paths.UNLIM_WORKER_LOG),
+    ("unlim.log", paths.UNLIM_COLLECT_LOG),
+    ("unlim_direct.log", paths.UNLIM_DIRECT_LOG),
+    ("webui_actions.log", paths.ACTION_LOG),
+    ("migrations.log", paths.MIGRATIONS_LOG),
+    ("launcher.log", paths.LAUNCHER_LOG),
+    ("launcher_output.log", paths.LAUNCHER_OUTPUT_LOG),
+    ("crash.log", paths.CRASH_LOG),
+]
+
+
 def logs_info() -> dict:
-    log_files = [
-        ("backup.log", paths.BACKUP_LOG),
-        ("unlim_backup.log", paths.UNLIM_LOG),
-        ("unlim_worker.log", paths.UNLIM_WORKER_LOG),
-        ("unlim.log", paths.UNLIM_COLLECT_LOG),
-        ("unlim_direct.log", paths.UNLIM_DIRECT_LOG),
-        ("webui_actions.log", paths.ACTION_LOG),
-        ("migrations.log", paths.MIGRATIONS_LOG),
-        ("launcher.log", paths.LAUNCHER_LOG),
-        ("launcher_output.log", paths.LAUNCHER_OUTPUT_LOG),
-    ]
     out: dict[str, Any] = {"files": {}, "tails": {}, "errors": []}
-    for name, path in log_files:
+    for name, path in LOG_FILES:
         tail = read_tail(path)
         out["files"][name] = {"exists": tail["exists"], "size_mb": _mb(tail["size"]),
                               "truncated": tail["truncated"]}
@@ -387,6 +436,270 @@ def logs_info() -> dict:
         if len(out["errors"]) >= MAX_ERROR_LINES:
             break
     return out
+
+
+# Адрес сервера бывает в двух видах: полный URL и `HTTPSConnectionPool(host='…')`
+# из исключений requests. Оба нужны, иначе группа сбоев остаётся без хоста.
+HOST_RE = re.compile(r"(?:https?://|host=')([^/\s\"'()<>]+)")
+FAILURE_EXAMPLES = 10
+FAILURE_GROUPS_MAX = 12
+
+
+def error_host(error: str) -> str:
+    """Домен из текста ошибки: по нему видно, какой сервер отвечал."""
+    match = HOST_RE.search(error or "")
+    if not match:
+        return ""
+    host = match.group(1).lower()
+    if "@" in host:
+        host = host.rsplit("@", 1)[-1]
+    return host.split(":")[0][:80]
+
+
+def _signature(error: str) -> str:
+    """Текст ошибки без меняющихся деталей — основа для группировки."""
+    text = redact_text(error or "").strip()
+    # Числовые хвосты (номера запросов, размеры, миллисекунды) мешают склейке.
+    text = re.sub(r"\b[0-9a-f]{16,}\b", "<id>", text)
+    text = re.sub(r"\b\d{4,}\b", "<n>", text)
+    return text[:180]
+
+
+def failure_groups(path: Path, table: str, path_col: str) -> dict:
+    """Сбои по группам: ошибка + хост, количество, размер и примеры путей."""
+    out: dict[str, Any] = {"total": 0, "groups": []}
+    if not path.exists():
+        return out
+    conn = None
+    try:
+        conn = sqlite3.connect(_ro_uri(path), uri=True, timeout=15)
+        conn.row_factory = sqlite3.Row
+        columns = _table_columns(conn, table)
+        if "error" not in columns:
+            return out
+        size_expr = "COALESCE(SUM(size),0)" if "size" in columns else "0"
+        merged: dict[tuple[str, str], dict] = {}
+        for row in conn.execute(
+            f'SELECT error, COUNT(*) AS n, {size_expr} AS b FROM "{table}" '
+            f"WHERE error IS NOT NULL AND TRIM(error) != '' "
+            f"GROUP BY error ORDER BY n DESC"
+        ):
+            error = str(row["error"] or "")
+            key = (_signature(error), error_host(error))
+            item = merged.setdefault(
+                key, {"error": key[0], "host": key[1], "count": 0,
+                      "size_mb": 0.0, "examples": [], "_raw": []}
+            )
+            # Исходные тексты нужны, чтобы выбрать примеры: сигнатура их склеила,
+            # а в базе они хранятся по-разному (номера запросов и т.п.).
+            if len(item["_raw"]) < 50:
+                item["_raw"].append(error)
+            item["count"] += int(row["n"])
+            item["size_mb"] = round(
+                item["size_mb"] + _mb(row["b"]), 2
+            )
+        ordered = sorted(merged.values(), key=lambda i: i["count"], reverse=True)
+        for item in ordered[:FAILURE_GROUPS_MAX]:
+            # Примеры берём по самому частому исходному тексту группы: они
+            # нужны, чтобы глазами увидеть, что именно не качается.
+            raws = item["_raw"]
+            try:
+                placeholders = ",".join("?" * len(raws))
+                rows = conn.execute(
+                    f'SELECT "{path_col}" AS p FROM "{table}" '
+                    f"WHERE error IN ({placeholders}) LIMIT ?",
+                    (*raws, FAILURE_EXAMPLES),
+                ).fetchall()
+                item["examples"] = [redact_text(str(r["p"])) for r in rows]
+            except sqlite3.Error:
+                pass
+            item.pop("_raw", None)
+        out["total"] = sum(item["count"] for item in ordered)
+        out["groups"] = ordered[:FAILURE_GROUPS_MAX]
+        out["groups_total"] = len(ordered)
+    except sqlite3.Error as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        if conn is not None:
+            conn.close()
+    return out
+
+
+def http_errors_info() -> dict:
+    """Последние HTTP-ошибки сервера вместе с телом и заголовками."""
+    path = paths.HTTP_ERRORS_FILE
+    if not path.exists():
+        return {"exists": False, "items": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return {"exists": True, "error": f"{type(e).__name__}: {e}", "items": []}
+    items = data if isinstance(data, list) else []
+    return {
+        "exists": True,
+        "items": [_redact_obj(item) for item in items[-20:]],
+        # Повторяющиеся статусы — быстрый ответ «это 500 на всём шарде».
+        "status_counts": _count_by(items, "status"),
+    }
+
+
+def _count_by(items: list, field: str) -> dict:
+    out: dict[str, int] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get(field) is not None:
+            key = str(item[field])
+            out[key] = out.get(key, 0) + 1
+    return out
+
+
+def volumes_info() -> list[dict]:
+    """Все тома с буквами и свободным местом.
+
+    Отключённый внешний диск видно сразу: буква есть, а места нет.
+    """
+    out: list[dict] = []
+    if os.name != "nt":
+        usage = _disk_usage("/")
+        item = {k: v for k, v in usage.items() if k != "path"}
+        item["path"] = "/"
+        out.append(item)
+        return out
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        buffer = ctypes.create_unicode_buffer(512)
+        if not kernel32.GetLogicalDriveStringsW(511, buffer):
+            return out
+        for letter in str(buffer[:]).split("\x00"):
+            if not letter:
+                continue
+            free = ctypes.c_ulonglong(0)
+            total = ctypes.c_ulonglong(0)
+            ok = kernel32.GetDiskFreeSpaceExW(
+                ctypes.c_wchar_p(letter),
+                ctypes.byref(free),
+                ctypes.byref(total),
+                None,
+            )
+            item: dict[str, Any] = {"path": letter, "ready": bool(ok)}
+            if ok:
+                item["total_gb"] = _gb(total.value)
+                item["free_gb"] = _gb(free.value)
+            out.append(item)
+    except Exception as e:  # noqa: BLE001 — отчёт не должен падать из-за томов
+        out.append({"error": f"{type(e).__name__}: {e}"})
+    return out
+
+
+def path_access(path_value: str) -> dict:
+    """Существует ли папка выгрузки и можно ли в неё писать."""
+    out: dict[str, Any] = {"path": path_value or "", "exists": False,
+                           "is_dir": False, "writable": False}
+    if not path_value:
+        return out
+    folder = Path(path_value).expanduser()
+    out["exists"] = folder.exists()
+    out["is_dir"] = folder.is_dir()
+    probe_dir = folder if out["is_dir"] else folder.parent
+    if out["exists"] and not out["is_dir"]:
+        out["error"] = "путь существует, но это не папка"
+    if not probe_dir.exists():
+        return out
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=str(probe_dir), delete=True):
+            pass
+        out["writable"] = True
+    except OSError as e:
+        out["write_error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
+def launch_failures(task_status: dict | None = None) -> list[dict]:
+    """Упавшие запуски фоновых задач: код возврата и последние строки."""
+    out: list[dict] = []
+    for slot, data in (task_status or {}).items():
+        if not isinstance(data, dict):
+            continue
+        code = data.get("exit_code")
+        if code in (None, 0):
+            continue
+        tail = [redact_text(str(x)) for x in list(data.get("log_tail") or [])]
+        out.append({
+            "slot": str(slot),
+            "exit_code": code,
+            "elapsed_sec": round(float(data.get("elapsed") or 0), 1),
+            "stderr_tail": tail[-15:],
+        })
+    return out
+
+
+def crash_info() -> dict:
+    """Необработанные исключения, записанные хуком."""
+    tail = read_tail(paths.CRASH_LOG, max_bytes=64 * 1024, max_lines=80)
+    return {"exists": tail["exists"], "size_mb": _mb(tail["size"]),
+            "lines": tail["lines"]}
+
+
+def _previous_report() -> dict | None:
+    """report.json предыдущего сохранённого отчёта (для сравнения)."""
+    try:
+        files = sorted(
+            paths.REPORT_DIR.glob("diagnostics_*.zip"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for path in files:
+        try:
+            with zipfile.ZipFile(path) as zf:
+                return json.loads(zf.read("report.json").decode("utf-8"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            continue
+    return None
+
+
+def _counters(report: dict) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for key, name in (("disk_download", "disk"), ("unlim_download", "unlim")):
+        st = (report.get("statuses") or {}).get(key) or {}
+        if not isinstance(st, dict):
+            continue
+        for field in ("downloaded", "success", "skipped", "failed", "pending"):
+            if isinstance(st.get(field), int):
+                out[f"{name}.{field}"] = st[field]
+    for key, name in (("state.db", "disk_db"), ("unlim_state.db", "unlim_db")):
+        db = (report.get("databases") or {}).get(key) or {}
+        for field, value in (db.get("status") or {}).items():
+            if isinstance(value, int):
+                out[f"{name}.{field}"] = value
+            elif isinstance(value, str):
+                try:
+                    out[f"{name}.{field}"] = int(value)
+                except ValueError:
+                    continue
+    return out
+
+
+def report_delta(report: dict) -> dict:
+    """Что изменилось с прошлого отчёта: новые сбои, докачанное, правки базы."""
+    previous = _previous_report()
+    if not previous:
+        return {"available": False}
+    now, before = _counters(report), _counters(previous)
+    changes = {}
+    for key in sorted(set(now) | set(before)):
+        was, still = before.get(key, 0), now.get(key, 0)
+        if was != still:
+            changes[key] = {"was": was, "now": still, "delta": still - was}
+    return {
+        "available": True,
+        "previous_report_id": previous.get("report_id"),
+        "previous_created_at": previous.get("created_at"),
+        "changes": changes,
+    }
 
 
 def task_info(task_status: dict | None = None,
@@ -445,12 +758,26 @@ def build_report(task_status: dict | None = None,
         "statuses": status_info(),
         "tasks": task_info(task_status, auto_status),
         "logs": logs_info(),
+        "failures": {
+            "disk": failure_groups(paths.DB_FILE, "files", "remote_path"),
+            "unlim": failure_groups(paths.UNLIM_DB_FILE, "unlim_files", "name"),
+        },
+        "http_errors": http_errors_info(),
+        "volumes": volumes_info(),
+        "launch_failures": launch_failures(task_status),
+        "crashes": crash_info(),
+    }
+    cfg = report["config"]
+    report["output_paths"] = {
+        "disk_dir": path_access(cfg.get("disk_dir", "")),
+        "unlim_dir": path_access(cfg.get("unlim_dir", "")),
     }
     report["disk_usage"] = {
         "data_dir": _disk_usage(str(paths.DATA_DIR)),
         "disk_dir": _disk_usage(report["config"].get("disk_dir", "")),
         "unlim_dir": _disk_usage(report["config"].get("unlim_dir", "")),
     }
+    report["delta"] = report_delta(report)
     return _redact_obj(report)
 
 
@@ -565,6 +892,80 @@ def render_summary(report: dict) -> str:
     else:
         lines.append("  не найдено")
 
+    lines += ["", "СБОИ ПО ГРУППАМ"]
+    any_group = False
+    for key, label in (("disk", "Диск"), ("unlim", "Безлимит")):
+        block = (report.get("failures") or {}).get(key) or {}
+        groups = block.get("groups") or []
+        lines.append(f"  {label}: всего {block.get('total', 0)}")
+        for group in groups[:6]:
+            host = group.get("host") or "—"
+            lines.append(
+                f"    {group.get('count', 0)} × {group.get('error', '?')} "
+                f"[{host}], {group.get('size_mb', 0)} МБ"
+            )
+            any_group = True
+    if not any_group:
+        lines.append("  групп сбоев нет")
+
+    http_errors = report.get("http_errors") or {}
+    if http_errors.get("items"):
+        lines += ["", "ОТВЕТЫ СЕРВЕРА (последние)"]
+        for item in http_errors["items"][-5:]:
+            headers = ", ".join(
+                f"{k}={v}" for k, v in item.items()
+                if k in ("retry-after", "x-request-id", "server")
+            )
+            lines.append(
+                f"  HTTP {item.get('status', '?')} {item.get('path', '')}"
+                + (f" — {headers}" if headers else "")
+            )
+            body = str(item.get("body_head") or "").strip().replace("\n", " ")
+            if body:
+                lines.append(f"    тело: {body[:160]}")
+
+    delta = report.get("delta") or {}
+    if delta.get("available"):
+        lines += ["", f"СРАВНЕНИЕ С ПРОШЛЫМ ОТЧЁТОМ ({delta.get('previous_created_at', '?')})"]
+        changes = delta.get("changes") or {}
+        if changes:
+            for key, item in list(changes.items())[:15]:
+                lines.append(
+                    f"  {key}: {item.get('was')} → {item.get('now')} "
+                    f"({item.get('delta'):+d})"
+                )
+        else:
+            lines.append("  без изменений")
+    else:
+        lines += ["", "СРАВНЕНИЕ С ПРОШЛЫМ ОТЧЁТОМ", "  прошлых отчётов нет"]
+
+    lines += ["", "ПАПКИ ВЫГРУЗКИ"]
+    for key, label in (("disk_dir", "Диск"), ("unlim_dir", "Безлимит")):
+        info = (report.get("output_paths") or {}).get(key) or {}
+        state = "ок" if info.get("writable") else (
+            "НЕТ ПАПКИ" if not info.get("exists") else "НЕТ ЗАПИСИ"
+        )
+        lines.append(f"  {label}: {info.get('path', '?')} — {state}")
+        if info.get("write_error"):
+            lines.append(f"    {info['write_error']}")
+
+    volumes = report.get("volumes") or []
+    if volumes:
+        lines += ["", "ТОМА"]
+        for volume in volumes[:12]:
+            if volume.get("error"):
+                lines.append(f"  ошибка: {volume['error']}")
+                continue
+            ready = "готов" if volume.get("ready", True) else "НЕ ГОТОВ"
+            free = (f"свободно {volume['free_gb']} из {volume['total_gb']} ГБ"
+                    if "free_gb" in volume else "нет данных о месте")
+            lines.append(f"  {volume.get('path', '?')}: {ready}, {free}")
+
+    crashes = (report.get("crashes") or {}).get("lines") or []
+    if crashes:
+        lines += ["", "НЕОБРАБОТАННЫЕ ИСКЛЮЧЕНИЯ"]
+        lines.extend(f"  {line}" for line in crashes[-10:])
+
     lines += [
         "",
         "Полные хвосты логов, статусы и JSON — внутри ZIP.",
@@ -591,8 +992,13 @@ def write_report(report: dict | None = None) -> Path:
             "README.txt",
             "Диагностический отчёт Yad.backup.\n"
             "report.txt — краткая сводка, report.json — полные данные.\n"
+            "logs/ — последние 2 МБ каждого журнала (полные логи не входят).\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )
+        for name, path in LOG_FILES:
+            sample = read_tail(path, max_bytes=LOG_FILE_BYTES, max_lines=20000)
+            if sample["exists"] and sample["lines"]:
+                zf.writestr(f"logs/{name}", "\n".join(sample["lines"]))
     return target
 
 
@@ -631,8 +1037,18 @@ def report_key_configured() -> bool:
     return bool(_read_report_key())
 
 
+def report_key() -> str:
+    """Ключ отправки. Никогда не логировать и не показывать пользователю."""
+    return _read_report_key()
+
+
 def _report_url() -> str:
     return (os.getenv("REPORT_URL") or DEFAULT_REPORT_URL).strip().rstrip("/")
+
+
+def report_url() -> str:
+    """Публичный адрес сервера отчётов (для мониторинга и настроек)."""
+    return _report_url()
 
 
 def send_report(path: Path | None = None,
@@ -714,6 +1130,78 @@ def latest_reports(limit: int = 10) -> list[dict]:
                                 .astimezone().isoformat(timespec="seconds"),
         })
     return items
+
+
+# ── необработанные исключения ───────────────────────────────────────────────
+
+CRASH_LOG_MAX_BYTES = 512 * 1024
+_crash_lock = threading.Lock()
+_crash_report_sent = False
+
+
+def _append_crash(kind: str, text: str) -> None:
+    """Пишет исключение в `logs/crash.log`, обрезая файл по размеру."""
+    try:
+        with _crash_lock:
+            if paths.CRASH_LOG.exists() and paths.CRASH_LOG.stat().st_size > CRASH_LOG_MAX_BYTES:
+                tail = paths.CRASH_LOG.read_bytes()[-100_000:]
+                paths.CRASH_LOG.write_bytes(tail)
+            with paths.CRASH_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(f"\n=== {_now_iso()} {kind} ===\n{text}\n")
+    except OSError:
+        pass
+
+
+def _auto_crash_report() -> None:
+    """Один раз за процесс отправляет отчёт после падения (если ключ настроен)."""
+    global _crash_report_sent
+    if not report_key_configured():
+        return
+    with _crash_lock:
+        if _crash_report_sent:
+            return
+        _crash_report_sent = True
+    try:
+        send_report()  # build_report подхватит хвост crash.log
+    except Exception:  # noqa: BLE001 - в обработчике падения падать нельзя
+        pass
+
+
+def _handle_exception(exc_type, exc, tb, kind: str) -> None:
+    if issubclass(exc_type, KeyboardInterrupt):
+        return
+    text = redact_text("".join(traceback.format_exception(exc_type, exc, tb)))
+    _append_crash(kind, text[:20000])
+    if report_key_configured():
+        # Отправляем в отдельном потоке, но ждём его: при падении главного
+        # потока процесс завершится сразу после возврата из хука.
+        worker = threading.Thread(target=_auto_crash_report,
+                                  name="crash-report", daemon=True)
+        worker.start()
+        worker.join(timeout=60)
+
+
+def install_crash_hook() -> None:
+    """Ставит хуки исключений: пишет в crash.log и шлёт автоотчёт.
+
+    Вызывается в точке входа. Идемпотентна: повторный вызов ничего не меняет.
+    """
+    if getattr(sys, "excepthook", None) is _sys_excepthook:
+        return
+    sys.excepthook = _sys_excepthook
+    threading.excepthook = _thread_excepthook
+
+
+def _sys_excepthook(exc_type, exc, tb) -> None:
+    _handle_exception(exc_type, exc, tb, "main")
+    if not issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+
+
+def _thread_excepthook(args) -> None:
+    name = getattr(args.thread, "name", "?")
+    _handle_exception(args.exc_type, args.exc_value, args.exc_traceback,
+                      f"thread {name}")
 
 
 if __name__ == "__main__":  # ручная проверка: python diagnostics.py

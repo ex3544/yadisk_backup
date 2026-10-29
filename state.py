@@ -37,6 +37,9 @@ CREATE INDEX IF NOT EXISTS idx_status ON files(status);
 # История схемы. Добавлять только в конец, не переименовывать версии.
 MIGRATIONS: list[db_migrations.Migration] = [
     (1, SCHEMA),
+    # Счётчик попыток: по нему видно, файл упал один раз или бьётся неделю.
+    # У Безлимита такая колонка была с самого начала, у Диска её не было.
+    (2, "ALTER TABLE files ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -141,12 +144,14 @@ class State:
             )
 
     def mark_failed(self, remote_path: str, error: str) -> None:
+        """Помечает файл сбойным и увеличивает счётчик попыток."""
         with self._tx() as conn:
             conn.execute(
                 """
                 UPDATE files
                    SET status = 'failed',
-                       error = ?
+                       error = ?,
+                       attempts = COALESCE(attempts, 0) + 1
                  WHERE remote_path = ?
                 """,
                 (error[:2000], remote_path),
@@ -174,7 +179,8 @@ class State:
 
     def get_failed(self) -> Iterable[sqlite3.Row]:
         return self._conn().execute(
-            "SELECT remote_path, size, md5, error FROM files WHERE status='failed'"
+            "SELECT remote_path, size, md5, error, "
+            "COALESCE(attempts, 0) AS attempts FROM files WHERE status='failed'"
         )
 
     def get_all_downloaded(self) -> Iterable[sqlite3.Row]:
@@ -203,6 +209,19 @@ class State:
             if r["status"] in ("downloaded", "skipped"):
                 stats["bytes_downloaded"] += r["bytes"] or 0
         return stats
+
+    def reset(self) -> None:
+        """Пересоздаёт схему с нуля (для `main.py scan --force`).
+
+        Сбрасывать user_version обязательно: иначе миграция считается
+        применённой, CREATE TABLE не выполняется, и следующая запись падает с
+        «no such table: files». Именно так ломался Безлимит.
+        """
+        with self._lock:
+            conn = self._conn()
+            conn.execute("DROP TABLE IF EXISTS files")
+            db_migrations.set_user_version(conn, 0)
+            db_migrations.migrate(conn, "state.db", MIGRATIONS)
 
     def get_existing_remote_paths(self) -> set[str]:
         """Все уже зарегистрированные пути — для инкрементального scan."""

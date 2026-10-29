@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 import backups
 import diagnostics
+import monitor
 import paths
 import updater
 import version
@@ -1724,7 +1725,33 @@ def api_status():
         "download_error": download_error,
         "cookies_fetch": cookies_fetch_status(),
         "last_unlim_log": get_last_unlim_log(),
+        "monitor": monitor.monitor_status(),
     }
+
+
+def _monitor_snapshot() -> dict:
+    """Урезанный статус для heartbeat: без сетевых проверок и тяжёлых списков."""
+    cfg = get_config()
+    return {
+        "config": public_config(cfg),
+        "disk": {"db": db_stats(DB_FILE, "files", "remote_path")},
+        "unlim": {"db": db_stats(UNLIM_DB_FILE, "unlim_files", "file_id")},
+        "tasks": tm.status(),
+        "full_cycle": full_cycle.status(),
+        "cookies": check_cookies(),
+    }
+
+
+def start_background_services() -> None:
+    """Хук исключений и мониторинг. Общая точка для webui.main() и launcher."""
+    try:
+        diagnostics.install_crash_hook()
+    except Exception:  # noqa: BLE001 - без хука приложение должно работать
+        pass
+    try:
+        monitor.start_monitor(_monitor_snapshot)
+    except Exception:  # noqa: BLE001 - мониторинг необязателен
+        pass
 
 
 class StartPayload(BaseModel):
@@ -2358,43 +2385,262 @@ class RebuildPayload(BaseModel):
     confirm: str = ""
 
 
-@app.post("/api/unlim/rebuild")
-def unlim_rebuild(payload: RebuildPayload):
-    """Полное пересоздание базы Безлимита (аналог --scan-only --force).
+class DbRebuildPayload(BaseModel):
+    scope: str = "unlim"
+    confirm: str = ""
 
-    Вызывается только из «Диагностики»: статусы скачанных файлов теряются,
-    поэтому перед удалением таблиц сохраняем согласованную копию базы через
-    sqlite backup API (копирование файла при WAL может дать битый снимок).
-    """
-    if payload.confirm.strip().upper() != "ПЕРЕСОЗДАТЬ":
-        return {"ok": False, "msg": "Введите слово ПЕРЕСОЗДАТЬ для подтверждения"}
+
+class DbRelocatePayload(BaseModel):
+    scope: str = ""
+    new_dir: str = ""
+
+
+class DbRedownloadPayload(BaseModel):
+    scope: str = ""
+    new_dir: str = ""
+    confirm: str = ""
+
+
+DB_TABLES = {"disk": "files", "unlim": "unlim_files"}
+DB_REBUILD_WORD = "ПЕРЕСОЗДАТЬ"
+
+
+def _db_files() -> dict[str, Path]:
+    return {"disk": DB_FILE, "unlim": UNLIM_DB_FILE}
+
+
+def _db_scope(scope: str):
+    """Путь к базе и имя таблицы по короткому имени, либо None."""
+    scope = (scope or "").strip().lower()
+    if scope not in DB_TABLES:
+        return None
+    return _db_files()[scope], DB_TABLES[scope], scope
+
+
+def _db_running(scope: str) -> bool:
+    """Занята ли база какой-нибудь живой задачей."""
     with tm._lock:
-        for slot, t in list(tm._tasks.items()):
-            if slot.startswith("unlim") and t.alive():
-                return {"ok": False, "msg": "Сначала остановите скачивание Безлимита"}
-    if not UNLIM_DB_FILE.exists():
-        return {"ok": False,
-                "msg": "Базы Безлимита ещё нет — сначала нажмите «Обновить список файлов»"}
-    backup = UNLIM_DB_FILE.with_name(
-        f"{UNLIM_DB_FILE.stem}.bak-{datetime.now():%Y%m%d-%H%M%S}{UNLIM_DB_FILE.suffix}"
+        for slot, task in tm._tasks.items():
+            if not task.alive():
+                continue
+            if scope == "disk" and slot == "disk":
+                return True
+            if scope == "unlim" and slot.startswith("unlim"):
+                return True
+    return False
+
+
+def _copy_db(db_file: Path) -> Path:
+    """Согласованная копия базы.
+
+    Копировать файл при WAL нельзя — получится битый снимок, поэтому через
+    sqlite backup API.
+    """
+    backup = db_file.with_name(
+        f"{db_file.stem}.bak-{datetime.now():%Y%m%d-%H%M%S}{db_file.suffix}"
     )
+    src = sqlite3.connect(db_file, timeout=30)
     try:
-        src = sqlite3.connect(UNLIM_DB_FILE, timeout=30)
+        dst = sqlite3.connect(backup)
         try:
-            dst = sqlite3.connect(backup)
-            try:
-                with dst:
-                    src.backup(dst)
-            finally:
-                dst.close()
+            with dst:
+                src.backup(dst)
         finally:
-            src.close()
+            dst.close()
+    finally:
+        src.close()
+    return backup
+
+
+def _scope_dir_setting(scope: str) -> str:
+    cfg = get_config()
+    if scope == "unlim":
+        return cfg.get("unlim_dir") or ""
+    return cfg.get("disk_dir") or cfg.get("download_dir") or ""
+
+
+def _write_dir_setting(scope: str, new_dir: str) -> None:
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    if scope == "disk":
+        set_key(str(ENV_FILE), "DISK_DIR", new_dir, quote_mode="never")
+        set_key(str(ENV_FILE), "DOWNLOAD_DIR", new_dir, quote_mode="never")
+    else:
+        set_key(str(ENV_FILE), "UNLIM_DIR", new_dir, quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+
+
+def _relative_under(path: str, root: str) -> Optional[str]:
+    """Путь относительно root или None, если path лежит вне root.
+
+    os.path.relpath на Windows сравнивает без учёта регистра, но возвращает
+    исходное написание — то, что нужно для local_path.
+    """
+    if not path or not root:
+        return None
+    try:
+        rel = os.path.relpath(path, root)
+    except ValueError:
+        return None
+    if rel == os.curdir:
+        return ""
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+        return None
+    return rel
+
+
+@app.post("/api/db/rebuild")
+def db_rebuild(payload: DbRebuildPayload):
+    """Пересоздание базы Диска или Безлимита одним путём.
+
+    Статусы скачанного теряются, поэтому сначала сохраняем копию. Диск
+    пересобирается `main.py scan --force`, Безлимит — `unlim_backup.py
+    --scan-only --force`.
+    """
+    resolved = _db_scope(payload.scope)
+    if not resolved:
+        return {"ok": False, "msg": "Неизвестная база: ожидается disk или unlim"}
+    db_file, _table, scope = resolved
+    if payload.confirm.strip().upper() != DB_REBUILD_WORD:
+        return {"ok": False,
+                "msg": f"Введите слово {DB_REBUILD_WORD} для подтверждения"}
+    if _db_running(scope):
+        return {"ok": False, "msg": "Сначала остановите выгрузку этой базы"}
+    if not db_file.exists():
+        return {"ok": False,
+                "msg": "Базы ещё нет — сначала нажмите «Обновить список файлов»"}
+    try:
+        backup = _copy_db(db_file)
     except sqlite3.Error as e:
         return {"ok": False, "msg": f"Не удалось сохранить копию базы: {e}"}
-    ok, msg = tm.start("unlim", "unlim_backup.py", ["--scan-only", "--force"])
+    log_action(f"db/rebuild/{scope}")
+    if scope == "disk":
+        ok, msg = tm.start("disk", "main.py", ["scan", "--force"])
+        what = "Диска"
+    else:
+        ok, msg = tm.start("unlim", "unlim_backup.py", ["--scan-only", "--force"])
+        what = "Безлимита"
     if not ok:
-        return {"ok": False, "msg": msg}
-    return {"ok": True, "msg": "База пересоздаётся", "backup": str(backup)}
+        return {"ok": False, "msg": msg, "backup": str(backup)}
+    return {"ok": True, "msg": f"База {what} пересоздаётся", "backup": str(backup)}
+
+
+@app.post("/api/unlim/rebuild")
+def unlim_rebuild(payload: RebuildPayload):
+    """Старый адрес — та же пересборка базы Безлимита."""
+    return db_rebuild(DbRebuildPayload(scope="unlim", confirm=payload.confirm))
+
+
+@app.post("/api/db/relocate")
+def db_relocate(payload: DbRelocatePayload):
+    """Перепривязывает базу к новой папке, ничего не скачивая.
+
+    Меняет префикс пути у скачанных файлов и записывает новую папку в .env.
+    Нужно, когда файлы уже перенесены (например, на новый диск): программа
+    продолжит видеть их скачанными.
+    """
+    resolved = _db_scope(payload.scope)
+    if not resolved:
+        return {"ok": False, "msg": "Неизвестная база: ожидается disk или unlim"}
+    db_file, table, scope = resolved
+    new_dir = (payload.new_dir or "").strip()
+    if not new_dir:
+        return {"ok": False, "msg": "Укажите новую папку выгрузки"}
+    if _db_running(scope):
+        return {"ok": False, "msg": "Сначала остановите выгрузку этой базы"}
+    if not db_file.exists():
+        return {"ok": False, "msg": "Базы ещё нет"}
+    old_dir = _scope_dir_setting(scope)
+    if not old_dir:
+        return {"ok": False, "msg": "В настройках не задана текущая папка выгрузки"}
+    moved = 0
+    outside = 0
+    try:
+        con = sqlite3.connect(db_file, timeout=30)
+        try:
+            rows = con.execute(
+                f"SELECT rowid, local_path FROM {table} WHERE local_path IS NOT NULL"
+            ).fetchall()
+            updates = []
+            for rowid, local_path in rows:
+                rel = _relative_under(local_path, old_dir)
+                if rel is None:
+                    outside += 1
+                    continue
+                updates.append(
+                    (os.path.join(new_dir, rel) if rel else new_dir, rowid)
+                )
+            with con:
+                con.executemany(
+                    f"UPDATE {table} SET local_path = ? WHERE rowid = ?", updates
+                )
+            moved = len(updates)
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Ошибка базы: {e}"}
+    _write_dir_setting(scope, new_dir)
+    log_action(f"db/relocate/{scope}")
+    return {
+        "ok": True,
+        "moved": moved,
+        "outside": outside,
+        "msg": f"Перепривязано {moved} файлов; вне прежней папки — {outside}",
+    }
+
+
+@app.post("/api/db/redownload")
+def db_redownload(payload: DbRedownloadPayload):
+    """Скачать всё заново в новую папку: копия базы → статусы в pending."""
+    resolved = _db_scope(payload.scope)
+    if not resolved:
+        return {"ok": False, "msg": "Неизвестная база: ожидается disk или unlim"}
+    db_file, table, scope = resolved
+    if payload.confirm.strip().upper() != DB_REBUILD_WORD:
+        return {"ok": False,
+                "msg": f"Введите слово {DB_REBUILD_WORD} для подтверждения"}
+    new_dir = (payload.new_dir or "").strip()
+    if not new_dir:
+        return {"ok": False, "msg": "Укажите новую папку выгрузки"}
+    if _db_running(scope):
+        return {"ok": False, "msg": "Сначала остановите выгрузку этой базы"}
+    if not db_file.exists():
+        return {"ok": False, "msg": "Базы ещё нет"}
+    try:
+        backup = _copy_db(db_file)
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {e}"}
+    # У Диска есть downloaded_at, у Безлимита — attempts; обнуляем своё.
+    extra = "downloaded_at = NULL" if scope == "disk" else "attempts = 0"
+    try:
+        con = sqlite3.connect(db_file, timeout=30)
+        try:
+            with con:
+                con.execute(
+                    f"UPDATE {table} SET status = 'pending', local_path = NULL, "
+                    f"error = NULL, {extra}"
+                )
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Ошибка базы: {e}", "backup": str(backup)}
+    _write_dir_setting(scope, new_dir)
+    log_action(f"db/redownload/{scope}")
+    reset_session_counters(scope)
+    if scope == "disk":
+        ok, msg = tm.start("disk", "main.py",
+                           ["download", "--workers", str(auto_workers())])
+    else:
+        _session_retry["unlim"] = True
+        ok, msg = tm.start(
+            "unlim", "unlim_backup.py",
+            ["--target", "all", "--media", "all",
+             "--workers", str(auto_workers())],
+        )
+    if not ok:
+        return {"ok": False, "msg": msg, "backup": str(backup)}
+    return {"ok": True, "msg": "Скачивание начато в новую папку",
+            "backup": str(backup)}
 
 
 # Резервные копии баз (только статусы, сами файлы не копируются)
@@ -2608,6 +2854,7 @@ class SetupPayload(BaseModel):
     disk_dir: str = ""
     unlim_dir: str = ""
     report_key: str = ""
+    cookies: str = ""   # JSON-массив от Cookie-Editor, необязательно
 
 
 def _setup_status() -> dict:
@@ -2661,10 +2908,31 @@ def api_setup_status():
 
 @app.post("/api/setup")
 def api_setup(payload: SetupPayload):
-    """Завершает первичную настройку: токен, папки, ключ отчётов."""
+    """Завершает первичную настройку: токен, папки, куки, ключ отчётов."""
     # Пароль/ключ не журналируем: в лог попадает только сам факт настройки.
     log_action("setup/finish")
     token = (payload.token or "").strip()
+    cookies_saved = 0
+    raw_cookies = (payload.cookies or "").strip()
+    if raw_cookies:
+        try:
+            arr = json.loads(raw_cookies)
+        except ValueError:
+            return JSONResponse(
+                {"ok": False,
+                 "error": "Куки: это не JSON. Скопируйте массив целиком, "
+                          "как его отдаёт Export → Export as JSON."},
+                status_code=400,
+            )
+        check = _validate_cookies(arr)
+        if not check.get("ok"):
+            return JSONResponse({"ok": False, "error": check.get("msg")},
+                                status_code=400)
+        tmp = COOKIES_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(arr, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, COOKIES_FILE)
+        cookies_saved = len(arr)
     token_check = None
     if token:
         token_check = check_token(token)
@@ -2688,6 +2956,7 @@ def api_setup(payload: SetupPayload):
     return {
         "ok": True,
         "token_check": token_check,
+        "cookies_saved": cookies_saved,
         "disk_dir": disk_dir,
         "unlim_dir": unlim_dir,
         "status": _setup_status(),
@@ -2960,6 +3229,8 @@ def main():
     print("  * Раздел фото (безлимит): https://disk.yandex.ru/client/photo")
     print("=" * 64)
     print()
+    start_background_services()
+
     print("  Сервер запускается, браузер откроется автоматически.")
     print("  Чтобы остановить — закройте это окно или нажмите Ctrl+C.")
     print()

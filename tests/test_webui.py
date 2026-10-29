@@ -782,3 +782,71 @@ def test_session_retry_mode_counts_failed_as_remaining():
     )
 
     assert sess["unlim"]["remaining"] == 10
+
+
+# ── базы: общие помощники пересоздания и перепривязки ───────────────────────
+
+
+def test_db_scope_accepts_only_known_names(monkeypatch, tmp_path):
+    monkeypatch.setattr(webui, "DB_FILE", tmp_path / "state.db")
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", tmp_path / "unlim_state.db")
+
+    disk = webui._db_scope("disk")
+    assert disk == (tmp_path / "state.db", "files", "disk")
+    unlim = webui._db_scope(" Unlim ")
+    assert unlim == (tmp_path / "unlim_state.db", "unlim_files", "unlim")
+    assert webui._db_scope("photos") is None
+    assert webui._db_scope("") is None
+
+
+def test_copy_db_makes_consistent_snapshot(tmp_path):
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE files (remote_path TEXT)")
+    con.execute("INSERT INTO files VALUES ('disk:/a.jpg')")
+    con.commit()
+    con.close()
+
+    backup = webui._copy_db(db)
+    assert backup != db
+    assert backup.name.startswith("state.bak-")
+    copy = sqlite3.connect(backup)
+    try:
+        assert copy.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 1
+    finally:
+        copy.close()
+
+
+def test_relative_under_accepts_paths_inside_root(tmp_path):
+    root = tmp_path / "out"
+    inside = root / "a" / "b.jpg"
+    assert webui._relative_under(str(inside), str(root)) == str(
+        Path("a") / "b.jpg")
+    assert webui._relative_under(str(root), str(root)) == ""
+    assert webui._relative_under(str(tmp_path / "other" / "c.jpg"), str(root)) is None
+    assert webui._relative_under("", str(root)) is None
+
+
+def test_write_dir_setting_updates_env_for_both_scopes(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("YA_DISK_TOKEN=secret\n", encoding="utf-8")
+    monkeypatch.setattr(webui, "ENV_FILE", env)
+    # load_dotenv пишет в os.environ мимо monkeypatch — возвращаем как было.
+    saved = {k: os.environ.get(k) for k in
+             ("DISK_DIR", "DOWNLOAD_DIR", "UNLIM_DIR")}
+    try:
+        new_disk = str(tmp_path / "NewDisk")
+        webui._write_dir_setting("disk", new_disk)
+        text = env.read_text(encoding="utf-8")
+        assert f"DISK_DIR={new_disk}" in text
+        assert f"DOWNLOAD_DIR={new_disk}" in text
+
+        new_unlim = str(tmp_path / "NewUnlim")
+        webui._write_dir_setting("unlim", new_unlim)
+        assert f"UNLIM_DIR={new_unlim}" in env.read_text(encoding="utf-8")
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

@@ -104,6 +104,14 @@ MIGRATIONS_LOG = LOG_DIR / "migrations.log"
 LAUNCHER_LOG = LOG_DIR / "launcher.log"
 LAUNCHER_OUTPUT_LOG = LOG_DIR / "launcher_output.log"
 DOWNLOAD_REPORT = LOG_DIR / "download_report.md"
+# Последние HTTP-ошибки сервера: статус, заголовки и начало тела ответа.
+# Пишется воркерами выгрузки, читается диагностическим отчётом.
+HTTP_ERRORS_FILE = LOG_DIR / "http_errors.json"
+# Состояние мониторинга (heartbeat и что уже отправлено), чтобы дедуп алертов
+# переживал перезапуск программы.
+MONITOR_STATE_FILE = DATA_DIR / ".monitor_state.json"
+# Необработанные исключения — краткая запись для отчёта.
+CRASH_LOG = LOG_DIR / "crash.log"
 
 # ── Папки для скачанных файлов по умолчанию ─────────────────────────────────
 

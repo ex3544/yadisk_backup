@@ -89,6 +89,11 @@
   .pill.service{background:rgba(255,255,255,.035);color:var(--text-secondary)}
   .pill.service.ok{color:var(--text-secondary)}
   .pill.service.err{color:var(--red)}
+  /* Сторож включён: тот же овал, без заливки и рамки — состояние показывают
+     только точка и цвет текста. Раньше здесь был `pill info` с синей заливкой
+     и рамкой, из-за чего плашка выглядела квадратнее и выше соседних. */
+  .pill.service.on{background:transparent;border-color:transparent;color:var(--green)}
+  .pill.service.on .dot{background:var(--green);box-shadow:0 0 8px rgba(48,209,88,.55)}
   .pills-sep{width:1px;height:22px;align-self:center;background:var(--hairline-strong)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
@@ -130,8 +135,10 @@
      важнее «help» из правила выше — иначе непонятно, что по плашке можно кликать. */
   .pill.clickable,.active-tasks.clickable{cursor:pointer}
   .pill.clickable:hover,.active-tasks.clickable:hover{background:rgba(255,255,255,.1)}
+  /* Фокус рисуем внутренней тенью: внешний outline с отступом делал плашку
+     визуально выше и «квадратнее», хотя геометрия не менялась. */
   .pill.clickable:focus-visible,.active-tasks.clickable:focus-visible{
-    outline:2px solid var(--accent);outline-offset:2px;
+    outline:none;box-shadow:inset 0 0 0 2px rgba(10,132,255,.65);
   }
   /* Подсветка карточки, к которой перешли по плашке */
   .flash{animation:flashCard 1.8s ease-out}
@@ -407,11 +414,37 @@
     border-radius:10px;padding:14px;
     font-family:'SF Mono','Menlo','Consolas',monospace;
     font-size:12px;color:#e5e5e7;
-    height:320px;min-height:140px;max-height:70vh;resize:vertical;
+    height:320px;min-height:140px;max-height:70vh;
     overflow-y:auto;white-space:pre-wrap;word-break:break-word;
   }
   .console::-webkit-scrollbar{width:6px}
   .console::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:3px}
+
+  /* ── Изменение размера блоков ──
+     Своя ручка на всю нижнюю грань вместо браузерного уголка: по ней видно,
+     что блок тянется, а курсор ↕ подсказывает направление. Уголок справа
+     снизу меняет ещё и ширину (только там, где это не ломает сетку). */
+  .resizable{position:relative}
+  .resize-grip{
+    position:absolute;left:0;right:0;bottom:0;height:13px;z-index:3;
+    display:flex;align-items:center;justify-content:center;
+    cursor:ns-resize;user-select:none;touch-action:none;
+    color:var(--text-tertiary);font-size:11px;letter-spacing:3px;line-height:1;
+    border-radius:0 0 9px 9px;
+    background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.05));
+  }
+  .resize-grip:hover{color:var(--accent);background:rgba(10,132,255,.12)}
+  .resize-grip.dragging{color:var(--accent);background:rgba(10,132,255,.20)}
+  .resize-corner{
+    position:absolute;right:1px;bottom:1px;width:15px;height:15px;z-index:4;
+    cursor:nwse-resize;touch-action:none;border-radius:0 0 9px 0;
+    background:
+      linear-gradient(135deg,transparent 52%,var(--text-tertiary) 52% 58%,transparent 58%) no-repeat,
+      linear-gradient(135deg,transparent 70%,var(--text-tertiary) 70% 76%,transparent 76%) no-repeat,
+      linear-gradient(135deg,transparent 88%,var(--text-tertiary) 88% 94%,transparent 94%) no-repeat;
+    background-size:100% 100%;
+  }
+  .resize-corner:hover{background-color:rgba(10,132,255,.18)}
   /* Консоль получает фокус по клику, чтобы журнал листался клавиатурой. */
   .console:focus{outline:none;border-color:var(--hairline-strong)}
   .console:focus-visible{outline:1px solid var(--hairline-strong)}
@@ -443,9 +476,29 @@
   }
   .info strong{color:var(--text);font-weight:600}
 
-  /* Сворачиваемые инструкции */
-  details.info summary{font-weight:600;color:var(--text);cursor:pointer;list-style:none;font-size:13.5px}
+  /* Сворачиваемые инструкции. Шеврон и подпись «развернуть/свернуть» нужны,
+     чтобы было видно: строка кликабельна и за ней спрятана инструкция. */
+  details.info{
+    background:rgba(10,132,255,.10);border:0.5px solid rgba(10,132,255,.35);
+    transition:border-color .15s,background .15s;
+  }
+  details.info:hover{border-color:rgba(10,132,255,.6);background:rgba(10,132,255,.14)}
+  details.info summary{
+    display:flex;align-items:center;gap:8px;
+    font-weight:600;color:var(--text);cursor:pointer;list-style:none;font-size:13.5px;
+  }
   details.info summary::-webkit-details-marker{display:none}
+  details.info summary::before{
+    content:'▸';flex:0 0 auto;color:var(--accent);
+    font-size:12px;transition:transform .15s;
+  }
+  details.info[open] summary::before{content:'▾'}
+  details.info .info-hint{
+    margin-left:auto;font-size:11.5px;font-weight:400;color:var(--text-tertiary);
+    white-space:nowrap;
+  }
+  details.info:not([open]) .info-hint::after{content:'развернуть'}
+  details.info[open] .info-hint::after{content:'свернуть'}
   details.info[open] summary{margin-bottom:6px}
 
   /* ── Status badge ── */
@@ -984,7 +1037,7 @@
     <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
     <div id="eta-box">
       ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
-      <span class="eta-note">оценка по текущей скорости</span>
+      <span class="eta-note">всего по заданию · оценка</span>
     </div>
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
@@ -1131,11 +1184,44 @@
   <div class="setup-col">
 
   <div class="card">
+    <div class="card-title">Папка для Безлимита</div>
+    <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
+    <label class="field-label">Путь к папке Безлимита</label>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="text" id="unlim-dir-input" placeholder="например: /media/vb/backup Ya1/Unlim" style="flex:1">
+      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick="saveUnlimDir()">
+        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+      </button>
+    </div>
+  </div>
+
+  <!-- Сторож — компактной строкой между папкой Безлимита и токеном -->
+  <div class="card" id="watchdog-card">
+    <div class="watchdog-line">
+      <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
+      <select id="watchdog-threshold" onchange="applyWatchdogThreshold()">
+        <option value="10">10 ГБ</option>
+        <option value="20">20 ГБ</option>
+        <option value="30">30 ГБ</option>
+        <option value="50" selected>50 ГБ</option>
+        <option value="100">100 ГБ</option>
+      </select>
+      <button id="watchdog-btn" class="ghost" onclick="toggleWatchdog()">Включить</button>
+      <span id="watchdog-status" class="badge">—</span>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-title">OAuth-токен</div>
     <div class="card-sub">Нужен для скачивания обычного диска через официальный API.</div>
 
-    <details class="info">
-      <summary>Где взять OAuth-токен (1 минута)</summary>
+    <details class="info" id="token-details">
+      <summary>Где взять OAuth-токен (1 минута)<span class="info-hint"></span></summary>
       <ol>
         <li>Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
         <li>Войдите в свой аккаунт Яндекса</li>
@@ -1176,39 +1262,6 @@
     </div>
   </div>
 
-  <!-- Сторож — компактной строкой между токеном и папкой Безлимита -->
-  <div class="card" id="watchdog-card">
-    <div class="watchdog-line">
-      <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
-      <select id="watchdog-threshold" onchange="applyWatchdogThreshold()">
-        <option value="10">10 ГБ</option>
-        <option value="20">20 ГБ</option>
-        <option value="30">30 ГБ</option>
-        <option value="50" selected>50 ГБ</option>
-        <option value="100">100 ГБ</option>
-      </select>
-      <button id="watchdog-btn" class="ghost" onclick="toggleWatchdog()">Включить</button>
-      <span id="watchdog-status" class="badge">—</span>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Папка для Безлимита</div>
-    <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
-    <label class="field-label">Путь к папке Безлимита</label>
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <input type="text" id="unlim-dir-input" placeholder="например: /media/vb/backup Ya1/Unlim" style="flex:1">
-      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
-      </button>
-    </div>
-    <div class="actions">
-      <button class="primary" onclick="saveUnlimDir()">
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
-    </div>
-  </div>
-
   </div><!-- /setup-col -->
 
   <div class="setup-col">
@@ -1234,8 +1287,8 @@
     <div class="card-title">Cookies браузера</div>
     <div class="card-sub">Опционально — для скачивания безлимитного фото-хранилища.</div>
 
-    <details class="info">
-      <summary>Что это и как получить куки</summary>
+    <details class="info" id="cookies-details">
+      <summary>Что это и как получить куки<span class="info-hint"></span></summary>
       <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
       <ol>
         <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
@@ -1355,35 +1408,66 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-title">Пересоздание базы Безлимита</div>
-    <div class="card-sub">Крайняя мера. Нужна, только если база повреждена и «Обновить список файлов» не помогает.</div>
+  <div class="card" id="db-card">
+    <div class="card-title">Базы данных</div>
+    <div class="card-sub">Пересоздание и переезд на другую папку. Всё применяется к выбранной базе.</div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <label class="field-label" style="margin:0" for="db-scope">База:</label>
+      <select id="db-scope" onchange="renderDbScope()">
+        <option value="disk">Обычный Диск</option>
+        <option value="unlim">Безлимит</option>
+      </select>
+      <span class="muted" id="db-scope-info">—</span>
+    </div>
 
     <div class="diag-note" style="background:rgba(255,69,58,.07);border-color:rgba(255,69,58,.35)">
-      ⚠️ База удаляется и собирается из облака заново. <strong>Последствия:</strong>
+      ⚠️ Пересоздание удаляет базу и собирает её из облака заново. <strong>Последствия:</strong>
       <br>
-      • <span id="rebuild-downloaded">—</span> скачанных и <span id="rebuild-skipped">—</span> пропущенных
-      файлов снова станут «в очереди» — их статусы и история ошибок пропадут;
+      • <span id="rebuild-downloaded">—</span> скачанных и <span id="rebuild-skipped">—</span> сбойных
+      файлов станут «в очереди» — статусы и история ошибок пропадут;
       <br>
       • сами файлы на диске <strong>не удаляются</strong>;
       <br>
-      • программа ищет скачанное только по исходному пути «папка загрузки / имя файла».
+      • программа ищет скачанное только по исходному пути «папка выгрузки / имя файла».
       Если сортировка уже применялась, файлы лежат в подпапках «Фото/…», «Видео/…» —
-      они не найдутся и будут <strong>скачаны заново</strong>;
+      они не найдутся и будут <strong>скачаны заново</strong> (для переезда есть
+      «Перепривязать базу» ниже);
       <br>
-      • копия текущей базы сохраняется автоматически рядом с ней до начала работы.
+      • копия текущей базы сохраняется рядом с ней до начала работы.
     </div>
 
     <div class="setup-hint" style="margin-bottom:10px">
-      Сначала остановите скачивание Безлимита на главной — иначе кнопка не сработает.
+      Сначала остановите выгрузку на главной — иначе кнопки не сработают.
     </div>
-    <label class="field-label">Введите ПЕРЕСОЗДАТЬ, чтобы включить кнопку</label>
+    <label class="field-label" for="rebuild-confirm">Введите ПЕРЕСОЗДАТЬ, чтобы включить кнопки</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <input id="rebuild-confirm" placeholder="ПЕРЕСОЗДАТЬ" autocomplete="off"
              oninput="updateRebuildBtn()" style="flex:1;min-width:180px">
-      <button class="danger" id="rebuild-btn" disabled onclick="rebuildUnlimDb()">
-        Пересоздать базу Безлимита
+      <button class="danger" id="rebuild-btn" disabled onclick="rebuildDb()">
+        Пересоздать базу
       </button>
+    </div>
+
+    <hr>
+
+    <div style="font-weight:600;margin-bottom:4px">Переезд на другую папку</div>
+    <div class="card-sub">Для случая, когда файлы уже перенесены на новый диск. Сам перенос программа не делает.</div>
+    <label class="field-label" for="db-new-dir">Новая папка выгрузки</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <input type="text" id="db-new-dir" placeholder="например: E:\Backup\Disk"
+             style="flex:1;min-width:160px" oninput="updateRebuildBtn()">
+      <button class="ghost" onclick="browseFolder('db','db-new-dir')" style="white-space:nowrap">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
+    <div class="actions" style="margin-top:0">
+      <button id="db-relocate-btn" disabled onclick="relocateDb()">Перепривязать базу</button>
+      <button class="danger" id="db-redownload-btn" disabled onclick="redownloadDb()">Скачать заново в новую папку</button>
+    </div>
+    <div class="setup-hint" style="margin-top:8px">
+      «Перепривязать» только меняет пути в базе — ничего не скачивается.
+      «Скачать заново» возвращает всё в очередь и начинает выгрузку в новую папку; копия базы сохраняется.
     </div>
     <div id="rebuild-status" class="setup-hint" style="margin-top:10px"></div>
   </div>
@@ -1439,7 +1523,7 @@
     <div class="modal-title" id="setup-title">Настроим за минуту</div>
     <div class="modal-sub">
       Нужен OAuth-токен Яндекс.Диска и две папки для файлов. Куки для Безлимита
-      можно добавить позже в «Настройках» — они не обязательны.
+      можно добавить здесь же или позже в «Настройках» — они не обязательны.
     </div>
 
     <div class="modal-field">
@@ -1457,11 +1541,30 @@
     <div class="modal-grid">
       <div class="modal-field">
         <label class="field-label" for="setup-disk-dir">Папка для обычного Диска</label>
-        <input type="text" id="setup-disk-dir" placeholder="D:\\YandexDiskBackup\\Disk">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="setup-disk-dir" placeholder="D:\YandexDiskBackup\Disk" style="flex:1;min-width:0">
+          <button type="button" class="ghost" onclick="browseFolder('setup-disk','setup-disk-dir')" style="white-space:nowrap">Обзор…</button>
+        </div>
+        <div class="setup-hint">Куда складывать файлы и папки Диска. Папка создастся сама.</div>
       </div>
       <div class="modal-field">
         <label class="field-label" for="setup-unlim-dir">Папка для Безлимита</label>
-        <input type="text" id="setup-unlim-dir" placeholder="D:\\YandexDiskBackup\\Unlim">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="setup-unlim-dir" placeholder="D:\YandexDiskBackup\Unlim" style="flex:1;min-width:0">
+          <button type="button" class="ghost" onclick="browseFolder('setup-unlim','setup-unlim-dir')" style="white-space:nowrap">Обзор…</button>
+        </div>
+        <div class="setup-hint">Куда складывать фото и видео из Безлимита.</div>
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <label class="field-label" for="setup-cookies">Куки браузера (необязательно)</label>
+      <textarea id="setup-cookies" placeholder='[{"name":"Session_id","value":"…","domain":".yandex.ru"}]' autocomplete="off" spellcheck="false"></textarea>
+      <div id="setup-cookies-status" class="setup-hint">
+        Нужны для скачивания Безлимита. Установите
+        <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener">Cookie-Editor</a>,
+        войдите на <a href="https://disk.yandex.ru/client/disk" target="_blank" rel="noopener">disk.yandex.ru</a>,
+        нажмите Export → Export as JSON и вставьте массив сюда. Куки останутся на этом компьютере.
       </div>
     </div>
 
@@ -1771,8 +1874,10 @@ async function saveDiskDir(){
   refresh();
 }
 
-async function browseFolder(target){
-  const inputId = (target === 'organize') ? 'organize-input' : (target + '-dir-input');
+async function browseFolder(target, explicitInputId){
+  // Из мастера первого запуска поля называются иначе — передаём id явно.
+  const inputId = explicitInputId
+    || ((target === 'organize') ? 'organize-input' : (target + '-dir-input'));
   const inputEl = document.getElementById(inputId);
   const currentVal = inputEl ? inputEl.value.trim() : '';
   toast('Открываю проводник для выбора папки…', 'ok');
@@ -2567,7 +2672,9 @@ function fmtEta(sec){
   return rest ? `~${hours} ч ${rest} мин` : `~${hours} ч`;
 }
 
-function etaFor(kind, s){
+// Сколько секунд осталось линии. null — оценить нельзя (нет свежего статуса,
+// слишком мало данных, остаток неизвестен).
+function etaSeconds(kind, s){
   const d = (s.session || {})[kind];
   const st = (kind === 'unlim' ? s.speed : s.disk_speed) || {};
   if(!d || !d.running || d.preparing) return null;
@@ -2582,21 +2689,34 @@ function etaFor(kind, s){
     ? (+st.success || 0) + (+st.skipped || 0)
     : (+st.downloaded || 0) + (+st.skipped || 0) + (+st.failed || 0);
   if(attempts <= 0) return null;
-  return fmtEta(d.remaining / (attempts / elapsed));
+  return d.remaining / (attempts / elapsed);
 }
 
 function renderEta(s){
   const box = document.getElementById('eta-box');
   const txt = document.getElementById('eta-text');
   if(!box || !txt) return;
-  const parts = [];
-  const disk = etaFor('disk', s);
-  const unlim = etaFor('unlim', s);
-  if(unlim) parts.push(`Безлимит ${unlim}`);
-  if(disk) parts.push(`Диск ${disk}`);
-  if(!parts.length){ box.style.display = 'none'; return; }
+  const lines = [];
+  const diskSec = etaSeconds('disk', s);
+  const unlimSec = etaSeconds('unlim', s);
+  if(diskSec) lines.push({name: 'Диск', sec: diskSec});
+  if(unlimSec) lines.push({name: 'Безлимит', sec: unlimSec});
+  if(!lines.length){
+    box.style.display = 'none';
+    return;
+  }
+  // Линии работают параллельно, поэтому до конца задания останется столько,
+  // сколько нужно самой долгой из них: сумма была бы заведомо завышена.
+  // Подробности по каждой линии — в подсказке.
+  const longest = lines.reduce((a, b) => (b.sec > a.sec ? b : a));
   box.style.display = 'block';
-  txt.textContent = parts.join(' · ');
+  box.className = 'tipnode';
+  txt.textContent = fmtEta(longest.sec);
+  box.dataset.tip = lines.length === 1
+    ? `Оценка по средней скорости линии «${lines[0].name}». Цифра приблизительная.`
+    : `Задание идёт по двум линиям сразу, останется столько, сколько нужно самой долгой: `
+      + lines.map(l => `${l.name} ${fmtEta(l.sec)}`).join(' · ')
+      + '. Цифра приблизительная.';
 }
 
 function renderFullCycle(fc){
@@ -2733,8 +2853,8 @@ function renderWatchdog(w){
       pill.className = 'pill service err';
       pillText.textContent = '🛡 свободно мало';
     } else if(w.running){
-      // Синяя — включён, и это не итог выгрузки, а состояние службы.
-      pill.className = 'pill info';
+      // Без заливки и рамки: включённый сторож — не итог выгрузки, а служба.
+      pill.className = 'pill service on';
       pillText.textContent = `🛡 ${w.threshold_gb} ГБ`;
     } else {
       pill.className = 'pill service';
@@ -2908,6 +3028,16 @@ async function refresh(){
           : `${s.cookies.count} куки, но: ${s.cookies.msg}`;
     } else {
       savedCkCard.style.display = 'none';
+    }
+
+    // Инструкция в свёрнутом виде бесполезна тому, у кого ещё ничего не
+    // настроено, — раскрываем один раз, дальше решает пользователь.
+    if(!_infoAutoDone){
+      _infoAutoDone = true;
+      const tokenDetails = document.getElementById('token-details');
+      if(tokenDetails && !s.token.ok) tokenDetails.open = true;
+      const cookiesDetails = document.getElementById('cookies-details');
+      if(cookiesDetails && !(s.cookies.count > 0)) cookiesDetails.open = true;
     }
 
     const unlimDirIn = document.getElementById('unlim-dir-input');
@@ -3168,6 +3298,7 @@ async function refresh(){
   _refreshErrCount = 0;
 }
 let _refreshErrCount = 0;
+let _infoAutoDone = false;   // инструкции раскрываем автоматически один раз
 
 if (window.location.protocol === 'file:') {
   const warn = document.getElementById('file-protocol-warning');
@@ -3240,6 +3371,7 @@ async function finishSetup(){
   const diskDir = document.getElementById('setup-disk-dir').value.trim();
   const unlimDir = document.getElementById('setup-unlim-dir').value.trim();
   const reportKey = document.getElementById('setup-report-key').value.trim();
+  const cookiesTxt = document.getElementById('setup-cookies').value.trim();
   const status = document.getElementById('setup-token-status');
   const btn = document.getElementById('setup-finish-btn');
   if(token && _setupTokenVerified !== token){
@@ -3258,7 +3390,8 @@ async function finishSetup(){
   try{
     const r = await fetch('/api/setup', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({token, disk_dir: diskDir, unlim_dir: unlimDir, report_key: reportKey})
+      body: JSON.stringify({token, disk_dir: diskDir, unlim_dir: unlimDir,
+                            report_key: reportKey, cookies: cookiesTxt})
     });
     const d = await r.json();
     if(!r.ok || !d.ok) throw new Error(d.detail || d.error || 'Не удалось сохранить настройки');
@@ -3269,6 +3402,7 @@ async function finishSetup(){
     }
     document.getElementById('setup-modal').classList.remove('show');
     document.getElementById('setup-report-key').value = '';
+    document.getElementById('setup-cookies').value = '';
     updateReportKeyState(d.status?.report_key_configured);
     toast('Настройка завершена. Можно запускать выгрузку.', 'ok');
     refresh();
@@ -3801,57 +3935,160 @@ async function openBackupsFolder(){
   }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
 }
 
+let _lastStatus = null;        // последний /api/status — для счётчиков выбранной базы
+const DB_SCOPE_NAMES = {disk: 'Диска', unlim: 'Безлимита'};
+
+function _dbScope(){ return document.getElementById('db-scope').value; }
+
+function _dbScopeDb(scope){
+  const s = _lastStatus || {};
+  const src = scope === 'unlim' ? (s.unlim || {}) : (s.disk || {});
+  return src.db || {};
+}
+
 function renderRebuildCounts(s){
-  const db = (s && s.unlim && s.unlim.db) || {};
+  _lastStatus = s || null;
+  renderDbScope();
+}
+
+function renderDbScope(){
+  const scope = _dbScope();
+  const db = _dbScopeDb(scope);
   const d = document.getElementById('rebuild-downloaded');
   const k = document.getElementById('rebuild-skipped');
   if(d) d.textContent = (db.downloaded || 0).toLocaleString('ru');
   if(k) k.textContent = ((db.skipped || 0) + (db.failed || 0)).toLocaleString('ru');
+  const info = document.getElementById('db-scope-info');
+  if(info){
+    const total = db.total || 0;
+    info.textContent = total ? `в базе ${total.toLocaleString('ru')} файлов` : 'база пуста или ещё не создана';
+  }
+  const newDir = document.getElementById('db-new-dir');
+  if(newDir && scope === 'unlim'){
+    newDir.placeholder = 'например: E:\\Backup\\Unlim';
+  } else if(newDir){
+    newDir.placeholder = 'например: E:\\Backup\\Disk';
+  }
+  updateRebuildBtn();
 }
 
 function updateRebuildBtn(){
   const inp = document.getElementById('rebuild-confirm');
   const btn = document.getElementById('rebuild-btn');
-  if(!inp || !btn) return;
-  btn.disabled = inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ';
+  const ready = !!inp && inp.value.trim().toUpperCase() === 'ПЕРЕСОЗДАТЬ';
+  if(btn) btn.disabled = !ready;
+  const newDir = (document.getElementById('db-new-dir')?.value || '').trim();
+  const relocate = document.getElementById('db-relocate-btn');
+  const redownload = document.getElementById('db-redownload-btn');
+  if(relocate) relocate.disabled = !newDir;
+  if(redownload) redownload.disabled = !(ready && newDir);
 }
 
-async function rebuildUnlimDb(){
+function _dbStatus(text, cls){
+  const el = document.getElementById('rebuild-status');
+  if(!el) return;
+  el.className = 'setup-hint' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+
+async function _dbPost(url, body){
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return await r.json();
+}
+
+async function rebuildDb(){
+  const scope = _dbScope();
   const inp = document.getElementById('rebuild-confirm');
-  const btn = document.getElementById('rebuild-btn');
-  const status = document.getElementById('rebuild-status');
   if(!inp || inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ') return;
   if(!await askConfirm({
-    title: 'Пересоздать базу Безлимита?',
-    text: 'Статусы скачанных и пропущенных файлов будут потеряны, история ошибок исчезнет.\nСами файлы на диске останутся.',
+    title: `Пересоздать базу ${DB_SCOPE_NAMES[scope]}?`,
+    text: 'Статусы скачанных и сбойных файлов будут потеряны, история ошибок исчезнет.\nСами файлы на диске останутся.',
     ok: 'Пересоздать', danger: true
   })){
     return;
   }
-  btn.disabled = true;
-  status.className = 'setup-hint';
-  status.textContent = 'Сохраняю копию базы…';
+  _dbStatus('Сохраняю копию базы…');
   try{
-    const r = await fetch('/api/unlim/rebuild', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({confirm: inp.value})
-    });
-    const d = await r.json();
+    const d = await _dbPost('/api/db/rebuild', {scope, confirm: inp.value});
     if(!d.ok){
-      status.className = 'setup-hint err';
-      status.textContent = d.msg || 'Не удалось пересоздать базу';
-      updateRebuildBtn();
+      _dbStatus(d.msg || 'Не удалось пересоздать базу', 'err');
       return;
     }
-    status.className = 'setup-hint ok';
-    status.textContent = `Копия сохранена: ${d.backup}. База пересоздаётся — прогресс на главной.`;
+    _dbStatus(`Копия сохранена: ${d.backup}. База пересоздаётся — прогресс на главной.`, 'ok');
     inp.value = '';
-    toast('База Безлимита пересоздаётся. Копия сохранена.', 'ok');
-  }catch(e){
-    status.className = 'setup-hint err';
-    status.textContent = 'Ошибка: ' + e.message;
     updateRebuildBtn();
+    toast(`База ${DB_SCOPE_NAMES[scope]} пересоздаётся. Копия сохранена.`, 'ok');
+  }catch(e){
+    _dbStatus('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function relocateDb(){
+  const scope = _dbScope();
+  const newDir = (document.getElementById('db-new-dir').value || '').trim();
+  if(!newDir){
+    _dbStatus('Укажите новую папку', 'err');
+    return;
+  }
+  if(!await askConfirm({
+    title: `Перепривязать базу ${DB_SCOPE_NAMES[scope]} к новой папке?`,
+    text: `В базе путь «папка выгрузки / …» заменится на:\n${newDir}\n\nФайлы не скачиваются и не удаляются. `
+      + 'Делайте это только после того, как файлы действительно перенесены.',
+    ok: 'Перепривязать'
+  })){
+    return;
+  }
+  _dbStatus('Перепривязываю…');
+  try{
+    const d = await _dbPost('/api/db/relocate', {scope, new_dir: newDir});
+    if(!d.ok){
+      _dbStatus(d.msg || 'Не удалось перепривязать базу', 'err');
+      return;
+    }
+    _dbStatus(`${d.msg}. Новая папка записана в настройки.`, 'ok');
+    toast('База перепривязана', 'ok');
+    refresh();
+  }catch(e){
+    _dbStatus('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function redownloadDb(){
+  const scope = _dbScope();
+  const newDir = (document.getElementById('db-new-dir').value || '').trim();
+  const inp = document.getElementById('rebuild-confirm');
+  if(!inp || inp.value.trim().toUpperCase() !== 'ПЕРЕСОЗДАТЬ') return;
+  if(!newDir){
+    _dbStatus('Укажите новую папку', 'err');
+    return;
+  }
+  if(!await askConfirm({
+    title: `Скачать всё заново в новую папку? (${DB_SCOPE_NAMES[scope]})`,
+    text: `Все файлы вернутся в очередь и будут скачаны заново в:\n${newDir}\n\n`
+      + 'Прежние копии на старом диске останутся, но программа будет писать в новую папку.\n'
+      + 'Копия базы сохраняется автоматически.',
+    ok: 'Скачать заново', danger: true
+  })){
+    return;
+  }
+  _dbStatus('Сохраняю копию базы и сбрасываю статусы…');
+  try{
+    const d = await _dbPost('/api/db/redownload', {scope, new_dir: newDir, confirm: inp.value});
+    if(!d.ok){
+      _dbStatus(d.msg || 'Не удалось начать скачивание', 'err');
+      return;
+    }
+    _dbStatus(`Копия: ${d.backup}. Скачивание начато — прогресс на главной.`, 'ok');
+    inp.value = '';
+    updateRebuildBtn();
+    toast('Скачивание в новую папку начато', 'ok');
+    refresh();
+  }catch(e){
+    _dbStatus('Ошибка: ' + e.message, 'err');
   }
 }
 
@@ -3925,6 +4162,106 @@ if(_setupTokenInput){
     status.innerHTML = 'Получить токен: <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener">yandex.ru/dev/disk/poligon</a>. Токен сохранится только на этом компьютере.';
   });
 }
+
+// ── Изменение размера блоков ──
+// Ручка на нижней грани тянет высоту, уголок справа снизу — ещё и ширину.
+// Размер запоминается в localStorage, двойной клик по ручке возвращает исходный.
+// Обёртка нужна потому, что ручка внутри прокручиваемого блока (.console,
+// .diag-pre с overflow:auto) уезжала бы вместе с содержимым.
+function _clampNum(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+
+function _readSize(key){
+  try{ return JSON.parse(localStorage.getItem(key) || 'null'); }catch(e){ return null; }
+}
+
+function _saveSize(key, size){
+  try{ localStorage.setItem(key, JSON.stringify(size)); }catch(e){ /* приватный режим */ }
+}
+
+function makeResizable(el, opts){
+  if(!el || el.dataset.resizable) return;
+  opts = opts || {};
+  el.dataset.resizable = '1';
+  const key = 'ui-resize:' + (opts.key || el.id || 'block');
+  const both = opts.axis === 'both';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'resizable';
+  el.parentNode.insertBefore(wrap, el);
+  wrap.appendChild(el);
+
+  const saved = _readSize(key);
+  if(saved && saved.h) el.style.height = saved.h + 'px';
+  if(saved && saved.w && both) el.style.width = saved.w + 'px';
+
+  const grip = document.createElement('div');
+  grip.className = 'resize-grip';
+  grip.textContent = '⌃⌄';
+  grip.setAttribute('aria-label', 'Потяните, чтобы изменить высоту. Двойной клик — вернуть исходный размер');
+  wrap.appendChild(grip);
+
+  const corner = document.createElement('div');
+  corner.className = 'resize-corner';
+  corner.setAttribute('aria-label', 'Потяните, чтобы изменить ширину');
+  if(both) wrap.appendChild(corner);
+
+  function limits(){
+    const cs = getComputedStyle(el);
+    const minH = parseFloat(cs.minHeight) || 120;
+    const parent = wrap.parentElement || document.body;
+    return {
+      minH: minH,
+      maxH: Math.max(minH, Math.round(window.innerHeight * 0.85)),
+      minW: Math.max(240, parseFloat(cs.minWidth) || 240),
+      maxW: Math.max(320, parent.clientWidth - 8),
+    };
+  }
+
+  function bindDrag(handle, horizontal){
+    let start = null;
+    handle.addEventListener('pointerdown', ev => {
+      if(ev.button !== 0) return;
+      ev.preventDefault();
+      start = {x: ev.clientX, y: ev.clientY, w: el.offsetWidth, h: el.offsetHeight};
+      // Своя ручка заменяет css-ограничения, иначе max-height не даст расти.
+      el.style.maxHeight = 'none';
+      handle.classList.add('dragging');
+      try{ handle.setPointerCapture(ev.pointerId); }catch(e){ /* не критично */ }
+    });
+    handle.addEventListener('pointermove', ev => {
+      if(!start) return;
+      const lim = limits();
+      el.style.height = Math.round(_clampNum(start.h + (ev.clientY - start.y), lim.minH, lim.maxH)) + 'px';
+      if(horizontal){
+        el.style.width = Math.round(_clampNum(start.w + (ev.clientX - start.x), lim.minW, lim.maxW)) + 'px';
+      }
+    });
+    function stop(){
+      if(!start) return;
+      start = null;
+      handle.classList.remove('dragging');
+      const size = {h: el.offsetHeight};
+      if(both) size.w = el.offsetWidth;
+      _saveSize(key, size);
+    }
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+    handle.addEventListener('dblclick', () => {
+      el.style.height = '';
+      el.style.width = '';
+      el.style.maxHeight = '';
+      try{ localStorage.removeItem(key); }catch(e){ /* не критично */ }
+    });
+  }
+
+  bindDrag(grip, false);
+  if(both) bindDrag(corner, true);
+}
+
+// Журнал тянется в обе стороны, диагностика и примечания обновления — по высоте.
+makeResizable(document.getElementById('pipeline-console'), {axis: 'both'});
+makeResizable(document.getElementById('diag-output'), {axis: 'y'});
+makeResizable(document.getElementById('update-notes'), {axis: 'y'});
 
 initVersion();
 initSetup();
