@@ -171,7 +171,7 @@ def test_empty_pass_keeps_session_totals(tmp_path, monkeypatch):
     out = downloader.download_all("token", state=None, download_dir=str(tmp_path),
                                   jobs=iter([]), session=dict(total))
 
-    assert out == total
+    assert out == {**total, "deferred": 0}
     data = json.loads(status.read_text(encoding="utf-8"))
     assert data["downloaded"] == 58
     assert data["skipped"] == 3
@@ -209,3 +209,185 @@ def test_download_stops_on_insufficient_disk_space(tmp_path, monkeypatch):
     assert res.status == "disk_full"
     assert "NoSpaceLeft" in (res.error or "")
     assert cli.calls == []  # скачивание даже не начиналось
+
+
+# ── отложенные файлы и предохранитель B0 (35.6.3) ──────────────────────────
+
+
+class _LinkClient:
+    """Клиент с прямой ссылкой: транспорт downloader'а идёт в сеть сам."""
+
+    def __init__(self, link="https://storage.yandex.net/f"):
+        self.link = link
+        self.calls = []
+
+    def get_download_link(self, remote):
+        self.calls.append(remote)
+        return self.link
+
+
+class _Resp:
+    def __init__(self, status=200, body=b"", ctype="application/octet-stream"):
+        self.status_code = status
+        self._body = body
+        self.headers = {"Content-Type": ctype}
+
+    def iter_content(self, chunk_size=1024):
+        yield self._body
+
+    def close(self):
+        pass
+
+
+class _HttpSession:
+    def __init__(self, resp):
+        self.resp = resp
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append(url)
+        return self.resp
+
+    def close(self):
+        pass
+
+
+def test_storage_5xx_marks_file_deferred_not_failed(tmp_path):
+    """Молчащий сервер хранения — это «ждёт Яндекса», а не сбой файла."""
+    from fetch import DeadHosts
+
+    dead = DeadHosts()
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient("https://storage.yandex.net/f"),
+        str(tmp_path),
+        dead_hosts=dead,
+        http_session=_HttpSession(_Resp(503)),
+    )
+    assert res.status == "deferred"
+    assert res.kind == "server_50x"
+    assert res.host == "storage.yandex.net"
+    assert res.is_local_error is False
+    # Сервер запомнили мёртвым: следующий файл с него не будет ждать.
+    assert dead.is_dead("storage.yandex.net")
+
+
+def test_deferred_file_is_not_cleaned_and_no_leftover(tmp_path):
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient(),
+        str(tmp_path),
+        http_session=_HttpSession(_Resp(500)),
+    )
+    assert res.status == "deferred"
+    assert [p.name for p in (tmp_path / "disk").iterdir()] == []
+
+
+def test_dead_host_is_skipped_without_network(tmp_path):
+    from fetch import DeadHosts
+
+    dead = DeadHosts()
+    dead.mark("storage.yandex.net")
+    http = _HttpSession(_Resp(200, body=b"1234"))
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient(),
+        str(tmp_path),
+        dead_hosts=dead,
+        http_session=http,
+    )
+    assert res.status == "deferred"
+    assert res.kind == "storage_skip"
+    assert http.calls == []  # в сеть не ходили
+
+
+def test_ok_transfer_through_own_transport(tmp_path):
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient(),
+        str(tmp_path),
+        http_session=_HttpSession(_Resp(200, body=b"1234")),
+    )
+    assert res.status == "downloaded"
+    assert res.bytes_written == 4
+    assert (tmp_path / "disk" / "a.bin").read_bytes() == b"1234"
+
+
+def test_status_code_404_is_failed_not_deferred(tmp_path):
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient(),
+        str(tmp_path),
+        http_session=_HttpSession(_Resp(404)),
+    )
+    assert res.status == "failed"
+    assert res.kind == "not_found"
+
+
+def _failed_local(job):
+    from downloader import DownloadResult
+
+    return DownloadResult(
+        job=job, status="failed", local_path=None, bytes_written=0,
+        error="WinError 3", duration_ms=1, kind="local_disk",
+    )
+
+
+def test_disk_offline_stops_pass_after_limit(tmp_path, monkeypatch):
+    """Восемь локальных ошибок подряд — останавливаем проход, а не жжём попытки."""
+    import json
+
+    import downloader
+    from state import State
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+    monkeypatch.setattr(downloader, "_download_one", lambda job, *a, **k: _failed_local(job))
+    monkeypatch.setattr(downloader, "_get_thread_client", lambda token: None)
+    monkeypatch.setattr(downloader, "_get_thread_http_session", lambda: None)
+    monkeypatch.setattr(downloader, "_close_all_clients", lambda: None)
+
+    st = State(str(tmp_path / "state.db"))
+    jobs = [DownloadJob(remote_path=f"disk:/f{i}.bin", size=1, md5=None) for i in range(30)]
+    try:
+        out = downloader.download_all(
+            "token", state=st, download_dir=str(tmp_path), jobs=iter(jobs), workers=1
+        )
+    finally:
+        st.close()
+
+    # Обработали только до порога, остальные остались в очереди.
+    assert out["failed"] == downloader.LOCAL_ERROR_LIMIT
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["state"] == "disk_offline"
+
+
+def test_successful_file_resets_local_error_streak(tmp_path, monkeypatch):
+    """Одиночные локальные ошибки между успехами проход не останавливают."""
+    import downloader
+    from downloader import DownloadResult
+    from state import State
+
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", tmp_path / "status.json")
+    seq = iter(["fail", "ok"] * 10)
+
+    def fake(job, *a, **k):
+        if next(seq) == "fail":
+            return _failed_local(job)
+        return DownloadResult(job, "skipped", str(tmp_path / "x"), 0, None, 1)
+
+    monkeypatch.setattr(downloader, "_download_one", fake)
+    monkeypatch.setattr(downloader, "_get_thread_client", lambda token: None)
+    monkeypatch.setattr(downloader, "_get_thread_http_session", lambda: None)
+    monkeypatch.setattr(downloader, "_close_all_clients", lambda: None)
+
+    st = State(str(tmp_path / "state.db"))
+    jobs = [DownloadJob(remote_path=f"disk:/f{i}.bin", size=1, md5=None) for i in range(20)]
+    try:
+        out = downloader.download_all(
+            "token", state=st, download_dir=str(tmp_path), jobs=iter(jobs), workers=1
+        )
+    finally:
+        st.close()
+    assert out["failed"] == 10
+    assert out["skipped"] == 10

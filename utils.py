@@ -77,6 +77,151 @@ def check_target_dir(path: str | os.PathLike) -> str | None:
     return None
 
 
+def free_space_bytes(path: str | os.PathLike) -> int | None:
+    """Свободное место на диске, где лежит путь (или его ближайший существующий
+    родитель). None — если определить не удалось (диска нет, нет прав)."""
+    import shutil
+
+    probe = os.path.abspath(str(path))
+    while probe and not os.path.exists(probe):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return None
+        probe = parent
+    try:
+        return shutil.disk_usage(probe).free
+    except OSError:
+        return None
+
+
+def check_target_path(path: str | os.PathLike) -> dict:
+    """Проверяет папку выгрузки, НЕ создавая её.
+
+    Отличие от check_target_dir(): здесь мы ничего не пишем на диск — именно
+    поэтому проверку можно дать на кнопку «Проверить папку» в интерфейсе.
+    Папка будет создана при старте выгрузки.
+
+    Возвращает словарь:
+      ok          — можно ли писать (True/False)
+      path        — абсолютный путь после раскрытия ~ и переменных
+      exists      — папка уже есть
+      drive       — буква диска ('G:') или None
+      free_bytes  — свободно на носителе или None
+      relative    — пользователь задал относительный путь
+      message     — готовая фраза по-русски для интерфейса
+    """
+    raw = str(path or "").strip()
+    if not raw:
+        return {
+            "ok": False,
+            "path": "",
+            "exists": False,
+            "drive": None,
+            "free_bytes": None,
+            "relative": False,
+            "message": "Укажите папку выгрузки, например G:\\Бэкап",
+        }
+
+    expanded = os.path.expandvars(os.path.expanduser(raw))
+    relative = not os.path.isabs(expanded)
+    full = os.path.abspath(expanded)
+
+    drive, _ = os.path.splitdrive(full)
+    if IS_WINDOWS and drive:
+        # Пока диск отключён, его корня нет — os.path.exists('G:\\') даёт False.
+        if not os.path.exists(drive + os.sep):
+            return {
+                "ok": False,
+                "path": full,
+                "exists": False,
+                "drive": drive,
+                "free_bytes": None,
+                "relative": relative,
+                "message": f"❌ Диска {drive} сейчас нет — подключите его и проверьте снова",
+            }
+
+    exists = os.path.isdir(full)
+    if exists:
+        parent = full
+    else:
+        parent = full
+        while parent and not os.path.exists(parent):
+            nxt = os.path.dirname(parent)
+            if nxt == parent:
+                break
+            parent = nxt
+        if not os.path.isdir(parent):
+            return {
+                "ok": False,
+                "path": full,
+                "exists": False,
+                "drive": drive or None,
+                "free_bytes": None,
+                "relative": relative,
+                "message": f"❌ Путь недоступен: {full}",
+            }
+
+    if not os.access(parent, os.W_OK):
+        return {
+            "ok": False,
+            "path": full,
+            "exists": exists,
+            "drive": drive or None,
+            "free_bytes": free_space_bytes(parent),
+            "relative": relative,
+            "message": f"❌ Нет прав на запись в {parent}",
+        }
+
+    free = free_space_bytes(parent)
+    if exists:
+        message = "✅ Папка доступна"
+    else:
+        message = "✅ Папка доступна — создам её при старте"
+    if free is not None:
+        message += f" · свободно {human_bytes(free)}"
+    if relative:
+        message += " · путь относительный: лучше указать полный, с буквой диска"
+
+    return {
+        "ok": True,
+        "path": full,
+        "exists": exists,
+        "drive": drive or None,
+        "free_bytes": free,
+        "relative": relative,
+        "message": message,
+    }
+
+
+def classify_local_error(exc: BaseException) -> str:
+    """Делит локальные ошибки на два класса.
+
+    local_file — проблема в самом имени файла (слишком длинное, недопустимые
+                 символы): повтор того же файла не поможет, но и диск тут ни при чём.
+    local_disk — диск отключился, кончилось место, нет прав: нужно остановить
+                 проход и позвать человека, а не сжигать попытки у сотен файлов.
+    disk_full  — отдельно: кончилось место (на него реагируют иначе).
+    """
+    import errno
+
+    winerror = getattr(exc, "winerror", None)
+    if winerror is not None:
+        # 123 ERROR_INVALID_NAME, 206 ERROR_FILENAME_EXCED_RANGE,
+        # 225 ERROR_VIRUS_INFECTED — про конкретный файл
+        if winerror in (123, 206, 225):
+            return "local_file"
+        if winerror == 112:  # ERROR_DISK_FULL
+            return "disk_full"
+        return "local_disk"
+
+    code = getattr(exc, "errno", None)
+    if code == errno.ENOSPC:
+        return "disk_full"
+    if code in (errno.ENAMETOOLONG, errno.EINVAL, errno.EILSEQ):
+        return "local_file"
+    return "local_disk"
+
+
 def to_long_path(path: str) -> str:
     r"""Для Windows — добавляет префикс \\?\ если путь длинный.
     На других платформах возвращает как есть.

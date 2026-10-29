@@ -53,6 +53,7 @@ if _TCP_MAXSEG_SUPPORTED:
 
     urllib3_cn.create_connection = _patched_create_conn
 
+import requests
 import yadisk
 from tenacity import (
     retry,
@@ -63,10 +64,13 @@ from tenacity import (
 from tqdm import tqdm
 
 import paths
-from state import State
+import previews as preview_mod
+from fetch import DeadHosts, FetchFailure, fetch_to_file
+from state import State, is_deferred_error
 from utils import (
     avoid_case_collision,
     check_target_dir,
+    classify_local_error,
     ensure_dir,
     file_size_safe,
     resolve_local_path,
@@ -350,16 +354,30 @@ class DownloadJob:
     remote_path: str
     size: Optional[int]
     md5: Optional[str]
+    # «storage_down | host» из прошлого прохода: такой файл пробуем раньше других
+    error: Optional[str] = None
+    storage_host: Optional[str] = None
+
+    @property
+    def was_deferred(self) -> bool:
+        return is_deferred_error(self.error)
 
 
 @dataclass
 class DownloadResult:
     job: DownloadJob
-    status: str  # downloaded | skipped | failed
+    status: str  # downloaded | skipped | failed | deferred | disk_full
     local_path: Optional[str]
     bytes_written: int
     error: Optional[str]
     duration_ms: int
+    kind: Optional[str] = None  # тип ошибки: local_disk | local_file | storage_down …
+    host: Optional[str] = None  # сервер хранения, который не ответил
+    preview_path: Optional[str] = None  # превью отложенного фото
+
+    @property
+    def is_local_error(self) -> bool:
+        return self.status == "failed" and self.kind in ("local_disk", "local_file")
 
 
 def _ensure_local_dirs(local_path: str) -> None:
@@ -409,10 +427,40 @@ def check_free_space(path: str, required_bytes: int = 0) -> bool:
         return True
 
 
+def _transfer(
+    client: yadisk.Client,
+    job: DownloadJob,
+    local_path: str,
+    dead_hosts: Optional[DeadHosts],
+    http_session: Optional[requests.Session],
+) -> None:
+    """Одна попытка скачивания: ссылка → прямой запрос к серверу хранения.
+
+    Клиенты без `get_download_link` (моки в тестах, очень старый yadisk)
+    скачивают прежним способом — через сам клиент.
+    """
+    getter = getattr(client, "get_download_link", None)
+    if getter is None:
+        _download_file(client, job.remote_path, local_path)
+        return
+    link = getter(job.remote_path)
+    fetch_to_file(
+        link,
+        local_path,
+        expected_size=job.size,
+        expected_md5=job.md5,
+        dead_hosts=dead_hosts,
+        session=http_session,
+    )
+
+
 def _download_one(
     job: DownloadJob,
     client: yadisk.Client,
     download_dir: str,
+    dead_hosts: Optional[DeadHosts] = None,
+    http_session: Optional[requests.Session] = None,
+    make_previews: bool = False,
 ) -> DownloadResult:
     start = time.monotonic()
     local_path = resolve_local_path(download_dir, job.remote_path)
@@ -421,7 +469,8 @@ def _download_one(
         _ensure_local_dirs(local_path)
     except OSError as e:
         # Диск мог отключиться посреди прохода: файл помечаем сбойным, чтобы
-        # потоки не падали с необработанным исключением.
+        # потоки не падали с необработанным исключением. Класс ошибки важен:
+        # по нему проход поймёт, что пора остановиться (B0).
         dur = int((time.monotonic() - start) * 1000)
         reason = getattr(e, "strerror", None) or str(e)
         return DownloadResult(
@@ -431,6 +480,7 @@ def _download_one(
             bytes_written=0,
             error=f"Не удалось создать папку: {reason}",
             duration_ms=dur,
+            kind=classify_local_error(e),
         )
 
     # Resume-логика: если файл уже скачан корректно — skipped
@@ -460,33 +510,61 @@ def _download_one(
             bytes_written=0,
             error="NoSpaceLeft: Недостаточно свободного места на диске",
             duration_ms=dur,
+            kind="disk_full",
         )
 
-    # Если файл частично скачан или с другим размером — перезаписываем
-    if existing_size is not None:
-        try:
-            os.remove(to_long_path(local_path))
-        except OSError:
-            pass
+    # Старый файл (частичный или другого размера) НЕ удаляем заранее: новый
+    # пишется во временный .part и подменяет его атомарно. Если диск отключится
+    # на середине, прежняя копия останется на месте.
 
     try:
-        _download_file(client, job.remote_path, local_path)
+        _transfer(client, job, local_path, dead_hosts, http_session)
+    except FetchFailure as e:
+        dur = int((time.monotonic() - start) * 1000)
+        _cleanup_failed_file(local_path)
+        if e.is_deferred:
+            # Яндекс не отдаёт файл: он остаётся в очереди и попыток не тратит.
+            if dead_hosts is not None and e.host:
+                dead_hosts.mark(e.host)
+            preview = None
+            if make_previews and preview_mod.is_photo(job.remote_path):
+                # Пока оригинал ждёт — кладём уменьшенную копию, чтобы человек
+                # видел, чего не хватает. Тот же мёртвый сервер её не отдаст:
+                # пропуск мгновенный, без сети.
+                preview = preview_mod.make_disk_preview(
+                    client, job.remote_path, download_dir,
+                    dead_hosts=dead_hosts, session=http_session,
+                )
+            return DownloadResult(
+                job, "deferred", None, 0, str(e), dur,
+                kind=e.kind, host=e.host, preview_path=preview,
+            )
+        return DownloadResult(job, "failed", None, 0, str(e), dur, kind=e.kind, host=e.host)
     except yadisk.exceptions.TooManyRequestsError as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
         record_http_error(job.remote_path, e)
-        return DownloadResult(job, "failed", None, 0, f"429 TooManyRequests: {e}", dur)
+        return DownloadResult(
+            job, "deferred", None, 0, f"429 TooManyRequests: {e}", dur, kind="rate_limit"
+        )
     except yadisk.exceptions.PathNotFoundError as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
         record_http_error(job.remote_path, e)
-        return DownloadResult(job, "failed", None, 0, f"PathNotFound: {e}", dur)
+        return DownloadResult(
+            job, "failed", None, 0, f"PathNotFound: {e}", dur, kind="not_found"
+        )
     except OSError as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
         if getattr(e, "errno", None) == errno.ENOSPC:
-            return DownloadResult(job, "disk_full", None, 0, f"NoSpaceLeft: {e}", dur)
-        return DownloadResult(job, "failed", None, 0, f"{type(e).__name__}: {e}", dur)
+            return DownloadResult(
+                job, "disk_full", None, 0, f"NoSpaceLeft: {e}", dur, kind="disk_full"
+            )
+        return DownloadResult(
+            job, "failed", None, 0, f"{type(e).__name__}: {e}", dur,
+            kind=classify_local_error(e),
+        )
     except Exception as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
@@ -510,6 +588,7 @@ def _download_one(
 _thread_local = threading.local()
 # Реестр всех созданных клиентов — чтобы закрыть сокеты после остановки пула
 _all_clients: list[yadisk.Client] = []
+_all_sessions: list[requests.Session] = []
 _all_clients_lock = threading.Lock()
 
 
@@ -535,6 +614,25 @@ def _close_all_clients() -> None:
             cli.close()
         except Exception:  # noqa: BLE001 — закрытие не должно ронять выход
             pass
+    with _all_clients_lock:
+        sessions = list(_all_sessions)
+        _all_sessions.clear()
+    for s in sessions:
+        try:
+            s.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _get_thread_http_session() -> requests.Session:
+    """Своё HTTP-соединение на поток: сервер хранения переиспользуется между файлами."""
+    s = getattr(_thread_local, "http", None)
+    if s is None:
+        s = requests.Session()
+        _thread_local.http = s
+        with _all_clients_lock:
+            _all_sessions.append(s)
+    return s
 
 
 # Пер-сессионный счётчик скачивания обычного диска: пишется в файл, чтобы веб-UI
@@ -547,18 +645,35 @@ DISK_STATUS_FILE = paths.DISK_STATUS_FILE
 SESSION_STARTED_AT = time.time()
 
 
-def _write_disk_status(counters: dict[str, int], total_files: int, total_bytes: int, active: bool) -> None:
+# Сколько локальных ошибок ПОДРЯД означает «диск отключился». Один-два файла с
+# плохим именем — это про файлы; восемь подряд — про носитель. При достижении
+# порога проход останавливается, а файлы остаются в очереди (попытки не тратятся).
+LOCAL_ERROR_LIMIT = 8
+
+
+def _write_disk_status(
+    counters: dict[str, int],
+    total_files: int,
+    total_bytes: int,
+    active: bool,
+    state: str = "running",
+    waiting: Optional[int] = None,
+) -> None:
     data = {
         "active": active,
+        "state": state,
         "started_at": SESSION_STARTED_AT,
         "downloaded": int(counters.get("downloaded", 0)),
         "skipped": int(counters.get("skipped", 0)),
         "failed": int(counters.get("failed", 0)),
+        "deferred": int(counters.get("deferred", 0)),
         "bytes": int(counters.get("bytes", 0)),
         "total_files": int(total_files or 0),
         "total_bytes": int(total_bytes or 0),
         "updated_at": time.time(),
     }
+    if waiting is not None:
+        data["waiting"] = int(waiting)
     try:
         DISK_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = DISK_STATUS_FILE.with_suffix(".json.tmp")
@@ -584,13 +699,19 @@ def download_all(
     workers: int = 4,
     jobs: Optional[Iterator[DownloadJob]] = None,
     session: Optional[dict[str, int]] = None,
+    dead_hosts: Optional[DeadHosts] = None,
+    prioritize_deferred: bool = True,
+    make_previews: bool = True,
 ) -> dict[str, int]:
     """Скачивает все pending файлы из state в пул потоков.
-    Возвращает счётчики: {downloaded, skipped, failed, bytes}.
+    Возвращает счётчики: {downloaded, skipped, failed, deferred, bytes}.
 
     ``session`` — счётчики предыдущих проходов этого же процесса. С них начинаем
     и в файл статуса пишем кумулятив: иначе повторный проход по сбойным
     перезаписывал итог сессии цифрами последнего прохода.
+
+    ``dead_hosts`` — реестр молчащих серверов хранения. Если передать общий на
+    весь полный цикл, мёртвый сервер перестанет тормозить каждый проход.
     """
     if workers < 1:
         workers = 1
@@ -606,6 +727,24 @@ def download_all(
         log.error(problem)
         raise SystemExit(2)
 
+    if dead_hosts is None:
+        dead_hosts = DeadHosts()
+
+    # A3: первая строка журнала — куда кладём файлы. Пользователь должен видеть
+    # это сразу, а не искать папку в настройках.
+    target = os.path.abspath(download_dir)
+    print(f"Скачиваем в: {target}", flush=True)
+    log.info("Скачиваем в: %s", target)
+
+    # Превью живут, только пока файл ждёт Яндекса. Убираем те, что уже не нужны,
+    # и брошенные .part от прерванных проходов.
+    try:
+        swept = preview_mod.sweep(state, download_dir)
+        if swept:
+            log.info("Убрано лишних превью: %d", swept)
+    except Exception:  # noqa: BLE001 — превью не должны мешать скачиванию
+        pass
+
     # Собираем список jobs из БД (или из переданного итератора — для retry-failed)
     if jobs is None:
         jobs_list = [
@@ -613,15 +752,17 @@ def download_all(
                 remote_path=row["remote_path"],
                 size=row["size"],
                 md5=row["md5"],
+                error=_row_get(row, "error"),
+                storage_host=_row_get(row, "storage_host"),
             )
-            for row in state.get_pending()
+            for row in state.get_pending(deferred_first=prioritize_deferred)
         ]
     else:
         jobs_list = list(jobs)
 
     counters = {
         key: int((session or {}).get(key, 0) or 0)
-        for key in ("downloaded", "skipped", "failed", "bytes")
+        for key in ("downloaded", "skipped", "failed", "deferred", "bytes")
     }
 
     if not jobs_list:
@@ -631,7 +772,11 @@ def download_all(
         return counters
 
     total_bytes = sum(j.size for j in jobs_list if j.size)
-    _write_disk_status(counters, len(jobs_list), total_bytes, True)
+    waiting_count = _waiting_stats(state)
+    _write_disk_status(counters, len(jobs_list), total_bytes, True, waiting=waiting_count)
+
+    deferred_jobs = {j.remote_path for j in jobs_list if j.was_deferred}
+    deferred_ok = 0
 
     file_bar = tqdm(total=len(jobs_list), unit="file", desc="Файлы", position=0)
     byte_bar = tqdm(
@@ -645,31 +790,63 @@ def download_all(
 
     def worker(job: DownloadJob) -> DownloadResult:
         client = _get_thread_client(token)
-        return _download_one(job, client, download_dir)
+        return _download_one(
+            job, client, download_dir, dead_hosts, _get_thread_http_session(),
+            make_previews=make_previews,
+        )
 
     # Без `with`: его выход дожидается ВСЕЙ очереди, и Ctrl+C выглядит зависанием.
     pool = ThreadPoolExecutor(max_workers=workers)
+    stop_state = "done"
+    consecutive_local = 0
     try:
         futures = {pool.submit(worker, j): j for j in jobs_list}
         try:
             for fut in as_completed(futures):
                 res = fut.result()
+                _apply_result(state, res, counters, file_bar, byte_bar)
+
                 if res.status == "disk_full":
-                    file_bar.close()
-                    byte_bar.close()
                     print("\n[ВНИМАНИЕ] Недостаточно свободного места на диске! Прерываю скачивание...", file=sys.stderr)
                     log.error("Диск заполнен! Прерываю скачивание: %s", res.error)
+                    stop_state = "disk_full"
                     pool.shutdown(wait=False, cancel_futures=True)
-                    _apply_result(state, res, counters, file_bar, byte_bar)
                     break
-                _apply_result(state, res, counters, file_bar, byte_bar)
-                _write_disk_status(counters, len(jobs_list), total_bytes, True)
+
+                if res.status == "deferred":
+                    waiting_count += 1
+                elif res.status in ("downloaded", "skipped") and res.job.was_deferred:
+                    deferred_ok += 1
+                    waiting_count = max(0, waiting_count - 1)
+
+                # B0: не сжигаем попытки у сотен файлов, если отключился диск.
+                if res.is_local_error:
+                    consecutive_local += 1
+                else:
+                    consecutive_local = 0
+                if consecutive_local >= LOCAL_ERROR_LIMIT:
+                    print(
+                        "\n[ОСТАНОВКА] Диск отключён — подключите его и нажмите «Продолжить». "
+                        "Задание не потеряно, файлы остались в очереди.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    log.error(
+                        "Останавливаю проход: %d локальных ошибок подряд (%s)",
+                        consecutive_local, res.error,
+                    )
+                    stop_state = "disk_offline"
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+
+                _write_disk_status(
+                    counters, len(jobs_list), total_bytes, True, waiting=waiting_count
+                )
         except KeyboardInterrupt:
-            file_bar.close()
-            byte_bar.close()
             print("\nCtrl+C — отменяю очередь, дожидаюсь только текущих файлов...",
                   file=sys.stderr)
             log.warning("Ctrl+C — отменяю оставшиеся задачи и закрываю пул...")
+            stop_state = "stopped"
             pool.shutdown(wait=False, cancel_futures=True)
             raise
         pool.shutdown(wait=True)
@@ -678,9 +855,39 @@ def download_all(
     finally:
         file_bar.close()
         byte_bar.close()
-        _write_disk_status(counters, len(jobs_list), total_bytes, False)
+        _write_disk_status(
+            counters, len(jobs_list), total_bytes, False,
+            state=stop_state, waiting=waiting_count,
+        )
+
+    if deferred_jobs:
+        tail = f" · ещё ждут: {waiting_count}" if waiting_count else ""
+        print(
+            f"Из {len(deferred_jobs)} ждавших Яндекса скачано {deferred_ok}{tail}",
+            flush=True,
+        )
+        log.info(
+            "Из %d ждавших Яндекса скачано %d (осталось ждать: %d)",
+            len(deferred_jobs), deferred_ok, waiting_count,
+        )
 
     return counters
+
+
+def _row_get(row, name: str):
+    """Значение колонки из sqlite3.Row, если она есть (старые выборки её не отдают)."""
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        return None
+
+
+def _waiting_stats(state: State) -> int:
+    """Сколько файлов ждут Яндекса. Не роняет скачивание, если БД не умеет."""
+    try:
+        return int(state.get_waiting_stats())
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def _apply_result(
@@ -710,6 +917,22 @@ def _apply_result(
             byte_bar.update(res.job.size)
         log.info(
             "SKIP | already exists | %s",
+            res.job.remote_path,
+        )
+    elif res.status == "deferred":
+        # Файл не сбойный: Яндекс не отдал его сейчас. Остаётся pending с
+        # маркером и попыток не тратит.
+        state.mark_deferred(res.job.remote_path, res.kind or "storage_down", res.host)
+        if res.preview_path:
+            try:
+                state.set_preview_path(res.job.remote_path, res.preview_path)
+            except Exception:  # noqa: BLE001
+                pass
+        counters["deferred"] = int(counters.get("deferred", 0)) + 1
+        log.warning(
+            "ЖДЁТ | %s | %s | %s",
+            res.kind or "storage_down",
+            res.error,
             res.job.remote_path,
         )
     else:

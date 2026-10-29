@@ -125,3 +125,63 @@ def test_human_bytes():
 def test_human_duration():
     assert human_duration(0) == "00:00:00"
     assert human_duration(3661) == "01:01:01"
+
+
+# ── проверка папки и классы локальных ошибок (35.6.3) ───────────────────────
+
+
+def test_check_target_path_does_not_create_folder(tmp_path):
+    from utils import check_target_path
+
+    target = tmp_path / "new" / "dir"
+    info = check_target_path(str(target))
+    assert info["ok"] is True
+    assert info["exists"] is False
+    assert not target.exists()
+
+
+def test_check_target_path_empty_asks_for_a_path():
+    from utils import check_target_path
+
+    info = check_target_path("")
+    assert info["ok"] is False
+    assert "Укажите папку" in info["message"]
+
+
+def test_check_target_path_reports_free_space(tmp_path):
+    from utils import check_target_path
+
+    info = check_target_path(str(tmp_path))
+    assert info["ok"] is True
+    assert info["free_bytes"] > 0
+    assert "свободно" in info["message"]
+
+
+def test_check_target_path_marks_relative_path(tmp_path, monkeypatch):
+    from utils import check_target_path
+
+    monkeypatch.chdir(tmp_path)
+    info = check_target_path("backup")
+    assert info["relative"] is True
+    assert "путь относительный" in info["message"]
+    assert info["ok"] is True  # мягкое предупреждение, не блокирует
+
+
+def test_classify_local_error_splits_name_and_disk():
+    from utils import classify_local_error
+
+    class _Win(Exception):
+        def __init__(self, winerror):
+            super().__init__("x")
+            self.winerror = winerror
+
+    assert classify_local_error(_Win(123)) == "local_file"
+    assert classify_local_error(_Win(206)) == "local_file"
+    assert classify_local_error(_Win(112)) == "disk_full"
+    assert classify_local_error(_Win(3)) == "local_disk"
+
+    import errno
+
+    assert classify_local_error(OSError(errno.ENOSPC, "full")) == "disk_full"
+    assert classify_local_error(OSError(errno.ENAMETOOLONG, "long")) == "local_file"
+    assert classify_local_error(OSError(errno.EIO, "io")) == "local_disk"

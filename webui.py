@@ -43,7 +43,7 @@ import monitor
 import paths
 import updater
 import version
-from utils import auto_workers, check_target_dir, ram_info
+from utils import auto_workers, check_target_dir, check_target_path, ram_info
 
 def sqlite_ro_uri(db_path: str | os.PathLike) -> str:
     path = os.path.abspath(db_path)
@@ -86,6 +86,13 @@ def log_action(endpoint: str, payload=None, extra: str = "") -> None:
         pass
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = (os.getenv(name, "") or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in ("0", "false", "no", "off", "нет")
+
+
 def get_config() -> dict:
     """Перечитывает .env заново."""
     load_dotenv(ENV_FILE, override=True)
@@ -95,6 +102,7 @@ def get_config() -> dict:
         "unlim_dir": (os.getenv("UNLIM_DIR", str(paths.DEFAULT_UNLIM_DIR)) or "").strip(),
         "disk_dir": (os.getenv("DISK_DIR", os.getenv("DOWNLOAD_DIR", str(paths.DEFAULT_DISK_DIR))) or "").strip(),
         "max_workers": int(os.getenv("MAX_WORKERS", "4") or "4"),
+        "previews": _env_flag("PREVIEWS", True),
     }
 
 
@@ -855,12 +863,15 @@ class FullCycle:
             if before["errors"]:
                 self._log(f"   Безлимит: в повтор пойдут: {before['errors']} пропущенных файлов")
             reset_session_counters("unlim")
-            self._own_start("unlim", "unlim_backup.py", [
+            unlim_args = [
                 "--out-dir", out_dir,
                 "--media", "all",
                 "--target", "all",
                 "--workers", str(self.workers),
-            ])
+            ]
+            if not cfg.get("previews", True):
+                unlim_args.append("--no-previews")
+            self._own_start("unlim", "unlim_backup.py", unlim_args)
             code = self._wait_task("unlim")
             if self._stop:
                 lane["state"] = "остановлено"
@@ -1379,7 +1390,7 @@ def db_stats(db_file: Path, table: str = "files",
              id_col: str = "remote_path") -> dict:
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
-                "failed": 0, "in_progress": 0,
+                "failed": 0, "in_progress": 0, "waiting": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
@@ -1403,6 +1414,16 @@ def db_stats(db_file: Path, table: str = "files",
             out["bytes_by_status"][st] = r["b"]
             if st in ("downloaded", "skipped"):
                 out["bytes_done"] += r["b"]
+        # «Ждут Яндекса»: файлы, которые не сбойные, а отложены до ответа
+        # сервера хранения. Считаем отдельно от failed — иначе плашка пугает.
+        try:
+            row_w = c.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE status='pending' "
+                f"AND error LIKE 'storage_down%'"
+            ).fetchone()
+            out["waiting"] = int(row_w[0] if row_w else 0)
+        except sqlite3.Error:
+            out["waiting"] = 0
         recent = list(c.execute(
             f"SELECT {id_col} AS path, status, size FROM {table} "
             f"WHERE downloaded_at IS NOT NULL "
@@ -1754,6 +1775,9 @@ def api_status():
         "pipeline": pipeline.status(),
         "speed": download_status,
         "disk_speed": disk_status,
+        # Финальное состояние прохода Диска: done / stopped / disk_full /
+        # disk_offline. По нему UI показывает, что диск отключили (B0).
+        "disk_state": disk_status.get("state"),
         "download_error": download_error,
         "cookies_fetch": cookies_fetch_status(),
         "last_unlim_log": get_last_unlim_log(),
@@ -1847,6 +1871,8 @@ def api_download_start(payload: DownloadControlPayload):
             args.append("--from-end")
         if payload.sort_after:
             args.append("--sort-after")
+        if not cfg.get("previews", True):
+            args.append("--no-previews")
         # «all» и «skipped» — повтор сбойных, значит они тоже входят в остаток.
         _session_retry["unlim"] = payload.target in ("all", "skipped")
         reset_session_counters("unlim")
@@ -2027,6 +2053,36 @@ def api_set_dirs(payload: DirsPayload):
         set_key(str(ENV_FILE), "DOWNLOAD_DIR", d, quote_mode="never")
     load_dotenv(ENV_FILE, override=True)
     return {"ok": True, "unlim_dir": u, "disk_dir": d}
+
+
+class DirCheckPayload(BaseModel):
+    path: str = ""
+
+
+@app.post("/api/check_dir")
+def api_check_dir(payload: DirCheckPayload):
+    """Проверка папки БЕЗ её создания — кнопка «Проверить папку» в настройках.
+
+    Отвечает теми же словами, что увидит человек: «✅ папка доступна, свободно
+    240 ГБ» или «❌ Диска G: сейчас нет». Папку создаёт уже сама выгрузка.
+    """
+    info = check_target_path(payload.path)
+    log_action("/api/check_dir", {"ok": info.get("ok"), "path": info.get("path", "")[:300]})
+    return info
+
+
+class PreviewsPayload(BaseModel):
+    enabled: bool = True
+
+
+@app.post("/api/config/previews")
+def api_set_previews(payload: PreviewsPayload):
+    """Тумблер «сохранять превью отложенных фото»."""
+    if not ENV_FILE.exists():
+        ENV_FILE.write_text("", encoding="utf-8")
+    set_key(str(ENV_FILE), "PREVIEWS", "1" if payload.enabled else "0", quote_mode="never")
+    load_dotenv(ENV_FILE, override=True)
+    return {"ok": True, "previews": payload.enabled}
 
 
 class BrowseDirPayload(BaseModel):

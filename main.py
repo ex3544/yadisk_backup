@@ -38,6 +38,7 @@ from downloader import (
     scan_tree,
     write_status_start,
 )
+from fetch import DeadHosts
 from state import State
 from utils import (
     auto_workers,
@@ -103,11 +104,15 @@ def load_config(require_token: bool = True) -> dict:
         max_workers = 4
     log_level = os.getenv("LOG_LEVEL", "INFO").strip() or "INFO"
 
+    # Превью отложенных фото: включены по умолчанию, выключаются PREVIEWS=0.
+    previews = (os.getenv("PREVIEWS", "1") or "1").strip().lower() not in ("0", "false", "no")
+
     return {
         "token": token,
         "download_dir": download_dir,
         "max_workers": max_workers,
         "log_level": log_level,
+        "previews": previews,
     }
 
 
@@ -233,13 +238,18 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
     print(f"Старт скачивания в {workers} потоков → {cfg['download_dir']}")
 
     t0 = time.time()
-    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
+    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "deferred": 0, "bytes": 0}
+    # Общий реестр на оба прохода: мёртвый сервер не должен заново ждать
+    # по 10 секунд на каждом файле во второй раз.
+    dead_hosts = DeadHosts()
     try:
         counters = download_all(
             token=cfg["token"],
             state=state,
             download_dir=cfg["download_dir"],
             workers=workers,
+            dead_hosts=dead_hosts,
+            make_previews=cfg.get("previews", True),
         )
 
         # Один повторный проход для сбойных файлов (по --retry).
@@ -258,6 +268,8 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
                     download_dir=cfg["download_dir"],
                     workers=workers,
                     session=counters,
+                    dead_hosts=dead_hosts,
+                    make_previews=cfg.get("previews", True),
                 )
             else:
                 print("\n— Сбойных файлов нет, повтор не нужен.")
@@ -288,13 +300,14 @@ def cmd_retry_failed(cfg: dict, args: argparse.Namespace) -> int:
 
     workers = args.workers or auto_workers()
     t0 = time.time()
-    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}
+    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "deferred": 0, "bytes": 0}
     try:
         counters = download_all(
             token=cfg["token"],
             state=state,
             download_dir=cfg["download_dir"],
             workers=workers,
+            make_previews=cfg.get("previews", True),
         )
     except KeyboardInterrupt:
         print("\nПрервано пользователем.")
@@ -319,6 +332,8 @@ def cmd_stats(cfg: dict, args: argparse.Namespace) -> int:
     print(f"    downloaded:        {s['downloaded']}")
     print(f"    skipped:           {s['skipped']}")
     print(f"    failed:            {s['failed']}")
+    if s.get("waiting"):
+        print(f"    ждут Яндекса:      {s['waiting']} (входят в pending)")
     print(f"  Объём всего:         {human_bytes(s['bytes_total'])}")
     print(f"  Объём скачано/skip:  {human_bytes(s['bytes_downloaded'])}")
     return 0
@@ -386,11 +401,13 @@ def cmd_verify(cfg: dict, args: argparse.Namespace) -> int:
 
 
 def _print_summary(counters: dict, elapsed: float) -> None:
-    print(
+    line = (
         f"\nИтого: скачано {counters['downloaded']} ({human_bytes(counters['bytes'])}) | "
-        f"пропущено {counters['skipped']} | упало {counters['failed']} | "
-        f"время {human_duration(elapsed)}"
+        f"пропущено {counters['skipped']} | упало {counters['failed']}"
     )
+    if counters.get("deferred"):
+        line += f" | ждут Яндекса {counters['deferred']}"
+    print(line + f" | время {human_duration(elapsed)}")
 
 
 # ── argparse ────────────────────────────────────────────────────────────────

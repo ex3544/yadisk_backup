@@ -40,7 +40,25 @@ MIGRATIONS: list[db_migrations.Migration] = [
     # Счётчик попыток: по нему видно, файл упал один раз или бьётся неделю.
     # У Безлимита такая колонка была с самого начала, у Диска её не было.
     (2, "ALTER TABLE files ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"),
+    # Сервер хранения, который отдал (или не отдал) файл. Нужен, чтобы в
+    # диагностике было видно, на каком именно сервере Яндекса застряло.
+    (3, "ALTER TABLE files ADD COLUMN storage_host TEXT"),
+    # Превью отложенного фото: пока оригинал не скачался, в папке лежит
+    # уменьшенная копия, чтобы не потерять представление о содержимом.
+    (4, "ALTER TABLE files ADD COLUMN preview_path TEXT"),
 ]
+
+# Префикс маркера в поле error: файл не сбойный, а ждёт Яндекса.
+DEFERRED_PREFIX = "storage_down"
+
+
+def is_deferred_error(error: object) -> bool:
+    return isinstance(error, str) and error.startswith(DEFERRED_PREFIX)
+
+
+def deferred_marker(kind: str, host: Optional[str] = None) -> str:
+    """Текст маркера: «storage_down | storage.yandex.net»."""
+    return f"{DEFERRED_PREFIX} | {host}" if host else DEFERRED_PREFIX
 
 
 class State:
@@ -115,7 +133,9 @@ class State:
                 (remote_path, size, md5),
             )
 
-    def mark_downloaded(self, remote_path: str, local_path: str) -> None:
+    def mark_downloaded(
+        self, remote_path: str, local_path: str, storage_host: Optional[str] = None
+    ) -> None:
         with self._tx() as conn:
             conn.execute(
                 """
@@ -123,13 +143,17 @@ class State:
                    SET status = 'downloaded',
                        local_path = ?,
                        error = NULL,
+                       preview_path = NULL,
+                       storage_host = COALESCE(?, storage_host),
                        downloaded_at = ?
                  WHERE remote_path = ?
                 """,
-                (local_path, _utc_now(), remote_path),
+                (local_path, storage_host, _utc_now(), remote_path),
             )
 
-    def mark_skipped(self, remote_path: str, local_path: str) -> None:
+    def mark_skipped(
+        self, remote_path: str, local_path: str, storage_host: Optional[str] = None
+    ) -> None:
         with self._tx() as conn:
             conn.execute(
                 """
@@ -137,11 +161,71 @@ class State:
                    SET status = 'skipped',
                        local_path = ?,
                        error = NULL,
+                       preview_path = NULL,
+                       storage_host = COALESCE(?, storage_host),
                        downloaded_at = ?
                  WHERE remote_path = ?
                 """,
-                (local_path, _utc_now(), remote_path),
+                (local_path, storage_host, _utc_now(), remote_path),
             )
+
+    def mark_deferred(self, remote_path: str, kind: str, host: Optional[str] = None) -> None:
+        """Файл не скачался по вине Яндекса — остаётся в очереди, не сбойный.
+
+        Попытки (attempts) не тратятся: сервер хранения молчит не по вине файла.
+        Превью, если было, остаётся лежать до появления оригинала.
+        """
+        with self._tx() as conn:
+            conn.execute(
+                """
+                UPDATE files
+                   SET status = 'pending',
+                       error = ?,
+                       storage_host = COALESCE(?, storage_host)
+                 WHERE remote_path = ?
+                """,
+                (deferred_marker(kind, host), host, remote_path),
+            )
+
+    def get_waiting_stats(self) -> int:
+        """Сколько файлов сейчас ждут Яндекса (отложенные, не сбойные)."""
+        row = self._conn().execute(
+            "SELECT COUNT(*) AS n FROM files WHERE status='pending' "
+            "AND error LIKE ?",
+            (DEFERRED_PREFIX + "%",),
+        ).fetchone()
+        return int(row["n"] or 0)
+
+    def get_deferred(self) -> Iterable[sqlite3.Row]:
+        """Отложенные файлы — их пробуем первыми, до остальной очереди."""
+        return self._conn().execute(
+            "SELECT remote_path, size, md5, error, storage_host FROM files "
+            "WHERE status='pending' AND error LIKE ? ORDER BY rowid ASC",
+            (DEFERRED_PREFIX + "%",),
+        )
+
+    def clear_deferred_marks(self) -> int:
+        """Снимает маркеры «ждёт Яндекса», возвращая файлы в обычную очередь."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                "UPDATE files SET error = NULL WHERE status='pending' AND error LIKE ?",
+                (DEFERRED_PREFIX + "%",),
+            )
+            return cur.rowcount
+
+    def set_preview_path(self, remote_path: str, preview_path: Optional[str]) -> None:
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE files SET preview_path = ? WHERE remote_path = ?",
+                (preview_path, remote_path),
+            )
+
+    def get_preview_paths(self) -> Iterable[sqlite3.Row]:
+        """Все записи с превью — для выметания остатков при старте."""
+        return self._conn().execute(
+            "SELECT remote_path, local_path, preview_path, status FROM files "
+            "WHERE preview_path IS NOT NULL"
+        )
 
     def mark_failed(self, remote_path: str, error: str) -> None:
         """Помечает файл сбойным и увеличивает счётчик попыток."""
@@ -164,8 +248,14 @@ class State:
             )
             return cur.rowcount
 
-    def get_pending(self, order_by: str = "rowid ASC") -> Iterable[sqlite3.Row]:
-        """Возвращает курсор с pending-файлами. Читается лениво, без загрузки всего в RAM."""
+    def get_pending(
+        self, order_by: str = "rowid ASC", deferred_first: bool = False
+    ) -> Iterable[sqlite3.Row]:
+        """Возвращает курсор с pending-файлами. Читается лениво, без загрузки всего в RAM.
+
+        `deferred_first=True` ставит вперёд файлы, которые в прошлый раз ждали
+        Яндекса: их немного, и их стоит попробовать, как только сервер ожил.
+        """
         valid_orders = {
             "rowid ASC": "rowid ASC",
             "rowid DESC": "rowid DESC",
@@ -173,8 +263,12 @@ class State:
             "size DESC": "size DESC",
         }
         order = valid_orders.get(order_by, "rowid ASC")
+        prefix = ""
+        if deferred_first:
+            prefix = f"(error LIKE '{DEFERRED_PREFIX}%') DESC, "
         return self._conn().execute(
-            f"SELECT remote_path, size, md5 FROM files WHERE status='pending' ORDER BY {order}"
+            "SELECT remote_path, size, md5, error, storage_host FROM files "
+            f"WHERE status='pending' ORDER BY {prefix}{order}"
         )
 
     def get_failed(self) -> Iterable[sqlite3.Row]:
@@ -198,6 +292,7 @@ class State:
             "downloaded": 0,
             "failed": 0,
             "skipped": 0,
+            "waiting": 0,
             "total": 0,
             "bytes_total": 0,
             "bytes_downloaded": 0,
@@ -208,6 +303,10 @@ class State:
             stats["bytes_total"] += r["bytes"] or 0
             if r["status"] in ("downloaded", "skipped"):
                 stats["bytes_downloaded"] += r["bytes"] or 0
+        try:
+            stats["waiting"] = self.get_waiting_stats()
+        except sqlite3.Error:
+            stats["waiting"] = 0
         return stats
 
     def reset(self) -> None:

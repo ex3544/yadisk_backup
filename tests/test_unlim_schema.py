@@ -48,7 +48,7 @@ def test_migration_repairs_database_without_tables(tmp_path):
 
     assert {"unlim_files", "unlim_clusters"} <= _tables(con)
     assert result["from_version"] == 1
-    assert result["to_version"] == 2
+    assert result["to_version"] == len(unlim_schema.MIGRATIONS)
     con.close()
 
 
@@ -73,7 +73,7 @@ def test_force_recreate_restores_schema(monkeypatch, tmp_path):
 
     con = ub.get_db(db)
     assert {"unlim_files", "unlim_clusters"} <= _tables(con)
-    assert db_migrations.get_user_version(con) == 2
+    assert db_migrations.get_user_version(con) == len(unlim_schema.MIGRATIONS)
     # Старая запись удалена, новая собрана из облака.
     assert con.execute("SELECT file_id FROM unlim_files").fetchall()[0][0] == "new"
     con.close()

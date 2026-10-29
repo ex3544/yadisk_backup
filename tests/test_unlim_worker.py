@@ -323,3 +323,48 @@ def test_zero_status_is_written_before_auth(tmp_path, monkeypatch):
     assert data["active"] is True
     assert data["success"] == 0
     assert "started_at" in data
+
+
+# ── отложенные файлы Безлимита (35.6.3) ─────────────────────────────────────
+
+
+def test_mark_deferred_keeps_file_pending_and_refunds_attempt(db):
+    """Сервер хранения молчит — это не вина файла: попытку не тратим."""
+    import unlim_backup
+
+    uw.ensure_attempts_column()
+    # take_batch уже списал попытку — mark_deferred её возвращает.
+    unlim_backup.take_batch(Path(db), 10)
+    assert status_of(db, "1") == ("in_progress", 1)
+    unlim_backup.mark_deferred(Path(db), "1", "storage.yandex.net")
+
+    con = sqlite3.connect(db)
+    try:
+        row = con.execute(
+            "SELECT status, error, storage_host, attempts, assigned_at "
+            "FROM unlim_files WHERE file_id='1'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert row[0] == "pending"
+    assert row[1] == "storage_down | storage.yandex.net"
+    assert row[2] == "storage.yandex.net"
+    assert row[3] == 0
+    assert row[4] is None
+
+
+def test_mark_deferred_without_host():
+    import unlim_backup
+
+    assert unlim_backup.deferred_error(None) == "storage_down"
+    assert unlim_backup.deferred_error("h") == "storage_down | h"
+
+
+def test_deferred_batch_is_not_counted_as_skipped(monkeypatch):
+    """Итог прохода: отложенные отдельно от пропущенных."""
+    import unlim_backup
+
+    src = Path(unlim_backup.__file__).read_text(encoding="utf-8")
+    assert 'msg.startswith(("storage_down", "storage_skip"))' in src
+    assert "total_deferred_files" in src
+    assert "ждут Яндекса" in src

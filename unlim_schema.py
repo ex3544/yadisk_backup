@@ -56,10 +56,24 @@ def _migration_2(conn: sqlite3.Connection) -> None:
     db_migrations.execute_script(conn, DB_SCHEMA)
 
 
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """Сервер хранения и превью отложенного фото.
+
+    `storage_host` — какой сервер Яндекса не отдал файл, `preview_path` —
+    уменьшенная копия, которая лежит в папке, пока оригинал ждёт.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(unlim_files)")}
+    if "storage_host" not in cols:
+        conn.execute("ALTER TABLE unlim_files ADD COLUMN storage_host TEXT")
+    if "preview_path" not in cols:
+        conn.execute("ALTER TABLE unlim_files ADD COLUMN preview_path TEXT")
+
+
 # История схемы. Добавлять только в конец, не переименовывать версии.
 MIGRATIONS: list[db_migrations.Migration] = [
     (1, _migration_1),
     (2, _migration_2),
+    (3, _migration_3),
 ]
 
 

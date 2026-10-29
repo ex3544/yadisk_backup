@@ -725,3 +725,58 @@ def test_update_download_button_is_one_shot():
     assert "const alreadyReady = _lastUpdate && _lastUpdate.state === 'ready';" in html
     # В ошибке кнопку возвращаем — иначе обновление не повторить.
     assert "if(install && u.version){" in html
+
+
+def test_waiting_files_banner_and_retry_now():
+    """«Ждут Яндекса» — отдельная плашка, отложенные файлы не пугают как сбойные."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert 'id="waiting-banner"' in html
+    assert 'id="waiting-banner-count"' in html
+    assert "function retryWaiting()" in html
+    assert "Попробовать сейчас" in html
+    # Счётчик считает обе базы: Диск и Безлимит.
+    assert "function waitingTotal(s)" in html
+    assert "waiting" in py and '"waiting": 0' in py
+    assert "storage_down%" in py
+
+
+def test_disk_offline_banner_explains_what_to_do():
+    """B0: диск отключён посреди прохода — понятная плашка, а не красный сбой."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert 'id="disk-offline-banner"' in html
+    assert "Диск отключён" in html
+    assert "disk_offline" in html
+    assert '"disk_state": disk_status.get("state")' in py
+    assert "disk_offline" in (PROJECT_DIR / "downloader.py").read_text(encoding="utf-8")
+
+
+def test_folder_check_button_explains_the_path():
+    """A1/A2: подсказка про полный путь и проверка папки без её создания."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    utils = (PROJECT_DIR / "utils.py").read_text(encoding="utf-8")
+
+    assert html.count("Проверить папку") >= 4  # две карточки + два шага мастера
+    assert "function checkFolder(inputId, statusId)" in html
+    assert "function _looksAbsolute(p)" in html
+    assert "Полный путь с буквой диска" in html
+    assert "/api/check_dir" in html and "/api/check_dir" in py
+    assert "def check_target_path(path" in utils
+    # Проверка не создаёт папку: пользователь может ошибиться в пути.
+    assert "os.makedirs" not in utils.split("def check_target_path")[1].split("def ")[0]
+
+
+def test_previews_toggle_lives_in_settings():
+    """B3: превью отложенных фото настраиваются и по умолчанию включены."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert 'id="previews-btn"' in html
+    assert "function togglePreviews()" in html
+    assert "/api/config/previews" in html and "/api/config/previews" in py
+    assert 'set_key(str(ENV_FILE), "PREVIEWS"' in py
+    assert '"--no-previews"' in py

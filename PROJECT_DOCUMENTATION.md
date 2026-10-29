@@ -898,3 +898,82 @@ heartbeat работает, `/summary` отвечает `501`. Привязка 
 (Безлимит). Результат отправки отчёта сворачивается в строку
 `.list-toggle` («✅ Отчёт отправлен · 1,2 МБ»), список отчётов — тоже
 сворачиваемый; после сборки отчёт раскрыт для чтения.
+
+## 25. Октябрь 2026: внешний диск и «молчащие» серверы (v35.6.3)
+
+**Зачем.** Первый тестер работает на внешнем диске `G:` и видел два разных беды
+как одну: «451 сбойный файл». На самом деле часть файлов не отдавали серверы
+Яндекса (их надо просто дождаться), часть падала с `WinError 3`, когда диск
+отключали, а сообщения были одинаковыми и не подсказывали, что делать.
+
+### A1/A2 — путь и проверка папки
+
+Под полем пути — подсказка «полный путь с буквой диска, например `G:\Бэкап`».
+Относительный путь не блокируется: `saveDiskDir()`/`saveUnlimDir()`/`finishSetup()`
+показывают мягкое предупреждение (`toast(..., 'warn')`), `_looksAbsolute()`
+распознаёт `X:\`, `\server` и `/`.
+
+`utils.check_target_path()` проверяет папку, ничего не создавая: буква диска
+(если корня `G:\` нет — «Диска G: сейчас нет»), ближайший существующий родитель,
+права на запись, свободное место; возвращает готовую фразу для интерфейса.
+Роут — `POST /api/check_dir` (`DirCheckPayload`), кнопка «Проверить папку» —
+`checkFolder(inputId, statusId)`.
+
+### A3 — куда скачиваем
+
+`download_all()` и `run_backup()` печатают первой строкой
+`Скачиваем в: <абсолютный путь>` — до проверки токена и сбора списка.
+
+### B0 — типизация локальных ошибок
+
+`utils.classify_local_error()` делит `OSError`: `WinError 123/206/225`,
+`ENAMETOOLONG`, `EINVAL`, `EILSEQ` → `local_file` (виновато имя файла);
+`WinError 112`, `ENOSPC` → `disk_full`; остальное → `local_disk`.
+`DownloadResult.is_local_error` истинно для `failed` с `local_disk|local_file`.
+`download_all()` считает такие ошибки подряд: `LOCAL_ERROR_LIMIT = 8` останавливает
+проход (`stop_state="disk_offline"`, `pool.shutdown(cancel_futures=True)`),
+файлы остаются в очереди, попытки не тратятся. Успешный файл сбрасывает счётчик.
+UI показывает плашку `#disk-offline-banner` по `disk_state` из `/api/status`.
+
+### B1 — `fetch.py`
+
+Своя загрузка вместо `client.download()`: `get_download_link()` → цикл до 5 хопов
+с `allow_redirects=False` → `urljoin`, поэтому известен host сервера хранения.
+`DeadHosts` (TTL `30*60` с, `threading.Lock`, `clock=time.monotonic`) хранит
+молчащие серверы: `is_dead(host)` → `storage_skip` без запроса. OAuth-токен
+уходит только на первом запросе (он в заголовке ссылки от API), на хранилище —
+обычный GET. Поток 1 МиБ, MD5 и размер считаются на лету; запись в
+`.yadisk-<hex>.part` → `os.replace` (старый файл не удаляется заранее — при
+сбое остаётся предыдущая копия). `FetchFailure` типизирован:
+`storage_down/storage_skip/server_50x/rate_limit/timeout/connection` (отложить),
+`not_found/refused/bad_file/local_*` (сбой или локальная проблема).
+`scrub_urls()` вычищает подписанные ссылки из текстов ошибок и логов.
+
+### B2 — «ждут Яндекса»
+
+`state.mark_deferred(remote_path, kind, host)` оставляет файл `pending` с
+маркером `error = "storage_down | <host>"`, пишет `storage_host`, `attempts`
+не трогает; `is_deferred_error()` и `deferred_marker()` — общий формат с
+`unlim_backup`. `get_pending(deferred_first=True)` ставит отложенные вперёд.
+`get_stats()`/`db_stats()` отдают `waiting`. В UI — плашка `#waiting-banner`
+(счётчик `waitingTotal(s)` по обеим базам) и кнопка «Попробовать сейчас»
+(`retryWaiting()` → `/api/download/start`). В конце прохода журнал пишет
+«Из N ждавших Яндекса скачано M».
+
+У Безлимита `take_batch()` увеличивает `attempts` при выдаче пачки, поэтому
+`mark_deferred()` откатывает её (`attempts - 1`) и обнуляет `assigned_at`.
+Результаты с `storage_down`/`storage_skip` не считаются `skipped` — иначе
+отложенные файлы возвращались бы в очередь как сбойные.
+
+### B3 — превью отложенных фото
+
+`previews.py`: `preview_path_for()` кладёт копию в `<папка>/_превью/<путь>.jpg`;
+`make_disk_preview()` пробует `client.get_meta(preview_size=X)` для
+`XXXL → XXL → XL`; у Безлимита `unlim_preview_url()` делает POST
+`models-v2?m=mpfs/info` с `requestParams: {path, meta: "sizes"}` и берёт
+`XXXL/XXL/XL` из `meta.sizes`. Запись атомарная (`fetch_to_file`), путь
+хранится в `preview_path` (миграции `state.py` №3–4, `unlim_schema.py` №3).
+`sweep()` при старте удаляет превью у скачанных/пропущенных файлов, забывает
+пути пропавших и чистит брошенные `.part` старше суток. Настройка
+`PREVIEWS` (по умолчанию включена), роут `POST /api/config/previews`,
+у Безлимита `--no-previews`.

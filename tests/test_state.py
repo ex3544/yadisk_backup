@@ -115,3 +115,55 @@ def test_reset_recreates_schema_and_resets_version(st):
     assert st.get_stats()["total"] == 0
     st.mark_pending("disk:/b.jpg", 2, None)
     assert st.get_stats()["pending"] == 1
+
+
+# ── отложенные файлы (ждут Яндекса) ─────────────────────────────────────────
+
+
+def test_deferred_file_stays_pending_and_counts_as_waiting(st):
+    st.mark_pending("disk:/a.jpg", 100, None)
+    st.mark_deferred("disk:/a.jpg", "storage_down", "storage.yandex.net")
+    stats = st.get_stats()
+    assert stats["pending"] == 1
+    assert stats["failed"] == 0
+    assert stats["waiting"] == 1
+    row = next(iter(st.get_pending()))
+    assert row["error"] == "storage_down | storage.yandex.net"
+    assert row["storage_host"] == "storage.yandex.net"
+
+
+def test_deferred_marker_without_host():
+    from state import deferred_marker
+
+    assert deferred_marker("timeout") == "storage_down"
+    assert deferred_marker("server_50x", "h") == "storage_down | h"
+
+
+def test_get_pending_puts_deferred_first(st):
+    st.mark_pending("disk:/plain.jpg", 1, None)
+    st.mark_pending("disk:/wait.jpg", 1, None)
+    st.mark_deferred("disk:/wait.jpg", "storage_down", "h")
+    first = next(iter(st.get_pending(deferred_first=True)))
+    assert first["remote_path"] == "disk:/wait.jpg"
+
+
+def test_mark_downloaded_clears_deferred_marker_and_preview(st):
+    st.mark_pending("disk:/a.jpg", 10, None)
+    st.mark_deferred("disk:/a.jpg", "storage_down", "h")
+    st.set_preview_path("disk:/a.jpg", "C:/out/_превью/a.jpg")
+    st.mark_downloaded("disk:/a.jpg", "C:/out/a.jpg")
+    stats = st.get_stats()
+    assert stats["downloaded"] == 1
+    assert stats["waiting"] == 0
+    assert list(st.get_preview_paths()) == []
+
+
+def test_clear_deferred_marks_returns_to_plain_queue(st):
+    st.mark_pending("disk:/a.jpg", 10, None)
+    st.mark_deferred("disk:/a.jpg", "storage_down", "h")
+    assert st.clear_deferred_marks() == 1
+    assert st.get_stats()["waiting"] == 0
+
+
+def test_waiting_is_zero_on_empty_db(st):
+    assert st.get_stats()["waiting"] == 0

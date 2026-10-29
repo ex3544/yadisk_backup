@@ -35,13 +35,16 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 import urllib3.util.connection as urllib3_cn
 
 import db_migrations
 import paths
+import previews as preview_mod
 import unlim_schema
+from fetch import DeadHosts
 from utils import check_target_dir
 
 # Принудительно отключаем IPv6 для исключения таймаутов на неработающем IPv6 (VirtualBox / NAT)
@@ -542,6 +545,70 @@ def mark_skipped(db_path: Path, file_id: str, error: str):
     con.close()
 
 
+# Маркер «файл ждёт Яндекса» — тот же, что у Диска (state.py), чтобы веб-панель
+# считала отложенные файлы в обеих базах одинаково.
+DEFERRED_PREFIX = "storage_down"
+
+# Реестр молчащих серверов хранения — общий на весь процесс.
+DEAD_HOSTS = DeadHosts()
+
+
+def deferred_error(host: str | None) -> str:
+    return f"{DEFERRED_PREFIX} | {host}" if host else DEFERRED_PREFIX
+
+
+def mark_deferred(db_path: Path, file_id: str, host: str | None):
+    """Файл не скачался по вине Яндекса — возвращаем в очередь, попытку не тратим.
+
+    `take_batch` уже увеличил attempts при выдаче пачки; здесь откатываем его,
+    иначе молчащий сервер сожжёт все три попытки и файл уйдёт в 'failed'.
+    """
+    con = get_db(db_path)
+    with con:
+        con.execute(
+            """UPDATE unlim_files
+               SET status='pending', error=?, storage_host=?,
+                   attempts = CASE WHEN COALESCE(attempts, 0) > 0 THEN attempts - 1 ELSE 0 END,
+                   assigned_at=NULL
+               WHERE file_id=?""",
+            (deferred_error(host)[:300], host, file_id),
+        )
+    con.close()
+
+
+def save_preview_for_deferred(
+    db_path: Path,
+    session: requests.Session,
+    sk: str,
+    uid: str,
+    file_id: str,
+    name: str,
+    out_dir: Path,
+) -> str | None:
+    """Превью отложенного фото Безлимита. Никогда не бросает исключений."""
+    if not preview_mod.is_photo(name):
+        return None
+    link = preview_mod.unlim_preview_url(session, sk, uid, file_id, BASE_URL)
+    if not link:
+        return None
+    dst = preview_mod.preview_path_for(str(out_dir), name)
+    try:
+        preview_mod.save_from_link(link, dst, dead_hosts=DEAD_HOSTS)
+    except Exception:  # noqa: BLE001 — превью необязательно
+        return None
+    try:
+        con = get_db(db_path)
+        with con:
+            con.execute(
+                "UPDATE unlim_files SET preview_path=? WHERE file_id=?",
+                (dst, file_id),
+            )
+        con.close()
+    except sqlite3.Error:
+        pass
+    return dst
+
+
 # ── Потоковая загрузка одного файла ──────────────────────────────────────────
 
 
@@ -564,6 +631,7 @@ def download_one_file(
     use_proxy: bool = False,
     proxy_url: str = "",
     timeout: float = 7.0,
+    make_previews: bool = True,
 ) -> tuple[bool, int, str]:
     fid = item["file_id"]
     name = item["name"]
@@ -615,6 +683,16 @@ def download_one_file(
     if download_url.startswith("//"):
         download_url = "https:" + download_url
 
+    # Сервер хранения, который отдаёт файл. Если он уже молчит — не тратим
+    # на него 7 секунд таймаута: файл просто ждёт следующего раза.
+    try:
+        host = urlparse(download_url).hostname
+    except ValueError:
+        host = None
+    if DEAD_HOSTS.is_dead(host):
+        mark_deferred(db_path, fid, host)
+        return False, 0, f"{DEFERRED_PREFIX}: сервер {host} не отвечает"
+
     # 2. Локальный путь
     dst_path = out_dir / name
     if dst_path.exists():
@@ -653,6 +731,17 @@ def download_one_file(
             if tmp_path.exists():
                 try: tmp_path.unlink()
                 except OSError: pass
+            # 429 и 5xx — это «Яндекс не отдаёт», а не «файл плохой»: сервер
+            # помечаем мёртвым и откладываем файл, не тратя попытку.
+            if resp.status_code == 429 or resp.status_code >= 500:
+                first_failure = not DEAD_HOSTS.is_dead(host)
+                DEAD_HOSTS.mark(host)
+                mark_deferred(db_path, fid, host)
+                if make_previews and first_failure:
+                    # Превью просим только на первом сбое сервера: дальше он уже
+                    # помечен мёртвым, и лишние запросы только тормозят проход.
+                    save_preview_for_deferred(db_path, s, sk, uid, fid, name, out_dir)
+                return False, 0, f"{DEFERRED_PREFIX}: CDN HTTP {resp.status_code}"
             err = f"CDN HTTP {resp.status_code}"
             mark_skipped(db_path, fid, err)
             return False, 0, err
@@ -664,6 +753,16 @@ def download_one_file(
         if tmp_path.exists():
             try: tmp_path.unlink()
             except OSError: pass
+        if isinstance(e, (requests.RequestException, TimeoutError)):
+            # Обрыв соединения или медленная отдача файла: сервер мог умереть,
+            # файл не виноват — откладываем и пробуем позже.
+            first_failure = not DEAD_HOSTS.is_dead(host)
+            if isinstance(e, requests.RequestException) and not isinstance(e, requests.Timeout):
+                DEAD_HOSTS.mark(host)
+            mark_deferred(db_path, fid, host)
+            if make_previews and first_failure:
+                save_preview_for_deferred(db_path, s, sk, uid, fid, name, out_dir)
+            return False, 0, f"{DEFERRED_PREFIX}: {type(e).__name__}"
         err = f"Download error: {e}"
         mark_skipped(db_path, fid, err)
         return False, 0, err
@@ -687,6 +786,7 @@ def update_status_file(status_file: Path, active: bool, **kwargs):
         "items_total": kwargs.get("items_total", 0),
         "success": kwargs.get("success", 0),
         "skipped": kwargs.get("skipped", 0),
+        "deferred": kwargs.get("deferred", 0),
         "speed_mb": round(kwargs.get("mb_s", 0.0), 2),
         "speed_mbit": round(kwargs.get("mbit_s", 0.0), 1),
         "total_mb": round(kwargs.get("total_bytes", 0) / (1024 * 1024), 2),
@@ -719,11 +819,16 @@ def run_backup(
     proxy_url: str = "http://127.0.0.1:10808",
     status_file: Path | None = None,
     sort_after: bool = False,
+    make_previews: bool = True,
 ):
     out_dir = Path(out_dir_path)
     problem = check_target_dir(out_dir)
     if problem:
         sys.exit(f"[-] {problem}")
+
+    # A3: первая строка журнала — куда сохраняем. Ответ на вопрос «а куда оно
+    # качает?» должен быть виден до всей остальной диагностики.
+    print(f"Скачиваем в: {out_dir}", flush=True)
 
     # Нулевой статус до авторизации и сборки списка: плашка в UI сразу показывает
     # «идёт», а не «⏳ подготовка», пока идут сетевые запросы к Яндексу.
@@ -779,6 +884,7 @@ def run_backup(
     total_downloaded_files = 0
     total_downloaded_bytes = 0
     total_skipped_files = 0
+    total_deferred_files = 0
     # Считаем пропущенные по уникальным file_id: во второй фазе те же файлы
     # берутся повторно, и простой счётчик давал двойное число (1951 против 970
     # сбойных в базе).
@@ -823,6 +929,7 @@ def run_backup(
             batch_bytes = 0
             batch_success = 0
             batch_skipped = 0
+            batch_deferred = 0
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 future_to_item = {
@@ -837,6 +944,7 @@ def run_backup(
                         use_proxy,
                         proxy_url,
                         timeout,
+                        make_previews,
                     ): it
                     for it in items
                 }
@@ -848,6 +956,11 @@ def run_backup(
                         batch_bytes += sz
                         # Файл, сбойнувший в первой фазе и скачанный во второй,
                         # сбойным уже не считается.
+                        skipped_ids.discard(future_to_item[future]["file_id"])
+                    elif msg.startswith(("storage_down", "storage_skip")):
+                        # Яндекс не отдал файл: он остался pending и ждёт
+                        # следующего раза — сбойным не считаем.
+                        batch_deferred += 1
                         skipped_ids.discard(future_to_item[future]["file_id"])
                     else:
                         batch_skipped += 1
@@ -866,6 +979,7 @@ def run_backup(
                             items_total=len(items),
                             success=total_downloaded_files + batch_success,
                             skipped=len(skipped_ids),
+                            deferred=total_deferred_files + batch_deferred,
                             mb_s=cur_mb,
                             mbit_s=cur_mbit,
                             total_bytes=total_downloaded_bytes + batch_bytes,
@@ -886,6 +1000,7 @@ def run_backup(
             total_downloaded_files += batch_success
             total_downloaded_bytes += batch_bytes
             total_skipped_files = len(skipped_ids)
+            total_deferred_files += batch_deferred
 
             print()
             print(
@@ -918,6 +1033,7 @@ def run_backup(
                 error=fatal_code,
                 success=total_downloaded_files,
                 skipped=total_skipped_files,
+                deferred=total_deferred_files,
                 total_bytes=total_downloaded_bytes,
             )
 
@@ -926,7 +1042,13 @@ def run_backup(
         print("[!] " + fatal_error, flush=True)
 
     print("\n" + "=" * 70)
-    print(f"ИТОГО В ЭТОМ ЗАПУСКЕ: {total_downloaded_files} скачано, {total_skipped_files} пропущено / {total_downloaded_bytes / (1024*1024*1024):.2f} GB")
+    summary = (
+        f"ИТОГО В ЭТОМ ЗАПУСКЕ: {total_downloaded_files} скачано, "
+        f"{total_skipped_files} пропущено"
+    )
+    if total_deferred_files:
+        summary += f", {total_deferred_files} ждут Яндекса"
+    print(f"{summary} / {total_downloaded_bytes / (1024*1024*1024):.2f} GB")
     print(f"Файлы сохранены в: {out_dir}")
     print("=" * 70)
 
@@ -1001,6 +1123,7 @@ def main():
     parser.add_argument("--scan-only", action="store_true", help="Только сформировать или дополнить базу данных из облака без скачивания файлов")
     parser.add_argument("--force", action="store_true", help="Принудительно пересоздать базу данных с нуля, даже если unlim_state.db уже существует на диске")
     parser.add_argument("--sort-after", action="store_true", help="После скачивания сразу разложить файлы по датам (organize.py, быстрый режим без MD5)")
+    parser.add_argument("--no-previews", action="store_true", help="Не сохранять превью фото, которые сейчас ждут Яндекса")
     parser.add_argument("--web", action="store_true", help="Запустить веб-интерфейс дашборда (http://127.0.0.1:8000)")
     parser.add_argument("--cli", action="store_true", help="Принудительный запуск в консольном режиме без аргументов")
 
@@ -1069,6 +1192,7 @@ def main():
         proxy_url=args.proxy_url,
         status_file=status_file,
         sort_after=args.sort_after,
+        make_previews=not args.no_previews,
     )
 
 

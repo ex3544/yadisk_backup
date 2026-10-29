@@ -902,3 +902,89 @@ def test_write_dir_setting_updates_env_for_both_scopes(monkeypatch, tmp_path):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+# ── 35.6.3: проверка папки, ожидание Яндекса, превью ────────────────────────
+
+
+def test_check_dir_endpoint_reports_unreachable_path(tmp_path):
+    """Кнопка «Проверить папку» отвечает по-русски и папку не создаёт."""
+    blocker = tmp_path / "disk.txt"
+    blocker.write_text("x")  # файл на месте родительской папки
+    missing = blocker / "sub"
+    info = webui.api_check_dir(webui.DirCheckPayload(path=str(missing)))
+    assert info["ok"] is False
+    assert info["message"].startswith("❌")
+    assert not missing.exists()  # проверка ничего не создаёт
+
+
+def test_check_dir_endpoint_accepts_new_folder_on_existing_parent(tmp_path):
+    """Новой папки ещё нет — это нормально: программа создаст её при старте."""
+    absence = tmp_path / "no" / "such"
+    info = webui.api_check_dir(webui.DirCheckPayload(path=str(absence)))
+    assert info["ok"] is True
+    assert info["exists"] is False
+    assert "создам" in info["message"]
+    assert not absence.exists()  # проверка ничего не создаёт
+
+
+def test_check_dir_endpoint_accepts_existing_folder(tmp_path):
+    info = webui.api_check_dir(webui.DirCheckPayload(path=str(tmp_path)))
+    assert info["ok"] is True
+    assert info["exists"] is True
+    assert info["free_bytes"] > 0
+
+
+def test_check_dir_flags_relative_path(tmp_path):
+    info = webui.api_check_dir(webui.DirCheckPayload(path="backup"))
+    assert info["relative"] is True
+    assert "относительный" in info["message"]
+
+
+def test_previews_env_flag_defaults_on(monkeypatch):
+    monkeypatch.delenv("PREVIEWS", raising=False)
+    assert webui._env_flag("PREVIEWS", True) is True
+    monkeypatch.setenv("PREVIEWS", "0")
+    assert webui._env_flag("PREVIEWS", True) is False
+    monkeypatch.setenv("PREVIEWS", "no")
+    assert webui._env_flag("PREVIEWS", True) is False
+
+
+def test_db_stats_counts_deferred_as_waiting(tmp_path):
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (remote_path TEXT, status TEXT, size INTEGER, "
+        "error TEXT, downloaded_at REAL)"
+    )
+    rows = [
+        ("disk:/a.jpg", "pending", 10, "storage_down | h"),
+        ("disk:/b.jpg", "pending", 10, None),
+        ("disk:/c.jpg", "failed", 10, "boom"),
+        ("disk:/d.jpg", "downloaded", 10, None),
+    ]
+    con.executemany("INSERT INTO files VALUES (?,?,?,?,NULL)", rows)
+    con.commit()
+    con.close()
+
+    stats = webui.db_stats(db, "files", "remote_path")
+    assert stats["waiting"] == 1
+    assert stats["pending"] == 2
+    assert stats["failed"] == 1
+
+
+def test_db_stats_waiting_is_zero_without_db(tmp_path):
+    stats = webui.db_stats(tmp_path / "missing.db", "files", "remote_path")
+    assert stats["waiting"] == 0
+
+
+def test_status_reports_disk_state(monkeypatch, tmp_path):
+    """Состояние прохода Диска доходит до UI: по нему видно отключение (B0)."""
+    import json
+
+    status = tmp_path / "disk_status.json"
+    status.write_text(json.dumps({"active": False, "state": "disk_offline"}),
+                      encoding="utf-8")
+    monkeypatch.setattr(webui.paths, "DISK_STATUS_FILE", status)
+    body = webui.api_status()
+    assert body["disk_state"] == "disk_offline"

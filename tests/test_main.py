@@ -100,3 +100,39 @@ def test_retry_without_failed_skips_second_pass(monkeypatch, tmp_path):
     assert len(downloads) == 1
     assert state.closed is True
     assert rc == 0
+
+
+# ── 35.6.3: общий реестр мёртвых серверов и превью ─────────────────────────
+
+
+def test_download_shares_dead_host_registry_between_passes(monkeypatch, tmp_path):
+    """Мёртвый сервер не должен заново ждать по 10 секунд во втором проходе."""
+    rc, state, calls = _run_download(monkeypatch, tmp_path, retry=True,
+                                     failed_to_reset=2)
+    assert rc == 0
+    assert len(calls) == 2
+    assert calls[0]["dead_hosts"] is calls[1]["dead_hosts"]
+    from fetch import DeadHosts
+
+    assert isinstance(calls[0]["dead_hosts"], DeadHosts)
+
+
+def test_download_passes_previews_setting(monkeypatch, tmp_path):
+    rc, state, calls = _run_download(monkeypatch, tmp_path, retry=False,
+                                     failed_to_reset=0)
+    assert rc == 0
+    assert calls[0]["make_previews"] is True
+
+
+def test_summary_mentions_waiting_files_only_when_present(capsys):
+    main._print_summary(
+        {"downloaded": 1, "skipped": 0, "failed": 0, "deferred": 3, "bytes": 10}, 1.0
+    )
+    out = capsys.readouterr().out
+    assert "ждут Яндекса 3" in out
+
+    main._print_summary(
+        {"downloaded": 1, "skipped": 0, "failed": 0, "deferred": 0, "bytes": 10}, 1.0
+    )
+    out = capsys.readouterr().out
+    assert "ждут Яндекса" not in out
