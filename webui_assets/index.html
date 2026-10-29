@@ -24,6 +24,11 @@
     --orange:#ff9f0a;
     --purple:#bf5af2;
     --pink:#ff375f;
+    /* Журнал «Выполнение процесса»: на тёмной теме чёрный терминал, на
+       светлой — светлый лист. Литералами его красить нельзя, иначе в светлой
+       теме окно остаётся чёрным. */
+    --console-bg:#000000;
+    --console-text:#e5e5e7;
     /* Тёмные системные виджеты: выпадающие списки, стрелки числовых полей,
        полосы прокрутки — без этого они рисуются светлыми. */
     color-scheme:dark;
@@ -50,6 +55,8 @@
     --orange:#b86200;
     --purple:#8944ab;
     --pink:#c9184a;
+    --console-bg:#fbfbfd;
+    --console-text:#1c1c1e;
     color-scheme:light;
   }
   /* Белые «стеклянные» подложки на светлой теме не видны — даём серую. */
@@ -448,10 +455,10 @@
 
   /* ── Console ── */
   .console{
-    background:#000;border:0.5px solid var(--hairline);
+    background:var(--console-bg);border:0.5px solid var(--hairline);
     border-radius:10px;padding:14px;
     font-family:'SF Mono','Menlo','Consolas',monospace;
-    font-size:12px;color:#e5e5e7;
+    font-size:12px;color:var(--console-text);
     height:320px;min-height:140px;max-height:70vh;
     overflow-y:auto;white-space:pre-wrap;word-break:break-word;
   }
@@ -911,14 +918,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </span>
 </div>
 
-<div id="waiting-banner" class="tipnode tip-up" role="status"
-  data-tip="Это не сбойные файлы: серверы хранения Яндекса их сейчас не отдают. Они остались в очереди и докачаются сами при следующем запуске. Нажмите «Попробовать» — запросим прямо сейчас."
-  style="display:none; align-items:center; gap:10px; background:rgba(255,159,10,.12); border:0.5px solid rgba(255,159,10,.45); color:var(--text); padding:6px 10px 6px 12px; border-radius:10px; margin-bottom:12px; font-size:13.5px;">
-  <span style="opacity:.85">🕓</span>
-  <span><strong id="waiting-banner-count">0</strong> ждут Яндекса<span id="waiting-banner-host" style="color:var(--text-secondary)"></span></span>
-  <button class="ghost" style="padding:2px 10px; font-size:12.5px; margin-left:auto; white-space:nowrap;" onclick="retryWaiting()">Попробовать</button>
-</div>
-
 <div id="disk-offline-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
   🔌 Диск отключён — подключите его и нажмите «Продолжить».<br>
   <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
@@ -951,6 +950,15 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <div class="launch-desc">
         Обычный Диск (все файлы) + Безлимит (все фото и видео) одновременно.
         Настройки пошагового режима ниже не используются.
+      </div>
+      <!-- Плашка ожидания живёт внутри карточки запуска: отдельный блок над
+           заголовком занимал слишком много места. -->
+      <div id="waiting-banner" class="tipnode tip-up" role="status"
+        data-tip="Это не сбойные файлы: сервер хранения Яндекса их сейчас не отдаёт. Они остались в очереди и докачаются сами. Нажмите «Попробовать» — запросим прямо сейчас, включая сгоревшие."
+        style="display:none; align-items:center; gap:8px; background:rgba(255,159,10,.10); border:0.5px solid rgba(255,159,10,.40); color:var(--text); padding:4px 8px 4px 10px; border-radius:9px; margin-bottom:10px; font-size:12.5px;">
+        <span style="opacity:.85">🕓</span>
+        <span><strong id="waiting-banner-count">0</strong> ждут Яндекса<span id="waiting-banner-host" style="color:var(--text-secondary)"></span><span id="waiting-banner-lost" style="color:var(--text-secondary)"></span></span>
+        <button class="ghost" style="padding:1px 9px; font-size:12px; margin-left:auto; white-space:nowrap;" onclick="retryWaiting()">Попробовать</button>
       </div>
       <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:230px">
@@ -2929,26 +2937,53 @@ function waitingTotal(s){
   return (+d.waiting || 0) + (+u.waiting || 0);
 }
 
+// «Сгоревшие»: Яндекс отвечал 500 на эти файлы несколько проходов подряд.
+// Они уже не в очереди, но «Попробовать» вернёт их и запросит заново.
+function lostTotal(s){
+  const d = ((s || {}).disk || {}).db || {};
+  const u = ((s || {}).unlim || {}).db || {};
+  return (+d.lost || 0) + (+u.lost || 0);
+}
+
 // «Попробовать сейчас»: заново запросить отложенные файлы. Они остались в
 // очереди (pending), поэтому обычный запуск выгрузки их и подхватит.
 async function retryWaiting(){
   const s = _lastStatus || {};
   const diskW = +((((s.disk || {}).db) || {}).waiting || 0);
   const unlimW = +((((s.unlim || {}).db) || {}).waiting || 0);
-  const total = diskW + unlimW;
+  const lost = lostTotal(s);
+  const total = diskW + unlimW + lost;
   if (!total) return;
+  // Сгоревшие файлы вышли из очереди — возвращаем их по явному клику.
+  if (lost > 0) {
+    try {
+      const r = await fetch('/api/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ what: 'lost' })
+      });
+      const d = await r.json();
+      if (!d.ok) toast('Сгоревшие: ' + (d.msg || 'не удалось вернуть в очередь'), 'err');
+    } catch (e) {
+      toast('Нет связи с программой: ' + e.message, 'err');
+    }
+  }
   // Запускаем обе линии, у которых есть ожидающие: раньше выбиралась только
   // та, где отложенных больше, и вторая линия молча оставалась стоять.
+  const diskL = +((((s.disk || {}).db) || {}).lost || 0);
+  const unlimL = +((((s.unlim || {}).db) || {}).lost || 0);
   const targets = [];
-  if (unlimW > 0) targets.push({ name: 'Безлимит', payload: {
+  if (unlimW + unlimL > 0) targets.push({ name: 'Безлимит', payload: {
     mode: 'unlim', media: 'all', target: 'pending', from_end: false, workers: 10,
     batch_size: 1000, batches: 0, timeout: 7.0, sort_after: false } });
-  if (diskW > 0) targets.push({ name: 'Диск', payload: { mode: 'disk' } });
+  if (diskW + diskL > 0) targets.push({ name: 'Диск', payload: { mode: 'disk' } });
   const where = targets.length > 1 ? 'обе линии (Диск и Безлимит)' : targets[0].name;
   const sure = await askConfirm({
     title: 'Попробовать сейчас?',
     text: `Программа заново запросит ${total.toLocaleString('ru')} файлов, которые ждут `
-      + 'ответа серверов Яндекса. Если серверы всё ещё молчат, файлы останутся '
+      + 'ответа серверов Яндекса'
+      + (lost > 0 ? `, включая ${lost.toLocaleString('ru')} сгоревших` : '')
+      + '. Если серверы всё ещё молчат, файлы останутся '
       + 'в очереди — ничего не потеряется. Запустится: ' + where + '.',
     ok: 'Попробовать сейчас'
   });
@@ -3787,9 +3822,16 @@ async function refresh(){
     const waitBanner = document.getElementById('waiting-banner');
     if (waitBanner) {
       const waitingNow = waitingTotal(s);
-      waitBanner.style.display = waitingNow > 0 ? 'flex' : 'none';
+      const lostNow = lostTotal(s);
+      waitBanner.style.display = (waitingNow + lostNow) > 0 ? 'flex' : 'none';
       const waitCount = document.getElementById('waiting-banner-count');
       if (waitCount) waitCount.textContent = waitingNow.toLocaleString('ru');
+      const waitLost = document.getElementById('waiting-banner-lost');
+      if (waitLost) {
+        waitLost.textContent = lostNow
+          ? ' · 🔥 ' + lostNow.toLocaleString('ru') + ' сгорели'
+          : '';
+      }
       // Имя молчащего сервера — чтобы было видно, чей это сбой. Если линии
       // разные, показываем тот, у кого отложенных больше.
       const waitHost = document.getElementById('waiting-banner-host');

@@ -1293,7 +1293,12 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
         # это первое, что надо смотреть при «обновление не сработало».
         "('помощник запущен ' + (Get-Date -Format s)) | "
         "Out-File -Append -Encoding utf8 " + _ps_quote(log_file),
-        "try { Wait-Process -Id " + str(pid) + " -Timeout 180 -ErrorAction Stop } catch { }",
+        # Ждём выхода приложения без ограничения по времени. Раньше стоял
+        # -Timeout 180: если приложение жило дольше (шла выгрузка), установщик
+        # ставился поверх работающего — у тестера 28.10 так пропал
+        # `_internal\certifi\cacert.pem`, и 866 файлов упали с OSError.
+        # Лучше не установить обновление вовсе, чем сломать живую программу.
+        "try { Wait-Process -Id " + str(pid) + " -ErrorAction Stop } catch { }",
         "Start-Sleep -Seconds 2",
         action,
         *restart_lines,
@@ -1429,6 +1434,7 @@ def db_stats(db_file: Path, table: str = "files",
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
+                "lost": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
@@ -1436,6 +1442,7 @@ def db_stats(db_file: Path, table: str = "files",
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
+               "lost": 0,
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
@@ -2018,7 +2025,7 @@ def _any_task_running(prefixes: tuple[str, ...]) -> bool:
 
 
 class ResetPayload(BaseModel):
-    what: str  # disk_failed | unlim_skipped | unlim_stuck
+    what: str  # disk_failed | unlim_skipped | unlim_stuck | lost
 
 
 @app.post("/api/reset")
@@ -2031,6 +2038,32 @@ def api_reset(payload: ResetPayload):
     """
     log_action("/api/reset", payload)
     what = payload.what
+
+    if what == "lost":
+        # «Сгоревшие» файлы: Яндекс отвечал 500 несколько проходов подряд.
+        # Это явное действие пользователя («Попробовать»), поэтому счётчик 5xx
+        # обнуляем — у файла снова три попытки.
+        if _any_task_running(("disk", "unlim")):
+            return {"ok": False, "msg": "Сначала остановите выгрузку"}
+        total = 0
+        for db_file, table in ((DB_FILE, "files"), (UNLIM_DB_FILE, "unlim_files")):
+            if not Path(db_file).exists():
+                continue
+            con = None
+            try:
+                con = sqlite3.connect(str(db_file), timeout=30)
+                with con:
+                    total += con.execute(
+                        f"UPDATE {table} SET status='pending', error=NULL, "
+                        f"server_fails=0, retry_after=NULL WHERE status='lost'"
+                    ).rowcount
+            except sqlite3.Error as e:
+                return {"ok": False, "msg": f"Ошибка БД: {e}"}
+            finally:
+                if con is not None:
+                    con.close()
+        return {"ok": True, "count": total,
+                "msg": f"Сгоревших файлов возвращено в очередь: {total}"}
 
     if what == "disk_failed":
         if _any_task_running(("disk",)):

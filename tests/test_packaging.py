@@ -783,16 +783,20 @@ def test_previews_toggle_lives_in_settings():
 
 
 def test_waiting_banner_is_a_compact_single_line():
-    """35.6.6: «ждут Яндекса» — одна узкая строка под шапкой, а не блок на пол-экрана."""
+    """35.6.7: плашка «ждут Яндекса» — узкая строка внутри карточки быстрого запуска."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     start = html.index('id="waiting-banner"')
     chunk = html[start:start + 1200]
     # Подробности переехали в подсказку, в самой плашке остались цифра, сервер и кнопка.
     assert "data-tip=" in chunk
-    assert "padding:6px 10px 6px 12px" in chunk
+    assert "padding:4px 8px 4px 10px" in chunk
     assert 'id="waiting-banner-host"' in chunk
     assert ">Попробовать</button>" in chunk
-    assert "waitingNow > 0 ? 'flex' : 'none'" in html
+    assert "(waitingNow + lostNow) > 0 ? 'flex' : 'none'" in html
+    # Отдельного блока под шапкой больше нет: плашка внутри карточки запуска.
+    card = html.index('id="launch-all-card"')
+    assert card < start < html.index('id="launch-manual-card"')
+    assert html.count('id="waiting-banner"') == 1
 
 
 def test_retry_waiting_starts_both_lines():
@@ -800,8 +804,8 @@ def test_retry_waiting_starts_both_lines():
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     start = html.index("async function retryWaiting()")
     chunk = html[start:start + 2600]
-    assert "if (unlimW > 0) targets.push" in chunk
-    assert "if (diskW > 0) targets.push" in chunk
+    assert "if (unlimW + unlimL > 0) targets.push" in chunk
+    assert "if (diskW + diskL > 0) targets.push" in chunk
     assert "for (const t of targets)" in chunk
 
 
@@ -873,3 +877,16 @@ def test_previews_dir_can_be_chosen_and_defaults_to_drive_c():
     assert "Рекомендуем оставить на диске" in html
     assert "def preview_root()" in prev
     assert 'os.getenv("PREVIEWS_DIR")' in prev
+
+
+def test_console_follows_theme():
+    """35.6.7: журнал не должен оставаться чёрным в светлой теме."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "--console-bg:#000000" in html
+    assert "--console-bg:#fbfbfd" in html
+    start = html.index(".console{")
+    chunk = html[start:start + 300]
+    assert "background:var(--console-bg)" in chunk
+    assert "color:var(--console-text)" in chunk
+    # Литералов в самом блоке быть не должно — из-за них окно и чернело.
+    assert "background:#000" not in chunk

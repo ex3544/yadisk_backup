@@ -428,3 +428,69 @@ def test_run_backup_finishes_pass_when_everything_waits_for_yandex(db, tmp_path,
     assert "ждут Яндекса" in out
     # Один батч из двух файлов, и ни одного лишнего круга.
     assert sorted(calls) == ["1", "2"]
+
+
+# ── 35.6.7: ответ 5xx не гасит весь батч ────────────────────────────────────
+
+
+def test_server_5xx_pauses_only_that_file(db):
+    """500 на один файл — пауза этого файла, остальные идут дальше."""
+    import unlim_backup
+
+    uw.ensure_attempts_column()
+    unlim_backup.mark_deferred(
+        Path(db), "1", "downloader.disk.yandex.ru", server_failed=True
+    )
+    con = sqlite3.connect(db)
+    try:
+        row = con.execute(
+            "SELECT status, error, server_fails, retry_after "
+            "FROM unlim_files WHERE file_id='1'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert row[0] == "pending"
+    assert row[1].startswith("storage_down")
+    assert row[2] == 1
+    assert row[3] is not None
+    # На паузе файл в пачку не берётся, а соседний — берётся.
+    assert [i["file_id"] for i in unlim_backup.take_batch(Path(db), 10)] == ["2"]
+
+
+def test_three_5xx_make_file_lost(db):
+    """Три прохода с 500 — файл сгоревший, он выходит из очереди."""
+    import unlim_backup
+
+    uw.ensure_attempts_column()
+    for _ in range(3):
+        unlim_backup.mark_deferred(
+            Path(db), "1", "downloader.disk.yandex.ru", server_failed=True
+        )
+    con = sqlite3.connect(db)
+    try:
+        row = con.execute(
+            "SELECT status, error FROM unlim_files WHERE file_id='1'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert row[0] == "lost"
+    assert row[1].startswith("yandex_lost")
+    assert [i["file_id"] for i in unlim_backup.take_batch(Path(db), 10)] == ["2"]
+
+
+def test_plain_defer_never_makes_file_lost(db):
+    """Таймаут — не ответ сервера: сколько ни откладывай, файл ждёт, а не сгорает."""
+    import unlim_backup
+
+    uw.ensure_attempts_column()
+    for _ in range(6):
+        unlim_backup.mark_deferred(Path(db), "1", "h")
+    con = sqlite3.connect(db)
+    try:
+        row = con.execute(
+            "SELECT status, error FROM unlim_files WHERE file_id='1'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert row[0] == "pending"
+    assert row[1].startswith("storage_down")

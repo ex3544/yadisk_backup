@@ -484,6 +484,13 @@ def check_free_space(path_str: str, min_mb: int = 500) -> bool:
 # считала отложенные файлы в обеих базах одинаково.
 DEFERRED_PREFIX = "storage_down"
 
+# Файл, который Яндекс не отдаёт несколько проходов подряд, — сгоревший.
+LOST_PREFIX = "yandex_lost"
+
+# Пауза файла после ответа 5xx и число таких ответов до приговора.
+SERVER_COOLDOWN_SEC = 600
+SERVER_FAIL_LIMIT = 3
+
 
 def take_batch(
     db_path: Path,
@@ -513,14 +520,17 @@ def take_batch(
         )
         tail = "attempts ASC, rowid DESC" if from_end else "attempts ASC, cluster_id ASC, file_id ASC"
         order_clause = deferred_last + tail
+        # Файлы на паузе после 5xx в пачку не берём: сервер уже ответил по ним,
+        # остальные файлы прохода качаются дальше, и это главное.
         query = f"""
             SELECT file_id, name, size
             FROM unlim_files
             WHERE status = ? {ext_filter}
+              AND (retry_after IS NULL OR retry_after <= ?)
             ORDER BY {order_clause}
             LIMIT ?
         """
-        rows = list(cur.execute(query, (target_status, batch_size)))
+        rows = list(cur.execute(query, (target_status, int(time.time()), batch_size)))
         if not rows:
             return []
 
@@ -539,7 +549,8 @@ def mark_done(db_path: Path, file_id: str, local_path: str, size: int):
     with con:
         con.execute(
             """UPDATE unlim_files
-               SET status='downloaded', local_path=?, size=?, downloaded_at=CURRENT_TIMESTAMP, error=NULL
+               SET status='downloaded', local_path=?, size=?, downloaded_at=CURRENT_TIMESTAMP,
+                   error=NULL, retry_after=NULL, server_fails=0
                WHERE file_id=?""",
             (local_path, size, file_id),
         )
@@ -566,22 +577,53 @@ def deferred_error(host: str | None) -> str:
     return f"{DEFERRED_PREFIX} | {host}" if host else DEFERRED_PREFIX
 
 
-def mark_deferred(db_path: Path, file_id: str, host: str | None):
+def lost_error(host: str | None) -> str:
+    return f"{LOST_PREFIX} | {host}" if host else LOST_PREFIX
+
+
+def mark_deferred(db_path: Path, file_id: str, host: str | None, server_failed: bool = False):
     """Файл не скачался по вине Яндекса — возвращаем в очередь, попытку не тратим.
 
     `take_batch` уже увеличил attempts при выдаче пачки; здесь откатываем его,
     иначе молчащий сервер сожжёт все три попытки и файл уйдёт в 'failed'.
+
+    `server_failed` — сервер ответил 5xx именно по этому файлу. Тогда он уходит
+    на паузу `SERVER_COOLDOWN_SEC` (остальные файлы качаются), а после
+    `SERVER_FAIL_LIMIT` таких ответов объявляется сгоревшим.
     """
     con = get_db(db_path)
     with con:
-        con.execute(
-            """UPDATE unlim_files
-               SET status='pending', error=?, storage_host=?,
-                   attempts = CASE WHEN COALESCE(attempts, 0) > 0 THEN attempts - 1 ELSE 0 END,
-                   assigned_at=NULL
-               WHERE file_id=?""",
-            (deferred_error(host)[:300], host, file_id),
-        )
+        if server_failed:
+            until = int(time.time()) + SERVER_COOLDOWN_SEC
+            con.execute(
+                """UPDATE unlim_files
+                   SET server_fails = COALESCE(server_fails, 0) + 1,
+                       status = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                     THEN 'lost' ELSE 'pending' END,
+                       retry_after = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                          THEN NULL ELSE ? END,
+                       error = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                    THEN ? ELSE ? END,
+                       storage_host=?,
+                       attempts = CASE WHEN COALESCE(attempts, 0) > 0
+                                       THEN attempts - 1 ELSE 0 END,
+                       assigned_at=NULL
+                   WHERE file_id=?""",
+                (
+                    SERVER_FAIL_LIMIT, SERVER_FAIL_LIMIT, until, SERVER_FAIL_LIMIT,
+                    lost_error(host)[:300], deferred_error(host)[:300],
+                    host, file_id,
+                ),
+            )
+        else:
+            con.execute(
+                """UPDATE unlim_files
+                   SET status='pending', error=?, storage_host=?,
+                       attempts = CASE WHEN COALESCE(attempts, 0) > 0 THEN attempts - 1 ELSE 0 END,
+                       assigned_at=NULL
+                   WHERE file_id=?""",
+                (deferred_error(host)[:300], host, file_id),
+            )
     con.close()
 
 
@@ -740,12 +782,19 @@ def download_one_file(
             if tmp_path.exists():
                 try: tmp_path.unlink()
                 except OSError: pass
-            # 429 и 5xx — это «Яндекс не отдаёт», а не «файл плохой»: сервер
-            # помечаем мёртвым и откладываем файл, не тратя попытку.
+            # 429 и 5xx — это «Яндекс не отдаёт», а не «файл плохой»: файл
+            # откладываем, не тратя попытку.
+            #   429 — Яндекс просит подождать: тормозим весь хост.
+            #   5xx — ответ живого сервера по конкретному файлу: хост не гасим,
+            #   иначе одна сгоревшая фотография останавливает батч на 30 минут.
             if resp.status_code == 429 or resp.status_code >= 500:
                 first_failure = not DEAD_HOSTS.is_dead(host)
-                DEAD_HOSTS.mark(host)
-                mark_deferred(db_path, fid, host)
+                server_failed = resp.status_code >= 500
+                if server_failed:
+                    DEAD_HOSTS.note_reply_error(host)
+                else:
+                    DEAD_HOSTS.mark(host)
+                mark_deferred(db_path, fid, host, server_failed=server_failed)
                 if make_previews and first_failure:
                     # Превью просим только на первом сбое сервера: дальше он уже
                     # помечен мёртвым, и лишние запросы только тормозят проход.

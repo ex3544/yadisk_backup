@@ -1093,3 +1093,42 @@ def test_status_reports_disk_state(monkeypatch, tmp_path):
     monkeypatch.setattr(webui.paths, "DISK_STATUS_FILE", status)
     body = webui.api_status()
     assert body["disk_state"] == "disk_offline"
+
+
+# ── 35.6.7: сгоревшие файлы и установка обновления ─────────────────────────
+
+
+def test_db_stats_counts_lost_separately(tmp_path):
+    """Сгоревшие файлы не смешиваются с «ждут Яндекса»: это разные вещи."""
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (remote_path TEXT, status TEXT, size INTEGER, "
+        "error TEXT, downloaded_at REAL)"
+    )
+    rows = [
+        ("disk:/a.jpg", "pending", 10, "storage_down | h"),
+        ("disk:/lost.jpg", "lost", 10, "yandex_lost | h"),
+    ]
+    con.executemany("INSERT INTO files VALUES (?,?,?,?,NULL)", rows)
+    con.commit()
+    con.close()
+
+    stats = webui.db_stats(db, "files", "remote_path")
+    assert stats["waiting"] == 1
+    assert stats["lost"] == 1
+
+
+def test_update_helper_waits_for_app_without_timeout(tmp_path):
+    r"""Установщик не должен стартовать, пока программа жива.
+
+    `-Timeout 180` давал окно, в котором установка шла поверх работающего
+    приложения: у тестера так исчез `_internal\certifi\cacert.pem`.
+    """
+    payload = tmp_path / "YandexDiskBackup-35.6.7-setup.exe"
+    payload.write_bytes(b"x")
+    text = webui.write_update_helper(payload, "setup", restart=False).read_text(
+        encoding="utf-8-sig"
+    )
+    assert "Wait-Process -Id" in text
+    assert "-Timeout" not in text

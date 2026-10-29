@@ -252,8 +252,13 @@ class _HttpSession:
         pass
 
 
-def test_storage_5xx_marks_file_deferred_not_failed(tmp_path):
-    """Молчащий сервер хранения — это «ждёт Яндекса», а не сбой файла."""
+def test_single_5xx_does_not_kill_the_whole_host(tmp_path):
+    """Один ответ 5xx — это «файл сгорел», а не «сервер лёг».
+
+    35.6.7: раньше первый же 500 помечал сервер мёртвым на 30 минут, и все
+    оставшиеся файлы пропускались без запроса — у тестера так из 1059 файлов
+    было запрошено семь.
+    """
     from fetch import DeadHosts
 
     dead = DeadHosts()
@@ -268,8 +273,43 @@ def test_storage_5xx_marks_file_deferred_not_failed(tmp_path):
     assert res.kind == "server_50x"
     assert res.host == "storage.yandex.net"
     assert res.is_local_error is False
-    # Сервер запомнили мёртвым: следующий файл с него не будет ждать.
-    assert dead.is_dead("storage.yandex.net")
+    # Соседние файлы по-прежнему качаются: сервер не считается мёртвым.
+    assert dead.is_dead("storage.yandex.net") is False
+    assert dead.error_count("storage.yandex.net") == 1
+
+
+def test_many_5xx_in_a_row_mark_host_dead(tmp_path):
+    """Если 5xx сыплются подряд на разные файлы — сервер действительно больной."""
+    from fetch import DeadHosts
+
+    dead = DeadHosts(server_error_limit=3)
+    for i in range(3):
+        _download_one(
+            DownloadJob(remote_path=f"disk:/disk/{i}.bin", size=4, md5=None),
+            _LinkClient("https://storage.yandex.net/f"),
+            str(tmp_path),
+            dead_hosts=dead,
+            http_session=_HttpSession(_Resp(500)),
+        )
+    assert dead.is_dead("storage.yandex.net") is True
+
+
+def test_success_resets_host_error_counter(tmp_path):
+    """Один удачный файл — сервер жив: счётчик 5xx обнуляется."""
+    from fetch import DeadHosts
+
+    dead = DeadHosts(server_error_limit=2)
+    dead.note_reply_error("storage.yandex.net")
+    _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        _LinkClient("https://storage.yandex.net/f"),
+        str(tmp_path),
+        dead_hosts=dead,
+        http_session=_HttpSession(_Resp(200, b"abcd")),
+    )
+    assert dead.error_count("storage.yandex.net") == 0
+    dead.note_reply_error("storage.yandex.net")
+    assert dead.is_dead("storage.yandex.net") is False
 
 
 def test_deferred_file_is_not_cleaned_and_no_leftover(tmp_path):

@@ -167,3 +167,67 @@ def test_clear_deferred_marks_returns_to_plain_queue(st):
 
 def test_waiting_is_zero_on_empty_db(st):
     assert st.get_stats()["waiting"] == 0
+
+
+# ── 35.6.7: пауза файла после 5xx и «сгоревшие» файлы ───────────────────────
+
+
+def test_server_5xx_pauses_only_that_file(st):
+    """Ответ 500 ставит на паузу один файл, остальные остаются в очереди."""
+    st.mark_pending("disk:/bad.jpg", 10, None)
+    st.mark_pending("disk:/good.jpg", 10, None)
+    status = st.mark_deferred("disk:/bad.jpg", "server_50x", "downloader.disk.yandex.ru")
+    assert status == "pending"
+    assert [r["remote_path"] for r in st.get_pending()] == ["disk:/good.jpg"]
+    # Ждать его всё равно считаем: файл в очереди, просто с паузой.
+    assert st.get_stats()["waiting"] == 1
+
+
+def test_file_becomes_lost_after_three_5xx(st):
+    """Три прохода с 500 подряд — файл сгоревший, он выходит из очереди."""
+    st.mark_pending("disk:/bad.jpg", 10, None)
+    for _ in range(2):
+        assert st.mark_deferred(
+            "disk:/bad.jpg", "server_50x", "h", cooldown=0
+        ) == "pending"
+    assert st.mark_deferred("disk:/bad.jpg", "server_50x", "h", cooldown=0) == "lost"
+    stats = st.get_stats()
+    assert stats["lost"] == 1
+    assert stats["pending"] == 0
+    assert stats["waiting"] == 0
+    assert list(st.get_pending()) == []
+    row = st._conn().execute(
+        "SELECT error FROM files WHERE remote_path='disk:/bad.jpg'"
+    ).fetchone()
+    assert row["error"].startswith("yandex_lost")
+
+
+def test_retry_lost_returns_files_to_queue(st):
+    st.mark_pending("disk:/bad.jpg", 10, None)
+    for _ in range(3):
+        st.mark_deferred("disk:/bad.jpg", "server_50x", "h", cooldown=0)
+    assert st.get_stats()["lost"] == 1
+    assert st.reset_lost() == 1
+    assert st.get_stats()["lost"] == 0
+    assert [r["remote_path"] for r in st.get_pending()] == ["disk:/bad.jpg"]
+    # Счётчик обнулён: у файла снова три попытки.
+    assert st.mark_deferred("disk:/bad.jpg", "server_50x", "h", cooldown=0) == "pending"
+
+
+def test_timeout_does_not_count_as_server_failure(st):
+    """Таймаут — молчание сервера, а не ответ 500: файл просто ждёт."""
+    st.mark_pending("disk:/a.jpg", 10, None)
+    for _ in range(5):
+        assert st.mark_deferred("disk:/a.jpg", "timeout", "h", cooldown=0) == "pending"
+    assert st.get_stats()["lost"] == 0
+    assert [r["remote_path"] for r in st.get_pending()] == ["disk:/a.jpg"]
+
+
+def test_success_clears_cooldown_and_counter(st):
+    st.mark_pending("disk:/a.jpg", 10, None)
+    st.mark_deferred("disk:/a.jpg", "server_50x", "h")
+    assert list(st.get_pending()) == []
+    st.mark_downloaded("disk:/a.jpg", "C:/out/a.jpg")
+    stats = st.get_stats()
+    assert stats["downloaded"] == 1
+    assert stats["waiting"] == 0

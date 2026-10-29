@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterable, Iterator, Optional
@@ -46,10 +47,26 @@ MIGRATIONS: list[db_migrations.Migration] = [
     # Превью отложенного фото: пока оригинал не скачался, в папке лежит
     # уменьшенная копия, чтобы не потерять представление о содержимом.
     (4, "ALTER TABLE files ADD COLUMN preview_path TEXT"),
+    # Пауза конкретного файла (unix-время): сервер ответил 500 именно по нему.
+    # Пауза вместо «мёртвого хоста» — соседние файлы продолжают качаться.
+    (5, "ALTER TABLE files ADD COLUMN retry_after INTEGER"),
+    # Сколько раз файл получил 5xx. После SERVER_FAIL_LIMIT проходов он
+    # признаётся сгоревшим и выходит из очереди, не тормозя остальные.
+    (6, "ALTER TABLE files ADD COLUMN server_fails INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # Префикс маркера в поле error: файл не сбойный, а ждёт Яндекса.
 DEFERRED_PREFIX = "storage_down"
+
+# Файл, который Яндекс не отдаёт уже несколько проходов подряд. Это не «ждёт»:
+# ждать дальше бессмысленно, но и пугать словом «сбой» не за что.
+LOST_PREFIX = "yandex_lost"
+
+# Пауза файла после ответа 5xx: столько секунд его не трогаем.
+SERVER_COOLDOWN_SEC = 600
+
+# Сколько разных проходов с 5xx терпим, прежде чем считать файл сгоревшим.
+SERVER_FAIL_LIMIT = 3
 
 
 def is_deferred_error(error: object) -> bool:
@@ -59,6 +76,15 @@ def is_deferred_error(error: object) -> bool:
 def deferred_marker(kind: str, host: Optional[str] = None) -> str:
     """Текст маркера: «storage_down | storage.yandex.net»."""
     return f"{DEFERRED_PREFIX} | {host}" if host else DEFERRED_PREFIX
+
+
+def is_lost_error(error: object) -> bool:
+    """Файл сгорел у Яндекса: ждать его больше не имеет смысла."""
+    return isinstance(error, str) and error.startswith(LOST_PREFIX)
+
+
+def lost_marker(host: Optional[str] = None) -> str:
+    return f"{LOST_PREFIX} | {host}" if host else LOST_PREFIX
 
 
 class State:
@@ -145,6 +171,8 @@ class State:
                        error = NULL,
                        preview_path = NULL,
                        storage_host = COALESCE(?, storage_host),
+                       retry_after = NULL,
+                       server_fails = 0,
                        downloaded_at = ?
                  WHERE remote_path = ?
                 """,
@@ -169,23 +197,64 @@ class State:
                 (local_path, storage_host, _utc_now(), remote_path),
             )
 
-    def mark_deferred(self, remote_path: str, kind: str, host: Optional[str] = None) -> None:
+    def mark_deferred(
+        self,
+        remote_path: str,
+        kind: str,
+        host: Optional[str] = None,
+        cooldown: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Optional[str]:
         """Файл не скачался по вине Яндекса — остаётся в очереди, не сбойный.
 
         Попытки (attempts) не тратятся: сервер хранения молчит не по вине файла.
         Превью, если было, остаётся лежать до появления оригинала.
+
+        Ответ 5xx — особый случай: сервер жив, но именно этот файл не отдаёт.
+        Такой файл получает паузу `cooldown` секунд (остальные качаются дальше),
+        а после `limit` проходов подряд объявляется сгоревшим (`lost`) и выходит
+        из очереди. Возвращает новый статус файла.
         """
+        cooldown = SERVER_COOLDOWN_SEC if cooldown is None else int(cooldown)
+        limit = SERVER_FAIL_LIMIT if limit is None else max(1, int(limit))
+        if kind != "server_50x":
+            with self._tx() as conn:
+                conn.execute(
+                    """
+                    UPDATE files
+                       SET status = 'pending',
+                           error = ?,
+                           storage_host = COALESCE(?, storage_host)
+                     WHERE remote_path = ?
+                    """,
+                    (deferred_marker(kind, host), host, remote_path),
+                )
+            return "pending"
+        until = int(time.time()) + cooldown
         with self._tx() as conn:
             conn.execute(
                 """
                 UPDATE files
-                   SET status = 'pending',
-                       error = ?,
+                   SET server_fails = COALESCE(server_fails, 0) + 1,
+                       status = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                     THEN 'lost' ELSE 'pending' END,
+                       retry_after = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                          THEN NULL ELSE ? END,
+                       error = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
+                                    THEN ? ELSE ? END,
                        storage_host = COALESCE(?, storage_host)
                  WHERE remote_path = ?
                 """,
-                (deferred_marker(kind, host), host, remote_path),
+                (
+                    limit, limit, until, limit,
+                    lost_marker(host), deferred_marker(kind, host),
+                    host, remote_path,
+                ),
             )
+            row = conn.execute(
+                "SELECT status FROM files WHERE remote_path = ?", (remote_path,)
+            ).fetchone()
+        return str(row["status"]) if row is not None else "pending"
 
     def get_waiting_stats(self) -> int:
         """Сколько файлов сейчас ждут Яндекса (отложенные, не сбойные)."""
@@ -248,6 +317,25 @@ class State:
             )
             return cur.rowcount
 
+    def reset_lost(self) -> int:
+        """Возвращает «сгоревшие» файлы в очередь — по явному клику пользователя.
+
+        Счётчик 5xx обнуляется: у файла снова три попытки. Без обнуления он
+        вышел бы из очереди после первого же ответа 500.
+        """
+        with self._tx() as conn:
+            cur = conn.execute(
+                "UPDATE files SET status='pending', error=NULL, "
+                "server_fails=0, retry_after=NULL WHERE status='lost'"
+            )
+            return cur.rowcount
+
+    def get_lost_count(self) -> int:
+        row = self._conn().execute(
+            "SELECT COUNT(*) AS n FROM files WHERE status='lost'"
+        ).fetchone()
+        return int(row["n"] or 0)
+
     def get_pending(
         self, order_by: str = "rowid ASC", deferred_first: bool = False
     ) -> Iterable[sqlite3.Row]:
@@ -266,9 +354,14 @@ class State:
         prefix = ""
         if deferred_first:
             prefix = f"(error LIKE '{DEFERRED_PREFIX}%') DESC, "
+        # Файл на паузе после 5xx не берём: сервер уже ответил по нему, и
+        # следующий проход подхватит его, когда пауза истечёт.
         return self._conn().execute(
             "SELECT remote_path, size, md5, error, storage_host FROM files "
-            f"WHERE status='pending' ORDER BY {prefix}{order}"
+            f"WHERE status='pending' "
+            f"  AND (retry_after IS NULL OR retry_after <= ?) "
+            f"ORDER BY {prefix}{order}",
+            (int(time.time()),),
         )
 
     def get_failed(self) -> Iterable[sqlite3.Row]:
@@ -293,6 +386,7 @@ class State:
             "failed": 0,
             "skipped": 0,
             "waiting": 0,
+            "lost": 0,
             "total": 0,
             "bytes_total": 0,
             "bytes_downloaded": 0,

@@ -39,6 +39,12 @@ DEFER_KINDS = frozenset(
 # возвращает сервер в строй.
 DEAD_HOST_TTL = 30 * 60.0
 
+# Сколько подряд ответов 5xx терпим, прежде чем признать сервер хранения
+# больным. Один-два 500 — это «файл сгорел»: тот же сервер отдаёт соседние
+# файлы. Гасить весь проход из-за первого же такого ответа нельзя — именно
+# из-за этого у тестера 29.10 из 1059 файлов было запрошено семь.
+SERVER_ERROR_LIMIT = 10
+
 _MD5_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _URL_RE = re.compile(r"https?://\S+")
 
@@ -89,10 +95,19 @@ class DeadHosts:
     Потоки пула делят один реестр, поэтому берём блокировку.
     """
 
-    def __init__(self, ttl: float = DEAD_HOST_TTL, clock=time.monotonic) -> None:
+    def __init__(
+        self,
+        ttl: float = DEAD_HOST_TTL,
+        clock=time.monotonic,
+        server_error_limit: int = SERVER_ERROR_LIMIT,
+    ) -> None:
         self._ttl = ttl
         self._clock = clock
+        self._server_error_limit = max(1, int(server_error_limit))
         self._hosts: dict[str, float] = {}
+        # Подряд идущие ответы 5xx на разных файлах: пока счётчик ниже порога,
+        # хост живой, просто некоторые файлы он не отдаёт.
+        self._errors: dict[str, int] = {}
         self._lock = threading.Lock()
 
     def mark(self, host: Optional[str]) -> None:
@@ -114,9 +129,41 @@ class DeadHosts:
                 return False
             return True
 
+    def note_reply_error(self, host: Optional[str]) -> None:
+        """Сервер ответил 5xx. Сам по себе такой ответ ничего не значит.
+
+        Яндекс нередко отвечает 500 именно на конкретный файл (у него нет
+        копии), продолжая отдавать остальные. Поэтому хост считается больным
+        только после `server_error_limit` таких ответов на разных файлах подряд.
+        """
+        if not host:
+            return
+        with self._lock:
+            n = self._errors.get(host, 0) + 1
+            if n >= self._server_error_limit:
+                self._errors.pop(host, None)
+                self._hosts[host] = self._clock() + self._ttl
+            else:
+                self._errors[host] = n
+
+    def note_ok(self, host: Optional[str]) -> None:
+        """Файл скачался — сервер жив, счётчик сбоев сбрасываем."""
+        if not host:
+            return
+        with self._lock:
+            self._errors.pop(host, None)
+
+    def error_count(self, host: Optional[str]) -> int:
+        """Сколько 5xx подряд накопилось без успешных ответов (для журнала)."""
+        if not host:
+            return 0
+        with self._lock:
+            return self._errors.get(host, 0)
+
     def clear(self) -> None:
         with self._lock:
             self._hosts.clear()
+            self._errors.clear()
 
     def snapshot(self) -> list[str]:
         """Живые (не истёкшие) мёртвые серверы — для журнала и диагностики."""

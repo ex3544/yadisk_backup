@@ -69,11 +69,29 @@ def _migration_3(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE unlim_files ADD COLUMN preview_path TEXT")
 
 
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """Пауза файла после ответа 5xx (`retry_after`, unix-время)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(unlim_files)")}
+    if "retry_after" not in cols:
+        conn.execute("ALTER TABLE unlim_files ADD COLUMN retry_after INTEGER")
+
+
+def _migration_5(conn: sqlite3.Connection) -> None:
+    """Сколько раз файл получал 5xx — по нему он объявляется сгоревшим."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(unlim_files)")}
+    if "server_fails" not in cols:
+        conn.execute(
+            "ALTER TABLE unlim_files ADD COLUMN server_fails INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 # История схемы. Добавлять только в конец, не переименовывать версии.
 MIGRATIONS: list[db_migrations.Migration] = [
     (1, _migration_1),
     (2, _migration_2),
     (3, _migration_3),
+    (4, _migration_4),
+    (5, _migration_5),
 ]
 
 

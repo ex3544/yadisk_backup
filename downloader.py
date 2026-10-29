@@ -433,8 +433,11 @@ def _transfer(
     local_path: str,
     dead_hosts: Optional[DeadHosts],
     http_session: Optional[requests.Session],
-) -> None:
+) -> Optional[str]:
     """Одна попытка скачивания: ссылка → прямой запрос к серверу хранения.
+
+    Возвращает имя сервера, который отдал файл (нужно, чтобы сбросить счётчик
+    его сбоев), или None, если скачивали через сам клиент.
 
     Клиенты без `get_download_link` (моки в тестах, очень старый yadisk)
     скачивают прежним способом — через сам клиент.
@@ -442,9 +445,9 @@ def _transfer(
     getter = getattr(client, "get_download_link", None)
     if getter is None:
         _download_file(client, job.remote_path, local_path)
-        return
+        return None
     link = getter(job.remote_path)
-    fetch_to_file(
+    result = fetch_to_file(
         link,
         local_path,
         expected_size=job.size,
@@ -452,6 +455,7 @@ def _transfer(
         dead_hosts=dead_hosts,
         session=http_session,
     )
+    return getattr(result, "host", None)
 
 
 def _download_one(
@@ -518,14 +522,26 @@ def _download_one(
     # на середине, прежняя копия останется на месте.
 
     try:
-        _transfer(client, job, local_path, dead_hosts, http_session)
+        served_by = _transfer(client, job, local_path, dead_hosts, http_session)
+        if dead_hosts is not None and served_by:
+            dead_hosts.note_ok(served_by)
     except FetchFailure as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
         if e.is_deferred:
             # Яндекс не отдаёт файл: он остаётся в очереди и попыток не тратит.
+            # 5xx — ответ живого сервера по конкретному файлу: считаем их, но
+            # не гасим весь хост. Молчание (таймаут, обрыв) — гасим сразу.
             if dead_hosts is not None and e.host:
-                dead_hosts.mark(e.host)
+                if e.kind == "server_50x":
+                    dead_hosts.note_reply_error(e.host)
+                elif e.kind == "storage_skip":
+                    # Хост уже помечен мёртвым. Повторный mark() продлевал бы
+                    # срок на каждом пропущенном файле, и сервер не оживал бы
+                    # никогда — так проход 29.10 держал его мёртвым 10 минут.
+                    pass
+                else:
+                    dead_hosts.mark(e.host)
             preview = None
             if make_previews and preview_mod.is_photo(job.remote_path):
                 # Пока оригинал ждёт — кладём уменьшенную копию, чтобы человек
@@ -926,15 +942,19 @@ def _apply_result(
     elif res.status == "deferred":
         # Файл не сбойный: Яндекс не отдал его сейчас. Остаётся pending с
         # маркером и попыток не тратит.
-        state.mark_deferred(res.job.remote_path, res.kind or "storage_down", res.host)
+        new_status = state.mark_deferred(
+            res.job.remote_path, res.kind or "storage_down", res.host
+        )
         if res.preview_path:
             try:
                 state.set_preview_path(res.job.remote_path, res.preview_path)
             except Exception:  # noqa: BLE001
                 pass
         counters["deferred"] = int(counters.get("deferred", 0)) + 1
+        # Отдельная строка журнала: «сгоревший» файл — приговор, а не ожидание.
         log.warning(
-            "ЖДЁТ | %s | %s | %s",
+            "%s | %s | %s | %s",
+            "СГОРЕЛ" if new_status == "lost" else "ЖДЁТ",
             res.kind or "storage_down",
             res.error,
             res.job.remote_path,
