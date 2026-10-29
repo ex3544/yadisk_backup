@@ -252,38 +252,35 @@ class _HttpSession:
         pass
 
 
-def test_single_5xx_does_not_kill_the_whole_host(tmp_path):
-    """Один ответ 5xx — это «файл сгорел», а не «сервер лёг».
+class _SeqSession:
+    """Отдаёт ответы по порядку: для проверки повтора по новой ссылке."""
 
-    35.6.7: раньше первый же 500 помечал сервер мёртвым на 30 минут, и все
-    оставшиеся файлы пропускались без запроса — у тестера так из 1059 файлов
-    было запрошено семь.
+    def __init__(self, *resps):
+        self.resps = list(resps)
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append(url)
+        if len(self.resps) > 1:
+            return self.resps.pop(0)
+        return self.resps[0]
+
+    def close(self):
+        pass
+
+
+def test_many_5xx_never_kill_the_whole_host(tmp_path):
+    """Никакое число ответов 5xx не гасит сервер хранения.
+
+    30.10 у тестера vovapuh пачка из десяти 500 подряд выключила всю линию
+    Диска: из 1035 файлов было запрошено 35, скачалось три. А тот же сервер
+    в это время отдавал обычные файлы. Ответ 5xx приходит мгновенно —
+    экономить на пропуске соседних файлов нечего.
     """
     from fetch import DeadHosts
 
     dead = DeadHosts()
-    res = _download_one(
-        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
-        _LinkClient("https://storage.yandex.net/f"),
-        str(tmp_path),
-        dead_hosts=dead,
-        http_session=_HttpSession(_Resp(503)),
-    )
-    assert res.status == "deferred"
-    assert res.kind == "server_50x"
-    assert res.host == "storage.yandex.net"
-    assert res.is_local_error is False
-    # Соседние файлы по-прежнему качаются: сервер не считается мёртвым.
-    assert dead.is_dead("storage.yandex.net") is False
-    assert dead.error_count("storage.yandex.net") == 1
-
-
-def test_many_5xx_in_a_row_mark_host_dead(tmp_path):
-    """Если 5xx сыплются подряд на разные файлы — сервер действительно больной."""
-    from fetch import DeadHosts
-
-    dead = DeadHosts(server_error_limit=3)
-    for i in range(3):
+    for i in range(20):
         _download_one(
             DownloadJob(remote_path=f"disk:/disk/{i}.bin", size=4, md5=None),
             _LinkClient("https://storage.yandex.net/f"),
@@ -291,24 +288,46 @@ def test_many_5xx_in_a_row_mark_host_dead(tmp_path):
             dead_hosts=dead,
             http_session=_HttpSession(_Resp(500)),
         )
-    assert dead.is_dead("storage.yandex.net") is True
+    assert dead.is_dead("storage.yandex.net") is False
 
 
-def test_success_resets_host_error_counter(tmp_path):
-    """Один удачный файл — сервер жив: счётчик 5xx обнуляется."""
+def test_5xx_retried_once_by_a_fresh_link(tmp_path):
+    """500 — повтор по новой ссылке: она привязана к реплике хранилища."""
     from fetch import DeadHosts
 
-    dead = DeadHosts(server_error_limit=2)
-    dead.note_reply_error("storage.yandex.net")
-    _download_one(
+    client = _LinkClient("https://storage.yandex.net/f")
+    sess = _SeqSession(_Resp(500), _Resp(200, b"abcd"))
+    res = _download_one(
         DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
-        _LinkClient("https://storage.yandex.net/f"),
+        client,
+        str(tmp_path),
+        dead_hosts=DeadHosts(),
+        http_session=sess,
+    )
+    assert res.status == "downloaded"
+    assert len(client.calls) == 2, "ссылку должны были запросить заново"
+    assert len(sess.calls) == 2
+
+
+def test_double_5xx_gives_up_and_defers(tmp_path):
+    """Два 500 подряд — файл ждёт Яндекса, но сервер по-прежнему живой."""
+    from fetch import DeadHosts
+
+    dead = DeadHosts()
+    client = _LinkClient("https://storage.yandex.net/f")
+    sess = _SeqSession(_Resp(500), _Resp(503))
+    res = _download_one(
+        DownloadJob(remote_path="disk:/disk/a.bin", size=4, md5=None),
+        client,
         str(tmp_path),
         dead_hosts=dead,
-        http_session=_HttpSession(_Resp(200, b"abcd")),
+        http_session=sess,
     )
-    assert dead.error_count("storage.yandex.net") == 0
-    dead.note_reply_error("storage.yandex.net")
+    assert res.status == "deferred"
+    assert res.kind == "server_50x"
+    assert res.host == "storage.yandex.net"
+    assert res.is_local_error is False
+    assert len(client.calls) == 2
     assert dead.is_dead("storage.yandex.net") is False
 
 

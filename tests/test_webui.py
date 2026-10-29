@@ -1119,6 +1119,40 @@ def test_db_stats_counts_lost_separately(tmp_path):
     assert stats["lost"] == 1
 
 
+def test_native_notify_goes_through_the_tray(monkeypatch):
+    """Уведомление показывает иконка в трее: WebView2 браузерные запрещает."""
+    seen = []
+    webui.set_notifier(lambda title, body: seen.append((title, body)))
+    try:
+        assert webui.native_notify("Выгрузка завершена", "12 файлов") is True
+        assert seen == [("Выгрузка завершена", "12 файлов")]
+        # Без заголовка подставляем имя программы, а не пустую строку.
+        assert webui.native_notify("", "текст") is True
+        assert seen[1][0] == "Yad.backup"
+    finally:
+        webui.set_notifier(None)
+
+
+def test_native_notify_without_tray_reports_failure():
+    webui.set_notifier(None)
+    assert webui.native_notify("x", "y") is False
+
+
+def test_notify_endpoint_reports_channel():
+    webui.set_notifier(lambda title, body: None)
+    try:
+        assert webui.api_notify(webui.NotifyPayload(title="a", body="b"))["ok"] is True
+    finally:
+        webui.set_notifier(None)
+    assert webui.api_notify(webui.NotifyPayload(title="a"))["ok"] is False
+
+
+def test_status_exposes_notify_channel():
+    """Окно должно узнавать, есть ли нативный канал, не показывая пробное окно."""
+    src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '"notify_native": _notifier is not None' in src
+
+
 def test_update_helper_waits_for_app_without_timeout(tmp_path):
     r"""Установщик не должен стартовать, пока программа жива.
 

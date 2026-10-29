@@ -318,7 +318,10 @@
   .big-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 12px 32px rgba(10,132,255,.45)}
   .big-btn:active{transform:translateY(0)}
   .big-btn:disabled{opacity:.4;cursor:not-allowed;background:var(--surface2)}
-  .big-btn.danger{background:var(--red);box-shadow:0 8px 24px rgba(255,69,58,.35)}
+  /* color:#fff обязателен: `button.danger` (специфичность 0,1,1) перебивал
+     белый текст `.big-btn` и красил надпись красным по красному фону —
+     у кнопок «Стоп» во время работы надписи не было видно. */
+  .big-btn.danger{background:var(--red);color:#fff;box-shadow:0 8px 24px rgba(255,69,58,.35)}
   .big-btn.danger:hover:not(:disabled){background:#ff5a4f}
   .big-btn.danger:disabled{background:var(--surface2);box-shadow:none;color:var(--text-tertiary)}
 
@@ -960,6 +963,14 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <span><strong id="waiting-banner-count">0</strong> ждут Яндекса<span id="waiting-banner-host" style="color:var(--text-secondary)"></span><span id="waiting-banner-lost" style="color:var(--text-secondary)"></span></span>
         <button class="ghost" style="padding:1px 9px; font-size:12px; margin-left:auto; white-space:nowrap;" onclick="retryWaiting()">Попробовать</button>
       </div>
+      <!-- Сколько ещё качать и хватит ли места. Очередь Безлимита у тестера
+           vovapuh — около 450 ГБ при 189 ГБ свободных, и это надо видеть до
+           запуска, а не за час до остановки сторожем. -->
+      <div id="queue-estimate" class="tipnode tip-up" role="status"
+        data-tip="Оценка: сколько файлов ждёт в очереди и сколько это займёт места. Считается по среднему размеру уже скачанных файлов — цифра приблизительная. Отдельно — сколько свободно на диске выгрузки."
+        style="display:none; align-items:center; gap:8px; padding:4px 10px; border-radius:9px; margin-bottom:10px; font-size:12.5px; color:var(--text-secondary); background:rgba(255,255,255,.04); border:0.5px solid var(--hairline)">
+        <span>📦</span><span id="queue-estimate-text"></span>
+      </div>
       <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:230px">
           <div class="btn-hint" style="text-align:left;margin-top:4px">
@@ -1453,16 +1464,17 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div id="unlim-media-status" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
-  <!-- Уведомления браузера (C3) -->
+  <!-- Уведомления о завершении (C3) -->
   <div class="card" id="notify-card">
     <div class="watchdog-line">
-      <span class="watchdog-title tipnode" data-tip="Браузер сообщит, когда выгрузка закончится или остановится с ошибкой — даже если окно свёрнуто. Заголовок вкладки во время работы показывает прогресс.">🔔 Уведомления о завершении</span>
+      <span class="watchdog-title tipnode" data-tip="Программа покажет сообщение Windows, когда выгрузка закончится или остановится с ошибкой — даже если окно свёрнуто в трей. Заголовок вкладки во время работы показывает прогресс.">🔔 Уведомления о завершении</span>
       <button id="notify-btn" class="ghost" onclick="toggleNotifications()">Включить</button>
       <span id="notify-status" class="badge">—</span>
     </div>
     <div class="card-sub" style="margin-top:8px">
       Сообщим о конце работы и при остановке — например, если диск отключился.
-      Работает, пока окно программы открыто.
+      Сообщение Windows показывается из значка программы в трее; разрешений
+      в настройках окна не требуется.
     </div>
   </div>
 
@@ -2945,6 +2957,57 @@ function lostTotal(s){
   return (+d.lost || 0) + (+u.lost || 0);
 }
 
+function _fmtGb(bytes){
+  const gb = (+bytes || 0) / (1024 * 1024 * 1024);
+  if (!isFinite(gb) || gb <= 0) return '0 ГБ';
+  if (gb >= 100) return Math.round(gb).toLocaleString('ru') + ' ГБ';
+  if (gb >= 10) return gb.toFixed(0) + ' ГБ';
+  return gb.toFixed(1) + ' ГБ';
+}
+
+// Очередь и место: средний размер файла берём по уже скачанным. Для Безлимита
+// размеры у ожидающих в базе нулевые (их знает только облако), поэтому без
+// среднего оценку не построить — тогда просто показываем число файлов.
+function renderQueueEstimate(s){
+  const box = document.getElementById('queue-estimate');
+  if (!box) return;
+  const d = ((s || {}).disk || {}).db || {};
+  const u = ((s || {}).unlim || {}).db || {};
+  const dLeft = (+d.pending || 0) + (+d.in_progress || 0);
+  const uLeft = (+u.pending || 0) + (+u.in_progress || 0);
+  if (dLeft + uLeft <= 0) { box.style.display = 'none'; return; }
+
+  const avg = (db) => {
+    const done = +db.downloaded || 0;
+    if (done <= 0) return 0;
+    return Math.max(0, (+db.bytes_done || 0) / done);
+  };
+  const dAvg = avg(d), uAvg = avg(u);
+  const dBytes = dLeft * dAvg, uBytes = uLeft * uAvg;
+  const totalBytes = dBytes + uBytes;
+  // Свободное место: статус отдаёт его всегда, сторож — только когда включён.
+  const freeGb = +(((s || {}).free_gb ?? (((s || {}).watchdog || {}).free_gb)) ?? NaN);
+
+  const parts = [];
+  if (uLeft > 0) {
+    parts.push('Безлимит ' + uLeft.toLocaleString('ru') + ' файлов' + (uAvg ? ' ≈ ' + _fmtGb(uBytes) : ''));
+  }
+  if (dLeft > 0) {
+    parts.push('Диск ' + dLeft.toLocaleString('ru') + ' файлов' + (dAvg ? ' ≈ ' + _fmtGb(dBytes) : ''));
+  }
+  const text = document.getElementById('queue-estimate-text');
+  if (!text) return;
+  const totalGb = totalBytes / (1024 * 1024 * 1024);
+  let out = 'В очереди: ' + parts.join(' · ');
+  if (isFinite(freeGb)) out += ' · свободно ' + freeGb.toLocaleString('ru') + ' ГБ';
+  const short = isFinite(freeGb) && totalGb > 0 && totalGb > freeGb;
+  if (short) out += ' — не поместится, не хватит ' + _fmtGb(totalBytes - freeGb * 1024 * 1024 * 1024);
+  text.textContent = out;
+  text.style.color = short ? 'var(--orange)' : 'var(--text-secondary)';
+  // Показываем только осмысленную оценку: одна-две строки не стоят места.
+  box.style.display = (totalBytes > 0 || dLeft + uLeft > 0) ? 'flex' : 'none';
+}
+
 // «Попробовать сейчас»: заново запросить отложенные файлы. Они остались в
 // очереди (pending), поэтому обычный запуск выгрузки их и подхватит.
 async function retryWaiting(){
@@ -3514,26 +3577,34 @@ function _notifyPerm(){
   return (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
 }
 
+// Канал уведомлений. В окне программа показывает системный балун из иконки
+// в трее (`/api/notify`) — там разрешений не нужно. В браузере остаётся
+// обычный Notification; у WebView2 он всегда `denied`, и это не лечится.
+function _notifyChannel(){
+  const s = _lastStatus || {};
+  if (s.notify_native) return 'native';
+  const perm = _notifyPerm();
+  if (perm === 'granted') return 'browser';
+  if (perm === 'denied' || perm === 'unsupported') return 'none';
+  return 'ask';
+}
+
 function renderNotify(){
   const btn = document.getElementById('notify-btn');
   const st = document.getElementById('notify-status');
   if(!btn || !st) return;
-  const perm = _notifyPerm();
-  if(perm === 'unsupported'){
-    btn.disabled = true;
-    st.textContent = 'не поддерживаются';
-    st.className = 'badge';
-    return;
-  }
-  const on = _notifyWanted() && perm === 'granted';
+  const chan = _notifyChannel();
+  const usable = chan === 'native' || chan === 'browser' || chan === 'ask';
+  const on = _notifyWanted() && usable;
+  btn.disabled = !usable;
   btn.textContent = on ? 'Выключить' : 'Включить';
   btn.classList.toggle('ghost', !on);
   btn.classList.toggle('danger', on);
-  if(perm === 'denied'){
-    st.textContent = 'запрещены';
+  if(!usable){
+    st.textContent = 'недоступны';
     st.className = 'badge warn';
   } else if(on){
-    st.textContent = 'включены';
+    st.textContent = chan === 'native' ? 'включены · системные' : 'включены';
     st.className = 'badge ok';
   } else {
     st.textContent = 'выключены';
@@ -3542,17 +3613,13 @@ function renderNotify(){
 }
 
 async function toggleNotifications(){
-  const want = !(_notifyWanted() && _notifyPerm() === 'granted');
-  const perm = _notifyPerm();
-  if(want && perm === 'unsupported'){
+  const chan = _notifyChannel();
+  const want = !_notifyWanted();
+  if(want && chan === 'none'){
     toast('Это окно не умеет показывать уведомления', 'err');
     return;
   }
-  if(want && perm === 'denied'){
-    toast('Уведомления запрещены в настройках окна — разрешите их там и нажмите снова', 'err');
-    return;
-  }
-  if(want && perm === 'default'){
+  if(want && chan === 'ask'){
     try {
       const p = await Notification.requestPermission();
       if(p !== 'granted') toast('Разрешение на уведомления не выдано', 'err');
@@ -3562,13 +3629,27 @@ async function toggleNotifications(){
   }
   try { localStorage.setItem('yad.notify', want ? '1' : '0'); } catch(e){}
   renderNotify();
-  if(want && _notifyPerm() === 'granted'){
+  if(want && _notifyWanted()){
     notifyUser('Уведомления включены', 'Сообщим, когда выгрузка закончится.');
   }
 }
 
-function notifyUser(title, body){
-  if(_notifyPerm() !== 'granted' || !_notifyWanted()) return;
+async function notifyUser(title, body){
+  if(!_notifyWanted()) return;
+  const chan = _notifyChannel();
+  if(chan === 'none') return;
+  if(chan === 'native' || chan === 'ask'){
+    try {
+      const r = await fetch('/api/notify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title: title || '', body: body || '' })
+      });
+      const d = await r.json();
+      if (d.ok) return;
+    } catch(e){ /* ниже браузерный запасной путь */ }
+  }
+  if(_notifyPerm() !== 'granted') return;
   try {
     const n = new Notification(title, {body: body || '', tag: 'yad-backup'});
     n.onclick = () => { try { window.focus(); } catch(e){} n.close(); };
@@ -3844,6 +3925,7 @@ async function refresh(){
         waitHost.textContent = host ? ' · ' + host : '';
       }
     }
+    renderQueueEstimate(s);
 
     // Диск отключили посреди прохода — downloader его распознал (B0).
     const dkOfflineBanner = document.getElementById('disk-offline-banner');
@@ -3917,7 +3999,9 @@ async function refresh(){
     const isRunning = runningSlots.length > 0 || isPipeRunning;
 
     // C3: заголовок вкладки с прогрессом и уведомления о конце работы.
-    if(!window._notifyRendered){ window._notifyRendered = true; renderNotify(); }
+    // Вызываем каждый опрос: канал уведомлений (`notify_native`) приходит
+    // в статусе и может появиться позже первого рендера.
+    renderNotify();
     updateTabTitle(isRunning, s);
     checkRunErrors(s);
     checkRunFinished(isRunning, s);

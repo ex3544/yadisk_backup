@@ -1218,11 +1218,34 @@ update_manager = UpdateManager()
 
 _shutdown_hook = None
 
+# Уведомления Windows. Браузерный `Notification` в окне WebView2 запрещён
+# навсегда (`Notification.permission === 'denied'`, и `requestPermission()`
+# ничего не спрашивает), поэтому показываем системный балун из иконки в трее.
+_notifier = None
+
 
 def register_shutdown_hook(func) -> None:
     """launcher передаёт сюда свой quit_app, чтобы установка могла закрыть программу."""
     global _shutdown_hook
     _shutdown_hook = func
+
+
+def set_notifier(func) -> None:
+    """launcher передаёт сюда показ системного уведомления из трея."""
+    global _notifier
+    _notifier = func
+
+
+def native_notify(title: str, body: str = "") -> bool:
+    """Показать уведомление средствами Windows. False — канала нет."""
+    func = _notifier
+    if func is None:
+        return False
+    try:
+        func(title or "Yad.backup", body or "")
+    except Exception:  # noqa: BLE001 — уведомление не должно ломать работу
+        return False
+    return True
 
 
 def _quit_application() -> None:
@@ -1812,6 +1835,15 @@ def api_status():
 
     return {
         "config": public_config(cfg),
+        # Есть ли канал системных уведомлений (иконка в трее). В браузере
+        # канала нет, и окно честно показывает это в настройках.
+        "notify_native": _notifier is not None,
+        # Свободное место на дисках выгрузки — для оценки «влезет ли очередь».
+        # Считается даже при выключенном стороже: shutil.disk_usage дешёвый.
+        "free_gb": _free_gb([
+            cfg.get("disk_dir") or str(paths.DEFAULT_DISK_DIR),
+            cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR),
+        ]),
         "token": check_token(cfg["token"]),
         "cookies": check_cookies(),
         "disk": {
@@ -2112,6 +2144,22 @@ def api_download_stop():
     n = tm.stop_all()
     pipeline.stop()
     return {"ok": True, "stopped": n}
+
+
+class NotifyPayload(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+@app.post("/api/notify")
+def api_notify(payload: NotifyPayload):
+    """Системное уведомление Windows из окна.
+
+    Окно WebView2 не умеет браузерные `Notification` (разрешение зашито как
+    `denied`), поэтому уведомление показывает иконка в трее.
+    """
+    ok = native_notify(payload.title, payload.body)
+    return {"ok": ok, "native": ok}
 
 
 class TokenPayload(BaseModel):

@@ -384,6 +384,10 @@ class Application:
 
     def run(self) -> None:
         self._start_tray()
+        # Уведомления из окна идут через иконку в трее: у WebView2 браузерные
+        # Notification запрещены навсегда, кнопка «Включить» в настройках
+        # ничего не могла сделать.
+        webui.set_notifier(self._notify if self.tray_ok else None)
         try:
             self._run_window()
         except Exception:

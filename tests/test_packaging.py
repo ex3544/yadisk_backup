@@ -879,6 +879,48 @@ def test_previews_dir_can_be_chosen_and_defaults_to_drive_c():
     assert 'os.getenv("PREVIEWS_DIR")' in prev
 
 
+def test_stop_button_text_is_visible_on_red():
+    """35.6.8: `button.danger` перебивал белый текст `.big-btn` — «Стоп» был
+    красным по красному, и надписи не было видно во время работы."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index(".big-btn.danger{")
+    chunk = html[start:html.index("\n", start)]
+    assert "color:#fff" in chunk
+
+
+def test_queue_estimate_shows_left_and_free_space():
+    """35.6.8: до запуска видно, что очередь не помещается на диск."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert 'id="queue-estimate"' in html
+    assert "function renderQueueEstimate(" in html
+    assert "renderQueueEstimate(s);" in html
+    assert "не поместится" in html
+
+
+def test_notifications_use_the_tray_not_the_browser():
+    """35.6.8: в WebView2 браузерные Notification запрещены навсегда —
+    «Включить» ничего не могла сделать. Показываем системный балун из трея."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "function _notifyChannel(" in html
+    assert "/api/notify" in html
+    assert "s.notify_native" in html
+    # Старой ветки «запрещены в настройках окна» быть не должно.
+    assert "запрещены в настройках окна" not in html
+    launcher = (PROJECT_DIR / "launcher.py").read_text(encoding="utf-8")
+    assert "webui.set_notifier(" in launcher
+
+
+def test_5xx_never_marks_a_storage_host_dead():
+    """35.6.8: ответ 500 не гасит сервер хранения — ни после какого числа.
+
+    В 35.6.7 после десяти 500 подряд хост выключался на 30 минут, и у тестера
+    из 1035 файлов скачалось три.
+    """
+    for name in ("fetch.py", "downloader.py", "unlim_backup.py"):
+        src = (PROJECT_DIR / name).read_text(encoding="utf-8")
+        assert "note_reply_error" not in src, name
+
+
 def test_console_follows_theme():
     """35.6.7: журнал не должен оставаться чёрным в светлой теме."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")

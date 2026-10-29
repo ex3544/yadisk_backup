@@ -82,6 +82,12 @@ log = logging.getLogger("yadisk_backup")
 # Скип-листы для путей которые НИКОГДА не качаем
 SKIP_PATH_PREFIXES = ("disk:/Корзина", "disk:/Trash", "/Корзина", "/Trash")
 
+# Сколько раз повторяем файл, если сервер хранения ответил 5xx. Повтор идёт по
+# новой ссылке: она привязана к реплике, и вторая попытка часто попадает на
+# живую копию. Больше одного раза не нужно — 500 либо отпускает сразу, либо
+# файл действительно не отдаётся.
+SERVER_5XX_RETRIES = 1
+
 # ── сбор HTTP-ошибок для отчёта ─────────────────────────────────────────────
 # Без тела ответа и заголовков отчёт показывает только «HTTP 500», и понять,
 # сгорел шард или это 503 с Retry-After, невозможно.
@@ -434,28 +440,41 @@ def _transfer(
     dead_hosts: Optional[DeadHosts],
     http_session: Optional[requests.Session],
 ) -> Optional[str]:
-    """Одна попытка скачивания: ссылка → прямой запрос к серверу хранения.
+    """Скачивание одного файла: ссылка → прямой запрос к серверу хранения.
 
-    Возвращает имя сервера, который отдал файл (нужно, чтобы сбросить счётчик
-    его сбоев), или None, если скачивали через сам клиент.
+    Возвращает имя сервера, который отдал файл, или None, если скачивали
+    через сам клиент.
 
     Клиенты без `get_download_link` (моки в тестах, очень старый yadisk)
     скачивают прежним способом — через сам клиент.
+
+    Ответ 5xx повторяем один раз по новой ссылке. Подписанная ссылка Яндекса
+    привязана к конкретной реплике хранилища: у тестера vovapuh 500 приходил
+    на одни и те же 995 файлов из 6361, при этом соседние качались с того же
+    сервера. Второй `get_download_link` выдаёт другой хэш и часто попадает
+    на живую копию. Без паузы: сама сетевая пара запросов и есть задержка.
     """
     getter = getattr(client, "get_download_link", None)
     if getter is None:
         _download_file(client, job.remote_path, local_path)
         return None
-    link = getter(job.remote_path)
-    result = fetch_to_file(
-        link,
-        local_path,
-        expected_size=job.size,
-        expected_md5=job.md5,
-        dead_hosts=dead_hosts,
-        session=http_session,
-    )
-    return getattr(result, "host", None)
+    for attempt in range(SERVER_5XX_RETRIES + 1):
+        link = getter(job.remote_path)
+        try:
+            result = fetch_to_file(
+                link,
+                local_path,
+                expected_size=job.size,
+                expected_md5=job.md5,
+                dead_hosts=dead_hosts,
+                session=http_session,
+            )
+        except FetchFailure as e:
+            if e.kind == "server_50x" and attempt < SERVER_5XX_RETRIES:
+                continue
+            raise
+        return getattr(result, "host", None)
+    return None
 
 
 def _download_one(
@@ -522,20 +541,17 @@ def _download_one(
     # на середине, прежняя копия останется на месте.
 
     try:
-        served_by = _transfer(client, job, local_path, dead_hosts, http_session)
-        if dead_hosts is not None and served_by:
-            dead_hosts.note_ok(served_by)
+        _transfer(client, job, local_path, dead_hosts, http_session)
     except FetchFailure as e:
         dur = int((time.monotonic() - start) * 1000)
         _cleanup_failed_file(local_path)
         if e.is_deferred:
             # Яндекс не отдаёт файл: он остаётся в очереди и попыток не тратит.
-            # 5xx — ответ живого сервера по конкретному файлу: считаем их, но
-            # не гасим весь хост. Молчание (таймаут, обрыв) — гасим сразу.
+            # Ответ 5xx хост не гасит никогда: ответ приходит мгновенно, а
+            # гашение стоило тестеру тысячи пропущенных файлов за проход.
+            # Молчание (таймаут, обрыв) — гасим сразу.
             if dead_hosts is not None and e.host:
-                if e.kind == "server_50x":
-                    dead_hosts.note_reply_error(e.host)
-                elif e.kind == "storage_skip":
+                if e.kind in ("server_50x", "storage_skip"):
                     # Хост уже помечен мёртвым. Повторный mark() продлевал бы
                     # срок на каждом пропущенном файле, и сервер не оживал бы
                     # никогда — так проход 29.10 держал его мёртвым 10 минут.

@@ -785,14 +785,14 @@ def download_one_file(
             # 429 и 5xx — это «Яндекс не отдаёт», а не «файл плохой»: файл
             # откладываем, не тратя попытку.
             #   429 — Яндекс просит подождать: тормозим весь хост.
-            #   5xx — ответ живого сервера по конкретному файлу: хост не гасим,
-            #   иначе одна сгоревшая фотография останавливает батч на 30 минут.
+            #   5xx — ответ живого сервера по конкретному файлу: хост не гасим
+            #   никогда, ни после какого числа таких ответов. Раньше гасили
+            #   после десяти подряд — у тестера 30.10 так выключилась вся линия
+            #   Диска (из 1035 файлов скачалось три).
             if resp.status_code == 429 or resp.status_code >= 500:
                 first_failure = not DEAD_HOSTS.is_dead(host)
                 server_failed = resp.status_code >= 500
-                if server_failed:
-                    DEAD_HOSTS.note_reply_error(host)
-                else:
+                if not server_failed:
                     DEAD_HOSTS.mark(host)
                 mark_deferred(db_path, fid, host, server_failed=server_failed)
                 if make_previews and first_failure:
