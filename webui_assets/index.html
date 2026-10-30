@@ -337,6 +337,11 @@
   /* ── Режимы запуска: «скачать всё» и «пошаговый» — разные блоки ── */
   .home-control{display:flex;flex-direction:column;gap:12px}
   .home-control > .card{margin-bottom:0}
+  /* Плашки итогов и журнал — один правый столбик. Иначе на широком окне
+     журнал уезжает к низу высокой левой колонки, а под плашками остаётся
+     полоса пустоты. */
+  .home-right{display:flex;flex-direction:column;gap:12px}
+  .home-right > .grid-2, .home-right > .card{margin-bottom:0}
   .launch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:0 2px}
   .launch-card{padding:16px;margin-bottom:0}
   .launch-card.auto{
@@ -386,10 +391,10 @@
     }
     .panel[data-panel="home"] .card,
     .panel[data-panel="home"] .grid-2{margin-bottom:0}
-    .home-control{grid-column:1;grid-row:1 / span 2}
-    /* Плашки итогов — над журналом, как и в одноколоночном виде. */
-    .home-stats{grid-column:2;grid-row:1;grid-template-columns:1fr 1fr}
-    #pipeline-card{grid-column:2;grid-row:2}
+    .home-control{grid-column:1;grid-row:1}
+    /* Плашки итогов и журнал — один правый столбик: журнал идёт вплотную
+       под плашками, а не к низу высокой левой колонки. */
+    .home-right{grid-column:2;grid-row:1}
     /* Журнал выше: иначе под статистикой справа остаётся пол-экрана пустоты,
        а лог всё равно обрезан до 320 px. */
     #pipeline-card #pipeline-console{height:min(52vh, 560px)}
@@ -423,7 +428,9 @@
   .home-stats.compact .stat-sub{font-size:11.5px;margin-top:2px}
   .home-stats.compact .progress{margin-top:7px}
   .home-stats.compact .progress-track{height:4px}
-  .stat-left{font-size:11.5px;margin-top:3px;font-weight:600;color:var(--orange)}
+  /* Строка «сколько ещё не получено» — просто справка, а не тревожный
+     сигнал: приглушённый цвет, обычный вес, без восклицательного знака. */
+  .stat-left{font-size:11px;margin-top:3px;font-weight:400;color:var(--text-tertiary)}
   .stat-left.none{color:var(--green)}
 
   /* ── Progress ── */
@@ -1149,7 +1156,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </div><!-- /home-control -->
 
   <!-- Итоги по линиям — прямо над журналом: порядок как в шапке (Безлимит,
-       затем Диск), плашки компактные, чтобы не отнимать место у журнала. -->
+       затем Диск), плашки компактные, чтобы не отнимать место у журнала.
+       Обёртка .home-right держит плашки и журнал вплотную друг к другу. -->
+  <div class="home-right">
   <div class="grid-2 home-stats compact">
     <div class="card">
       <div class="card-title">Безлимит</div>
@@ -1171,7 +1180,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card" id="pipeline-card" style="margin-bottom:12px">
+  <div class="card" id="pipeline-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
       <span class="badge" id="pipeline-state">ожидание</span>
@@ -1185,6 +1194,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
+  </div><!-- /home-right -->
 
 </div>
 
@@ -3022,7 +3032,7 @@ function renderLeftLine(el, count, bytes, approx){
     return;
   }
   el.classList.remove('none');
-  let out = '⚠ не получено ' + n.toLocaleString('ru') + ' ' + _pluralFiles(n);
+  let out = 'не получено ' + n.toLocaleString('ru') + ' ' + _pluralFiles(n);
   if (bytes > 0) out += ' · ' + (approx ? '≈ ' : '') + _fmtGb(bytes);
   el.textContent = out;
 }

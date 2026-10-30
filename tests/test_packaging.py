@@ -956,9 +956,21 @@ def test_home_stats_sit_above_the_log_in_header_order():
     chunk = html[stats:log]
     assert chunk.index('id="home-unlim-done"') < chunk.index('id="home-disk-done"')
     assert "photoslice" not in html
-    # В широком раскладе порядок тот же: плашки — первый ряд.
-    assert ".home-stats{grid-column:2;grid-row:1" in html
-    assert "#pipeline-card{grid-column:2;grid-row:2}" in html
+    # Плашки и журнал — один правый столбик: журнал вплотную под плашками.
+    assert ".home-right{display:flex;flex-direction:column;gap:12px}" in html
+    assert ".home-right{grid-column:2;grid-row:1}" in html
+    # Левая колонка больше не растягивает первый ряд на две строки —
+    # именно из-за этого под плашками оставалась пустота.
+    assert "grid-row:1 / span 2" not in html
+    assert '"grid-row:2"' not in html
+
+
+def test_missing_files_line_is_calm_not_alarming():
+    """35.7.0: строка «не получено» — справка, а не красный сигнал."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert (".stat-left{font-size:11px;margin-top:3px;font-weight:400;"
+            "color:var(--text-tertiary)}") in html
+    assert "⚠ не получено" not in html
 
 
 def test_plates_show_how_many_files_are_still_missing():
