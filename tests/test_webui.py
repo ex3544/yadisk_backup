@@ -1166,3 +1166,37 @@ def test_update_helper_waits_for_app_without_timeout(tmp_path):
     )
     assert "Wait-Process -Id" in text
     assert "-Timeout" not in text
+
+
+def test_report_url_endpoints_change_the_address(tmp_path, monkeypatch):
+    """35.6.9: адрес сервера отчётов меняется из окна «Диагностика»."""
+    import paths
+
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(paths, "ENV_FILE", env_file)
+    monkeypatch.delenv("REPORT_URL", raising=False)
+
+    assert webui.api_diagnostics_url()["url"] == webui.diagnostics.DEFAULT_REPORT_URL
+    saved = webui.api_diagnostics_set_url(
+        webui.ReportUrlPayload(url="reports.example.org"))
+    assert saved["ok"] is True
+    assert saved["url"] == "https://reports.example.org"
+    assert webui.api_diagnostics_url()["url"] == "https://reports.example.org"
+    reset = webui.api_diagnostics_set_url(webui.ReportUrlPayload(url=""))
+    assert reset["url"] == webui.diagnostics.DEFAULT_REPORT_URL
+
+
+def test_ping_endpoint_reports_reachability(tmp_path, monkeypatch):
+    import paths
+
+    monkeypatch.setattr(paths, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(paths, "REPORT_KEY_FILE", tmp_path / ".report_key.txt")
+    monkeypatch.delenv("REPORT_URL", raising=False)
+
+    def blocked(*args, **kwargs):
+        raise ConnectionError("blocked")
+
+    monkeypatch.setattr("requests.get", blocked)
+    result = webui.api_diagnostics_ping()
+    assert result["ok"] is False
+    assert "провайдер" in result["message"]

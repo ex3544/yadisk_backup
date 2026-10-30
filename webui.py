@@ -3355,6 +3355,7 @@ def _setup_status() -> dict:
         "disk_dir": cfg.get("disk_dir", ""),
         "unlim_dir": cfg.get("unlim_dir", ""),
         "report_key_configured": diagnostics.report_key_configured(),
+        "report_url": diagnostics.report_url(),
         "version": version.version_info(),
     }
 
@@ -3513,6 +3514,36 @@ def api_diagnostics_key(payload: ReportKeyPayload):
 @app.get("/api/diagnostics/reports")
 def api_diagnostics_reports():
     return {"ok": True, "reports": diagnostics.latest_reports()}
+
+
+class ReportUrlPayload(BaseModel):
+    url: str = ""
+
+
+@app.get("/api/diagnostics/url")
+def api_diagnostics_url():
+    """Текущий и штатный адрес сервера отчётов."""
+    return {"ok": True, "url": diagnostics.report_url(),
+            "default": diagnostics.DEFAULT_REPORT_URL}
+
+
+@app.post("/api/diagnostics/url")
+def api_diagnostics_set_url(payload: ReportUrlPayload):
+    """Меняет адрес сервера отчётов (пустая строка — вернуть штатный)."""
+    log_action("diagnostics/url")
+    try:
+        url = diagnostics.save_report_url(payload.url)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "url": url,
+            "default": diagnostics.DEFAULT_REPORT_URL}
+
+
+@app.get("/api/diagnostics/ping")
+def api_diagnostics_ping():
+    """Проверка связи с сервером отчётов: блокировка провайдера или сбой."""
+    log_action("diagnostics/ping")
+    return diagnostics.ping_report_server()
 
 
 # ── Проверка скачанных файлов (C1) ──────────────────────────────────────────

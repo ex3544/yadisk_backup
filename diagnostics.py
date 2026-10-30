@@ -1050,12 +1050,93 @@ def report_key() -> str:
 
 
 def _report_url() -> str:
+    # Адрес можно поменять в окне «Диагностика» — он живёт в .env. Читаем файл
+    # каждый раз: процесс перезапускать не нужно (у тестеров стоит блокировка
+    # домена провайдером, и адрес приходится менять на лету).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(paths.ENV_FILE, override=False)
+    except Exception:  # noqa: BLE001 — .env может отсутствовать или быть битым
+        pass
     return (os.getenv("REPORT_URL") or DEFAULT_REPORT_URL).strip().rstrip("/")
 
 
 def report_url() -> str:
     """Публичный адрес сервера отчётов (для мониторинга и настроек)."""
     return _report_url()
+
+
+def normalize_report_url(url: str) -> str:
+    """Приводит адрес к виду `https://host` (без слэша на конце)."""
+    value = (url or "").strip()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = "https://" + value
+    value = value.rstrip("/")
+    if ": " in value or " " in value:
+        raise ValueError("Адрес не должен содержать пробелов")
+    return value
+
+
+def save_report_url(url: str) -> str:
+    """Сохраняет адрес сервера отчётов в .env. Пустая строка — вернуть умолчание."""
+    from dotenv import set_key
+
+    value = normalize_report_url(url)
+    try:
+        paths.ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if not paths.ENV_FILE.exists():
+            paths.ENV_FILE.write_text("", encoding="utf-8")
+        set_key(str(paths.ENV_FILE), "REPORT_URL", value, quote_mode="never")
+    except OSError as e:
+        raise OSError(f"Не удалось сохранить адрес: {e}") from e
+    if value:
+        os.environ["REPORT_URL"] = value
+    else:
+        os.environ.pop("REPORT_URL", None)
+    return _report_url()
+
+
+def ping_report_server() -> dict:
+    """Проверка связи с сервером отчётов — чтобы отличить блокировку от сбоя.
+
+    Стучимся на `/health` с ключом. 401 значит «адрес доступен, но ключ не
+    совпал» — связь при этом есть, поэтому такой ответ тоже считаем успехом
+    проверки доступа.
+    """
+    url = _report_url()
+    result = {"ok": False, "url": url, "status": 0, "message": ""}
+    try:
+        import requests
+        response = requests.get(
+            f"{url}/health",
+            headers={"X-Report-Key": _read_report_key()},
+            timeout=(8, 20),
+        )
+    except Exception as e:  # noqa: BLE001 — в окне нужна причина, а не трейсбек
+        result["message"] = (
+            "Сервер не отвечает. Вероятно, провайдер блокирует этот адрес — "
+            f"попробуйте другой сервер отчётов ({type(e).__name__})."
+        )
+        return result
+    result["status"] = response.status_code
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001
+            data = {}
+        if data.get("ok"):
+            result["ok"] = True
+            result["message"] = "Сервер отвечает, ключ принят."
+        else:
+            result["message"] = "Сервер отвечает, но ключ не принят — проверьте ключ."
+        return result
+    if response.status_code == 401:
+        result["message"] = "Сервер отвечает, но ключ не принят — проверьте ключ."
+        return result
+    result["message"] = f"Сервер отвечает кодом {response.status_code}."
+    return result
 
 
 def send_report(path: Path | None = None,
@@ -1099,8 +1180,15 @@ def send_report(path: Path | None = None,
                 timeout=(15, 180),
             )
     except Exception as e:
-        # Не показываем URL/заголовки: в тексте исключения их быть не должно.
-        result["error"] = f"Не удалось связаться с сервером отчётов: {type(e).__name__}"
+        # Не показываем URL с ключом и заголовки. Объясняем, что делать:
+        # у части провайдеров домен сервера отчётов заблокирован, и тогда
+        # отчёт нужно передать вручную — файл уже лежит на диске.
+        result["error"] = (
+            "Не удалось связаться с сервером отчётов "
+            f"({type(e).__name__}). Возможно, провайдер блокирует этот адрес — "
+            "попробуйте другой адрес в «Диагностике» или передайте отчёт "
+            "вручную: он сохранён в папке отчётов."
+        )
         return result
     try:
         data = response.json()

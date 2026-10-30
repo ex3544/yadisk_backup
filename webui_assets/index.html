@@ -317,13 +317,22 @@
   }
   .big-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 12px 32px rgba(10,132,255,.45)}
   .big-btn:active{transform:translateY(0)}
-  .big-btn:disabled{opacity:.4;cursor:not-allowed;background:var(--surface2)}
-  /* color:#fff обязателен: `button.danger` (специфичность 0,1,1) перебивал
-     белый текст `.big-btn` и красил надпись красным по красному фону —
-     у кнопок «Стоп» во время работы надписи не было видно. */
+  /* Цвет и у неактивной кнопки: на светлой теме `--surface2` почти белый,
+     а `#fff` от `.big-btn` давал белую надпись на белом — «Старт» выглядел
+     пустым, пока шло сканирование. */
+  .big-btn:disabled{opacity:.4;cursor:not-allowed;background:var(--surface2);color:var(--text-tertiary)}
+  /* Чтобы `button.danger` (специфичность 0,1,1) не перебивал белый текст
+     `.big-btn` и не красил надпись красным по красному фону — у кнопок
+     «Стоп» во время работы надписи не было видно. */
   .big-btn.danger{background:var(--red);color:#fff;box-shadow:0 8px 24px rgba(255,69,58,.35)}
   .big-btn.danger:hover:not(:disabled){background:#ff5a4f}
   .big-btn.danger:disabled{background:var(--surface2);box-shadow:none;color:var(--text-tertiary)}
+  /* «Призрачные» кнопки: на тёмной теме прозрачный фон и белый текст,
+     на светлой `#fff` от `.big-btn` делал надпись невидимой. Берём цвет
+     текста темы — работает в обеих. */
+  .big-btn.ghost{background:transparent;color:var(--text);box-shadow:none}
+  .big-btn.ghost:hover:not(:disabled){background:var(--surface2);box-shadow:none}
+  .big-btn.ghost:disabled{background:transparent;color:var(--text-tertiary)}
 
   /* ── Режимы запуска: «скачать всё» и «пошаговый» — разные блоки ── */
   .home-control{display:flex;flex-direction:column;gap:12px}
@@ -378,8 +387,9 @@
     .panel[data-panel="home"] .card,
     .panel[data-panel="home"] .grid-2{margin-bottom:0}
     .home-control{grid-column:1;grid-row:1 / span 2}
-    #pipeline-card{grid-column:2;grid-row:1}
-    .home-stats{grid-column:2;grid-row:2;grid-template-columns:1fr 1fr}
+    /* Плашки итогов — над журналом, как и в одноколоночном виде. */
+    .home-stats{grid-column:2;grid-row:1;grid-template-columns:1fr 1fr}
+    #pipeline-card{grid-column:2;grid-row:2}
     /* Журнал выше: иначе под статистикой справа остаётся пол-экрана пустоты,
        а лог всё равно обрезан до 320 px. */
     #pipeline-card #pipeline-console{height:min(52vh, 560px)}
@@ -404,6 +414,17 @@
   .stat-label{font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:600}
   .stat-value{font-size:26px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
   .stat-sub{font-size:13px;color:var(--text-secondary);margin-top:4px}
+
+  /* ── Итоги линий на «Главной» (компактные плашки над журналом) ── */
+  .home-stats.compact{margin-bottom:12px}
+  .home-stats.compact .card{padding:10px 12px;border-radius:12px}
+  .home-stats.compact .card-title{font-size:11.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .home-stats.compact .stat-value{font-size:17px}
+  .home-stats.compact .stat-sub{font-size:11.5px;margin-top:2px}
+  .home-stats.compact .progress{margin-top:7px}
+  .home-stats.compact .progress-track{height:4px}
+  .stat-left{font-size:11.5px;margin-top:3px;font-weight:600;color:var(--orange)}
+  .stat-left.none{color:var(--green)}
 
   /* ── Progress ── */
   .progress{margin-top:14px}
@@ -1127,6 +1148,29 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   </div><!-- /home-control -->
 
+  <!-- Итоги по линиям — прямо над журналом: порядок как в шапке (Безлимит,
+       затем Диск), плашки компактные, чтобы не отнимать место у журнала. -->
+  <div class="grid-2 home-stats compact">
+    <div class="card">
+      <div class="card-title">Безлимит</div>
+      <div class="stat-value num" id="home-unlim-done">—</div>
+      <div class="stat-sub" id="home-unlim-info">—</div>
+      <div class="stat-left" id="home-unlim-left"></div>
+      <div class="progress">
+        <div class="progress-track"><div class="progress-fill purple" id="home-unlim-bar" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Обычный диск</div>
+      <div class="stat-value num" id="home-disk-done">—</div>
+      <div class="stat-sub" id="home-disk-info">—</div>
+      <div class="stat-left" id="home-disk-left"></div>
+      <div class="progress">
+        <div class="progress-track"><div class="progress-fill" id="home-disk-bar" style="width:0%"></div></div>
+      </div>
+    </div>
+  </div>
+
   <div class="card" id="pipeline-card" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
@@ -1140,25 +1184,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
-  </div>
-
-  <div class="grid-2 home-stats">
-    <div class="card">
-      <div class="card-title">Обычный диск</div>
-      <div class="stat-value num" id="home-disk-done">—</div>
-      <div class="stat-sub" id="home-disk-info">—</div>
-      <div class="progress">
-        <div class="progress-track"><div class="progress-fill" id="home-disk-bar" style="width:0%"></div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">Безлимит (photoslice)</div>
-      <div class="stat-value num" id="home-unlim-done">—</div>
-      <div class="stat-sub" id="home-unlim-info">—</div>
-      <div class="progress">
-        <div class="progress-track"><div class="progress-fill purple" id="home-unlim-bar" style="width:0%"></div></div>
-      </div>
-    </div>
   </div>
 
 </div>
@@ -1583,6 +1608,15 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <button class="ghost" onclick="clearReportKey()">Удалить</button>
     </div>
     <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске. Ключ хранится только на этом компьютере и в отчёт не включается.</div>
+
+    <label class="field-label" style="margin-top:14px">Адрес сервера отчётов</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="text" id="diag-report-url" placeholder="https://…" autocomplete="off" style="flex:1;min-width:220px">
+      <button onclick="saveReportUrl()">Сохранить адрес</button>
+      <button class="ghost" onclick="pingReportServer()">Проверить связь</button>
+    </div>
+    <div id="diag-url-state" class="setup-hint" role="status" aria-live="polite">загружаю…</div>
+    <div class="setup-hint">Нужен, только если провайдер блокирует штатный адрес: тогда впишите другой и нажмите «Сохранить адрес». Кнопка «Проверить связь» покажет, доходит ли программа до сервера.</div>
   </div>
 
   <div class="card" id="verify-card">
@@ -2965,6 +2999,34 @@ function _fmtGb(bytes){
   return gb.toFixed(1) + ' ГБ';
 }
 
+// «1 файл / 2 файла / 5 файлов» — иначе строка читается как машинный перевод.
+function _pluralFiles(n){
+  const a = Math.abs(+n || 0) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return 'файлов';
+  if (b === 1) return 'файл';
+  if (b >= 2 && b <= 4) return 'файла';
+  return 'файлов';
+}
+
+// «Не получено» для плашек: сколько файлов ещё не скачано, включая
+// зависшие, сбойные, сгоревшие и ждущие Яндекса. У Безлимита в базе нет
+// размеров нескачанных файлов — там вес оценочный (по среднему размеру
+// уже скачанного), поэтому «≈».
+function renderLeftLine(el, count, bytes, approx){
+  if (!el) return;
+  const n = +count || 0;
+  if (n <= 0) {
+    el.textContent = '✓ получено всё';
+    el.classList.add('none');
+    return;
+  }
+  el.classList.remove('none');
+  let out = '⚠ не получено ' + n.toLocaleString('ru') + ' ' + _pluralFiles(n);
+  if (bytes > 0) out += ' · ' + (approx ? '≈ ' : '') + _fmtGb(bytes);
+  el.textContent = out;
+}
+
 // Очередь и место: средний размер файла берём по уже скачанным. Для Безлимита
 // размеры у ожидающих в базе нулевые (их знает только облако), поэтому без
 // среднего оценку не построить — тогда просто показываем число файлов.
@@ -4185,6 +4247,22 @@ async function refresh(){
         diskBarEl.style.width = Math.min(100, hdpct) + '%';
       }
     }
+    // «Не получено» для Диска: в `skipped` лежат уже скачанные файлы (докачка
+    // после перезапуска), поэтому их не считаем — иначе цифра обманывает.
+    const diskLeftEl = document.getElementById('home-disk-left');
+    if (diskLeftEl) {
+      if (isDiskScanning) {
+        diskLeftEl.style.display = 'none';
+      } else {
+        const dBys = dd.bytes_by_status || {};
+        const diskLeft = (dd.pending || 0) + (dd.in_progress || 0) +
+                         (dd.failed || 0) + (dd.lost || 0);
+        const diskLeftBytes = ['pending', 'in_progress', 'failed', 'lost']
+          .reduce((a, k) => a + (+dBys[k] || 0), 0);
+        diskLeftEl.style.display = '';
+        renderLeftLine(diskLeftEl, diskLeft, diskLeftBytes, false);
+      }
+    }
 
     // Unlim Stats
     const ud = s.unlim.db || {};
@@ -4227,6 +4305,26 @@ async function refresh(){
         unlimBarEl.style.background = '';
         const hupct = totalUnlim ? (unlimDownloaded / totalUnlim * 100) : 0;
         unlimBarEl.style.width = Math.min(100, hupct) + '%';
+      }
+    }
+    // «Не получено» для Безлимита: всё, кроме downloaded (skipped здесь —
+    // это сбойные файлы, а не скачанные). Размеров нескачанных в базе нет,
+    // поэтому вес оценочный — по среднему размеру уже скачанного файла.
+    const unlimLeftEl = document.getElementById('home-unlim-left');
+    if (unlimLeftEl) {
+      if (isUnlimScanning) {
+        unlimLeftEl.style.display = 'none';
+      } else {
+        const uBys = ud.bytes_by_status || {};
+        const unlimLeft = (ud.pending || 0) + (ud.in_progress || 0) +
+                          (ud.skipped || 0) + (ud.lost || 0);
+        const uAvg = unlimDownloaded > 0 ? (+ud.bytes_done || 0) / unlimDownloaded : 0;
+        const exact = ['pending', 'in_progress', 'skipped', 'lost']
+          .reduce((a, k) => a + (+uBys[k] || 0), 0);
+        const estimated = uAvg > 0 && (exact <= 0 || unlimLeft * uAvg > exact);
+        const unlimLeftBytes = estimated ? unlimLeft * uAvg : exact;
+        unlimLeftEl.style.display = '';
+        renderLeftLine(unlimLeftEl, unlimLeft, unlimLeftBytes, estimated);
       }
     }
 
@@ -5275,6 +5373,65 @@ async function initDiagnostics(){
     const d = await r.json();
     renderReportList(d.reports || []);
   }catch(e){ /* не критично */ }
+  loadReportUrl();
+}
+
+// ── Адрес сервера отчётов ──
+async function loadReportUrl(){
+  const input = document.getElementById('diag-report-url');
+  const state = document.getElementById('diag-url-state');
+  if(!input) return;
+  try{
+    const r = await fetch('/api/diagnostics/url');
+    const d = await r.json();
+    if(!input.value) input.value = d.url || '';
+    if(state){
+      const custom = (d.url || '') && d.url !== d.default;
+      state.className = 'setup-hint';
+      state.textContent = custom ? 'свой адрес (не штатный)' : 'штатный адрес';
+    }
+  }catch(e){
+    if(state){ state.className = 'setup-hint err'; state.textContent = 'не удалось прочитать адрес'; }
+  }
+}
+
+async function saveReportUrl(){
+  const input = document.getElementById('diag-report-url');
+  const state = document.getElementById('diag-url-state');
+  const url = (input?.value || '').trim();
+  try{
+    const r = await fetch('/api/diagnostics/url', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || d.detail || 'Ошибка');
+    if(input) input.value = d.url || '';
+    if(state){
+      state.className = 'setup-hint ok';
+      state.textContent = url ? 'адрес сохранён' : 'вернулся штатный адрес';
+    }
+    toast(url ? 'Адрес сервера отчётов сохранён' : 'Адрес сервера отчётов сброшен', 'ok');
+  }catch(e){
+    if(state){ state.className = 'setup-hint err'; state.textContent = e.message; }
+    toast('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function pingReportServer(){
+  const state = document.getElementById('diag-url-state');
+  if(state){ state.className = 'setup-hint'; state.textContent = 'проверяю связь…'; }
+  try{
+    const r = await fetch('/api/diagnostics/ping', {cache:'no-store'});
+    const d = await r.json();
+    if(state){
+      state.className = 'setup-hint ' + (d.ok ? 'ok' : 'err');
+      state.textContent = (d.message || (d.ok ? 'сервер отвечает' : 'сервер не отвечает'))
+        + (d.status ? ` (HTTP ${d.status})` : '');
+    }
+  }catch(e){
+    if(state){ state.className = 'setup-hint err'; state.textContent = 'нет связи с программой: ' + e.message; }
+  }
 }
 
 async function initVersion(){

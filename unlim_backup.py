@@ -1052,6 +1052,7 @@ def run_backup(
                     print(
                         f"\r  Батч #{batch_idx}: [{i}/{len(items)}] {percent:5.1f}% | "
                         f"✓ {batch_success} | ↷ {batch_skipped} пропущено | "
+                        f"🕓 {batch_deferred} ждут | "
                         f"⚡ {cur_mb:5.1f} MB/s ({cur_mbit:6.1f} Mbps) | "
                         f"Объём: {batch_bytes / (1024*1024):.1f} MB",
                         end="",
@@ -1071,6 +1072,7 @@ def run_backup(
                 f"[+] Батч #{batch_idx} завершён за {batch_dur:.1f} сек. "
                 f"Успешно: {batch_success}/{len(items)}, "
                 f"Пропущено: {batch_skipped}, "
+                f"Ждут Яндекса: {batch_deferred}, "
                 f"Объём: {batch_bytes / (1024*1024):.2f} MB "
                 f"(Средняя скорость: {avg_mb:.2f} MB/s / {avg_mbit:.1f} Mbps)"
             )

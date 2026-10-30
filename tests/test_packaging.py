@@ -932,3 +932,71 @@ def test_console_follows_theme():
     assert "color:var(--console-text)" in chunk
     # Литералов в самом блоке быть не должно — из-за них окно и чернело.
     assert "background:#000" not in chunk
+
+
+def test_start_button_text_is_visible_in_light_theme():
+    """35.6.9: на светлой теме `#fff` от `.big-btn` не перебивается у
+    неактивной кнопки — «Старт» белел на почти белом `--surface2`."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index(".big-btn:disabled{")
+    chunk = html[start:html.index("\n", start)]
+    assert "color:var(--text-tertiary)" in chunk
+    # «Призрачные» кнопки («Скан», «Отчёт») берут цвет текста темы.
+    ghost = html[html.index(".big-btn.ghost{"):]
+    ghost = ghost[:ghost.index("\n")]
+    assert "color:var(--text)" in ghost
+
+
+def test_home_stats_sit_above_the_log_in_header_order():
+    """35.6.9: плашки итогов — над журналом, Безлимит первым, как в шапке."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    stats = html.index('<div class="grid-2 home-stats compact">')
+    log = html.index('id="pipeline-card"')
+    assert stats < log, "плашки должны идти до окна «Выполнение процесса»"
+    chunk = html[stats:log]
+    assert chunk.index('id="home-unlim-done"') < chunk.index('id="home-disk-done"')
+    assert "photoslice" not in html
+    # В широком раскладе порядок тот же: плашки — первый ряд.
+    assert ".home-stats{grid-column:2;grid-row:1" in html
+    assert "#pipeline-card{grid-column:2;grid-row:2}" in html
+
+
+def test_plates_show_how_many_files_are_still_missing():
+    """35.6.9: «не получено» — включая сбойные, сгоревшие и ждущие Яндекса."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert 'id="home-unlim-left"' in html
+    assert 'id="home-disk-left"' in html
+    assert "function renderLeftLine(" in html
+    assert "function _pluralFiles(" in html
+    assert "не получено " in html
+    # У Диска `skipped` — уже скачанные файлы, их в остаток не берём.
+    disk_start = html.index("const diskLeft =")
+    disk_chunk = html[disk_start:disk_start + 300]
+    assert "'skipped'" not in disk_chunk
+    unlim_start = html.index("const unlimLeft =")
+    unlim_chunk = html[unlim_start:unlim_start + 300]
+    assert "'skipped'" in unlim_chunk
+
+
+def test_batch_line_shows_files_waiting_for_yandex():
+    """35.6.9: «✓ 0» без счётчика ждущих выглядел как простой программы."""
+    src = (PROJECT_DIR / "unlim_backup.py").read_text(encoding="utf-8")
+    assert "🕓 {batch_deferred} ждут" in src
+    assert "Ждут Яндекса: {batch_deferred}" in src
+
+
+def test_report_server_address_is_editable_in_the_window():
+    """35.6.9: адрес сервера отчётов меняется из «Диагностики» — у тестера
+    провайдер блокирует штатный домен."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert 'id="diag-report-url"' in html
+    assert "function saveReportUrl(" in html
+    assert "function pingReportServer(" in html
+    assert "/api/diagnostics/ping" in html
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.get("/api/diagnostics/url")' in py
+    assert '@app.post("/api/diagnostics/url")' in py
+    assert '@app.get("/api/diagnostics/ping")' in py
+    diag = (PROJECT_DIR / "diagnostics.py").read_text(encoding="utf-8")
+    assert "def save_report_url(" in diag
+    assert "def ping_report_server(" in diag

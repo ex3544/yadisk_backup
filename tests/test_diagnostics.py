@@ -289,6 +289,74 @@ def test_report_key_save_and_clear(temp_paths):
     assert not paths.REPORT_KEY_FILE.exists()
 
 
+def test_report_url_can_be_changed_and_reset(temp_paths):
+    """Адрес сервера отчётов меняется без перезапуска — он живёт в .env."""
+    assert diagnostics.report_url() == diagnostics.DEFAULT_REPORT_URL
+    saved = diagnostics.save_report_url("reports.example.org")
+    assert saved == "https://reports.example.org"
+    assert diagnostics.report_url() == "https://reports.example.org"
+    assert "REPORT_URL" in paths.ENV_FILE.read_text(encoding="utf-8")
+    # Пустая строка — вернуться к штатному адресу.
+    assert diagnostics.save_report_url("") == diagnostics.DEFAULT_REPORT_URL
+    assert diagnostics.report_url() == diagnostics.DEFAULT_REPORT_URL
+
+
+def test_report_url_rejects_spaces(temp_paths):
+    with pytest.raises(ValueError):
+        diagnostics.normalize_report_url("https://bad host.example")
+
+
+def test_ping_explains_a_blocked_server(temp_paths, monkeypatch):
+    """Сетевая ошибка — прямо говорим про блокировку провайдера."""
+    diagnostics.save_report_key("test-report-key")
+
+    def boom(*args, **kwargs):
+        raise ConnectionError("blocked")
+
+    monkeypatch.setattr("requests.get", boom)
+    result = diagnostics.ping_report_server()
+    assert result["ok"] is False
+    assert "провайдер" in result["message"]
+
+
+def test_ping_reports_a_healthy_server(temp_paths, monkeypatch):
+    diagnostics.save_report_key("test-report-key")
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True, "bot": "ok"}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        seen["headers"] = kwargs.get("headers", {})
+        return FakeResponse()
+
+    monkeypatch.setattr("requests.get", fake_get)
+    result = diagnostics.ping_report_server()
+    assert result["ok"] is True
+    assert seen["url"].endswith("/health")
+    assert seen["headers"]["X-Report-Key"] == "test-report-key"
+
+
+def test_send_error_points_to_the_saved_file(temp_paths, monkeypatch):
+    diagnostics.save_report_key("test-report-key")
+    report = diagnostics.build_report()
+    path = diagnostics.write_report(report)
+
+    def boom(*args, **kwargs):
+        raise ConnectionError("blocked")
+
+    monkeypatch.setattr("requests.post", boom)
+    result = diagnostics.send_report(path, report)
+    assert result["ok"] is False
+    assert "провайдер" in result["error"]
+    assert "вручную" in result["error"]
+    assert result["saved"] == str(path)
+
+
 def test_logs_info_reads_paths_at_call_time(temp_paths, monkeypatch):
     """Пути логов берутся из `paths` при вызове, а не при импорте.
 
