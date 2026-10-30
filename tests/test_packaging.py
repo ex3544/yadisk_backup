@@ -1049,3 +1049,82 @@ def test_report_server_address_is_editable_in_the_window():
     diag = (PROJECT_DIR / "diagnostics.py").read_text(encoding="utf-8")
     assert "def save_report_url(" in diag
     assert "def ping_report_server(" in diag
+
+
+def test_cloud_picker_lets_choose_panels_and_files():
+    """35.7.2: проводник облака — папки и отдельные файлы с галочками."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="picker-card"', 'id="picker-list"', 'id="picker-path"',
+                   'id="picker-up"', 'id="picker-summary"', 'id="picker-status"'):
+        assert marker in html
+    assert "async function pickerOpen(" in html
+    assert "function pickerToggle(" in html
+    assert "async function pickerDownload(" in html
+    assert "async function pickerClear(" in html
+    assert "/api/cloud/list" in html
+    assert "/api/disk/download_selection" in html
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.get("/api/cloud/list")' in py
+    assert '@app.post("/api/disk/download_selection")' in py
+    main_py = (PROJECT_DIR / "main.py").read_text(encoding="utf-8")
+    assert '"--selection"' in main_py
+
+
+def test_downloaded_files_cannot_be_selected_again():
+    """Уже скачанное не отмечается: в работу попадают только нескачанные."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "item.status === 'downloaded' || item.status === 'skipped'" in html
+    assert "уже скачан" in html
+    # В задания выбор берёт только незавершённые статусы.
+    state_py = (PROJECT_DIR / "state.py").read_text(encoding="utf-8")
+    assert "def get_files_under(" in state_py
+    assert '("pending", "failed", "lost")' in state_py
+
+
+def test_selection_does_not_change_queue_statuses():
+    """Выбор — фильтр при запуске, а не пометка в базе."""
+    src = (PROJECT_DIR / "selection.py").read_text(encoding="utf-8")
+    assert "def build_disk_jobs(" in src
+    # Задания отдаются наружу: сама функция ничего не запускает и не пишет в базу.
+    assert "state.mark_downloaded" not in src
+    assert "reset" not in src          # никаких сбросов статусов
+    assert "UPDATE files" not in src
+
+
+def test_second_copy_of_the_program_cannot_start():
+    """35.7.2: одна копия программы на пользователя."""
+    launcher = (PROJECT_DIR / "launcher.py").read_text(encoding="utf-8")
+    assert "single_instance.acquire(" in launcher
+    assert "already_running_message()" in launcher
+    guard = (PROJECT_DIR / "single_instance.py").read_text(encoding="utf-8")
+    assert "CreateMutexW" in guard
+    assert "ErrorActionPreference" not in guard
+    # Блокировка не зависит от профиля: имя мьютекса постоянное.
+    assert r'MUTEX_NAME = "Local\\YadBackup-single"' in guard
+
+
+def test_profile_switch_waits_then_forces_only_if_stuck():
+    """Переключение профиля: мягкий выход, принудительно — только если завис."""
+    webui_py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    start = webui_py.index("def write_profile_restart_helper(")
+    chunk = webui_py[start:start + 2200]
+    assert "WaitForExit(10000)" in chunk
+    assert "Stop-Process" in chunk
+    assert chunk.index("WaitForExit(10000)") < chunk.index("Stop-Process")
+
+
+def test_database_snapshots_can_be_made_and_restored():
+    """35.7.2: «точка отсчёта» — снимки баз и откат к ним."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="snapshots-card"', 'id="snapshots-list"',
+                   'id="snapshots-status"'):
+        assert marker in html
+    assert "async function makeSnapshot(" in html
+    assert "async function restoreSnapshot(" in html
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.post("/api/db/snapshot")' in py
+    assert '@app.post("/api/db/restore")' in py
+    assert '@app.get("/api/db/snapshots")' in py
+    snap = (PROJECT_DIR / "dbsnapshots.py").read_text(encoding="utf-8")
+    assert "src.backup(dst)" in snap       # согласованная копия, а не copy файла
+    assert "before-restore" in py          # откат тоже обратим

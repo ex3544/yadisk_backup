@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 import paths
+import selection
 import yadisk
 from downloader import (
     check_token,
@@ -219,6 +220,56 @@ def cmd_scan_media(cfg: dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def _download_selection(cfg: dict, args: argparse.Namespace, state: State) -> int:
+    """Скачивает только отмеченное в окне («Что качать»).
+
+    Статусы в базе не переписываются: невыбранное остаётся в очереди, а уже
+    скачанное в задания не попадает (его нет среди pending/failed/lost).
+    """
+    client = yadisk.Client(token=cfg["token"])
+    try:
+        built = selection.build_disk_jobs(
+            state, client, do_scan=True, log=logging.getLogger("yadisk_backup")
+        )
+    finally:
+        client.close()
+
+    jobs = built["jobs"]
+    print(
+        f"Выбор: папок {built['folders']}, файлов {built['files']}; "
+        f"к скачиванию {len(jobs)}.",
+        flush=True,
+    )
+    if built["already_done"]:
+        print(f"Уже скачано, повторно не берём: {built['already_done']}.")
+    if not jobs:
+        state.close()
+        return 0
+
+    workers = args.workers or auto_workers()
+    t0 = time.time()
+    counters = {"downloaded": 0, "skipped": 0, "failed": 0, "deferred": 0, "bytes": 0}
+    dead_hosts = DeadHosts()
+    try:
+        counters = download_all(
+            token=cfg["token"],
+            state=state,
+            download_dir=cfg["download_dir"],
+            workers=workers,
+            jobs=jobs,
+            dead_hosts=dead_hosts,
+            make_previews=cfg.get("previews", True),
+        )
+    except KeyboardInterrupt:
+        print("\nПрервано пользователем. Прогресс сохранён в state.db.")
+        return 130
+    finally:
+        elapsed = time.time() - t0
+        _print_summary(counters, elapsed)
+        state.close()
+    return 0 if counters["failed"] == 0 else 1
+
+
 def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
     # Статус для Web UI появляется сразу: проверка токена и скан идут секунды,
     # и всё это время плашка не должна висеть в «подготовке».
@@ -231,6 +282,12 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
     print(msg)
 
     state = State(str(DB_FILE))
+
+    # Режим «скачать выбранное»: список работ берётся из selection.json,
+    # а не из всей очереди базы.
+    if getattr(args, "selection", False):
+        return _download_selection(cfg, args, state)
+
     pending_count = state.get_stats().get("pending", 0)
 
     # Если ничего pending — предложить сделать scan
@@ -471,6 +528,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_dl.add_argument("--root", default="/", help="Корень для авто-scan если БД пуста")
     p_dl.add_argument("--no-scan", action="store_true", help="Не делать авто-scan если БД пуста")
     p_dl.add_argument("--retry", action="store_true", help="После основного прохода один раз прогнать сбойные (failed → pending)")
+    p_dl.add_argument(
+        "--selection",
+        action="store_true",
+        help="Скачать только отмеченное в окне (selection.json), статусы базы не менять",
+    )
     p_dl.set_defaults(func=cmd_download)
 
     p_retry = sub.add_parser("retry-failed", help="Перезапустить failed → pending")

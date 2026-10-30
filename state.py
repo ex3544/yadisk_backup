@@ -423,6 +423,56 @@ class State:
             for row in self._conn().execute("SELECT remote_path FROM files")
         }
 
+    def get_statuses(self, paths: Iterable[str]) -> dict[str, str]:
+        """Статусы для набора путей — одним запросом пачками по 500."""
+        items = [str(p) for p in paths or []]
+        out: dict[str, str] = {}
+        for start in range(0, len(items), 500):
+            chunk = items[start:start + 500]
+            if not chunk:
+                continue
+            marks = ",".join("?" * len(chunk))
+            rows = self._conn().execute(
+                f"SELECT remote_path, status FROM files WHERE remote_path IN ({marks})",
+                chunk,
+            )
+            for row in rows:
+                out[row["remote_path"]] = row["status"]
+        return out
+
+    def get_files_under(
+        self,
+        prefixes: Iterable[str],
+        statuses: tuple[str, ...] = ("pending", "failed", "lost"),
+    ) -> list[sqlite3.Row]:
+        """Файлы под указанными папками с интересующими статусами.
+
+        Нужно выбору «скачать эту папку»: в базу попадают и вложенные файлы,
+        а префикс пути позволяет взять их без обхода облака.
+        """
+        folders = [str(p).rstrip("/") for p in prefixes or [] if str(p).strip()]
+        if not folders:
+            return []
+        allowed = tuple(statuses) or ("pending",)
+        marks = ",".join("?" * len(allowed))
+        out: list[sqlite3.Row] = []
+        seen: set[str] = set()
+        for folder in folders:
+            escaped = (
+                folder.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            rows = self._conn().execute(
+                "SELECT remote_path, size, md5, status FROM files "
+                f"WHERE status IN ({marks}) "
+                "  AND (remote_path = ? OR remote_path LIKE ? ESCAPE '\\')",
+                (*allowed, folder, escaped + "/%"),
+            )
+            for row in rows:
+                if row["remote_path"] not in seen:
+                    seen.add(row["remote_path"])
+                    out.append(row)
+        return out
+
     def close(self) -> None:
         """Закрывает все соединения, открытые в любых потоках."""
         with self._all_conns_lock:

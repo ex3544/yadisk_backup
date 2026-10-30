@@ -49,6 +49,7 @@ _setup_console_streams()
 
 import requests  # noqa: E402  (после подмены потоков)
 
+import single_instance  # noqa: E402
 import version  # noqa: E402
 import webui  # noqa: E402
 
@@ -604,6 +605,15 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(1) from None
 
     _setup_logging()
+
+    # Одна копия программы на пользователя. Без этого вторая копия молча
+    # занимала свободный порт: два окна, два профиля и одни и те же папки
+    # выгрузки. Блокировка берётся до старта сервера и фоновых служб.
+    if not single_instance.acquire(lock_file=paths.BASE_DATA_DIR / "app.lock"):
+        log.info("Программа уже запущена — второй экземпляр не стартую")
+        _message_box(single_instance.already_running_message(), flags=0x40)
+        return 0
+
     # Хук исключений и heartbeat: до старта сервера, чтобы падение запуска тоже
     # попало в crash.log, а мониторинг заработал вместе с приложением.
     webui.start_background_services()

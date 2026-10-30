@@ -753,6 +753,31 @@
     font-size:13px;line-height:1;padding:2px 4px;border-radius:50%}
   .root-chip button:hover{color:var(--red,#e0533d);background:rgba(255,255,255,.08)}
   .root-chip.pick button{color:var(--accent);font-size:15px}
+  /* Проводник облака «Что качать» (35.7.2): папки и файлы с галочками. */
+  .picker-bar{display:flex;align-items:center;gap:8px;margin:2px 0 8px;flex-wrap:wrap}
+  .picker-path{flex:1;min-width:110px;font-size:12.5px;color:var(--text-tertiary);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .picker-list{max-height:320px;overflow:auto;border:0.5px solid var(--hairline-strong);
+    border-radius:10px;background:var(--surface2)}
+  .picker-row{display:flex;align-items:center;gap:10px;padding:7px 10px;
+    border-bottom:0.5px solid rgba(255,255,255,.06);font-size:13.5px}
+  .picker-row:last-child{border-bottom:0}
+  .picker-check{width:16px;height:16px;flex:0 0 16px;accent-color:var(--accent);cursor:pointer}
+  .picker-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    background:none;border:0;color:var(--text);font:inherit;text-align:left;padding:0;cursor:pointer}
+  .picker-row.folder .picker-name{font-weight:600}
+  .picker-row.done{opacity:.55}
+  .picker-row.done .picker-name{cursor:default}
+  .picker-meta{font-size:11.5px;color:var(--text-tertiary);white-space:nowrap}
+  .picker-summary{font-size:12.5px;color:var(--text-tertiary);margin-top:8px}
+  /* Снимки баз: строки с датой, размером и кнопками. */
+  .snapshot-list{display:flex;flex-direction:column;gap:6px}
+  .snapshot-row{display:flex;align-items:center;gap:10px;padding:8px 10px;
+    background:var(--surface2);border-radius:9px;font-size:13px}
+  .snapshot-row .snap-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap}
+  .snapshot-row .snap-meta{font-size:11.5px;color:var(--text-tertiary);white-space:nowrap}
+  .snapshot-row button{padding:4px 10px;font-size:12px}
   .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
   .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
@@ -1526,6 +1551,32 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div id="unlim-media-status" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
+  <!-- Проводник облака: что именно качать (35.7.2) -->
+  <div class="card" id="picker-card">
+    <div class="card-title">Что качать</div>
+    <div class="card-sub">
+      Откройте облако и отметьте папки или отдельные файлы — скачается только
+      выбранное. Уже скачанное отметить нельзя. Остальное из очереди остаётся
+      как есть: ничего не помечается и не теряется.
+    </div>
+    <div class="picker-bar">
+      <button class="ghost" id="picker-open-btn" onclick="pickerOpen('disk:/')">Открыть облако</button>
+      <button class="ghost" id="picker-up" onclick="pickerUp()" disabled>↑ Вверх</button>
+      <span class="picker-path" id="picker-path">—</span>
+    </div>
+    <div id="picker-list" class="picker-list">
+      <div class="setup-hint" style="margin:10px">Нажмите «Открыть облако», чтобы выбрать папки и файлы.</div>
+    </div>
+    <div class="picker-summary" id="picker-summary">Ничего не выбрано</div>
+    <div class="actions" style="margin-top:8px">
+      <button class="primary" onclick="pickerDownload()">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранное
+      </button>
+      <button class="ghost" onclick="pickerClear()">Снять всё</button>
+    </div>
+    <div id="picker-status" class="setup-hint" role="status" aria-live="polite"></div>
+  </div>
+
   <!-- Уведомления о завершении (C3) -->
   <div class="card" id="notify-card">
     <div class="watchdog-line">
@@ -1785,6 +1836,21 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       «Скачать заново» возвращает всё в очередь и начинает выгрузку в новую папку; копия базы сохраняется.
     </div>
     <div id="rebuild-status" class="setup-hint" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="snapshots-card">
+    <div class="card-title">Снимки баз</div>
+    <div class="card-sub">
+      Точка отсчёта: копия баз Диска и Безлимита на выбранный момент. Если что-то
+      пойдёт не так — базу можно вернуть к снимку. Хранятся последние 5 снимков
+      каждого вида; перед откатом текущее состояние сохраняется отдельно.
+    </div>
+    <div class="actions" style="margin-top:0">
+      <button onclick="makeSnapshot()">Сделать снимок</button>
+      <button class="ghost" onclick="loadSnapshots()">Обновить список</button>
+    </div>
+    <div id="snapshots-list" class="snapshot-list" style="margin-top:10px"></div>
+    <div id="snapshots-status" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
   <div class="card" id="update-card">
@@ -5931,10 +5997,342 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
 });
 
+// ── «Что качать»: проводник облака и выбор папок/файлов (35.7.2) ──────────
+
+window._pickerPath = 'disk:/';
+window._pickerData = null;
+window._diskSel = {folders: [], files: []};
+
+function pickerLabel(p){
+  const s = String(p || '').replace(/^disk:/, '');
+  return s || '/';
+}
+
+function _selFind(list, path){
+  return list.findIndex(x => (typeof x === 'string' ? x : x.path) === path);
+}
+
+// Папка покрывает путь, если он совпадает или лежит внутри неё.
+function _folderCovers(path){
+  return (window._diskSel.folders || []).some(f => {
+    const base = String(f).replace(/\/+$/, '');
+    return path === base || path.startsWith(base + '/');
+  });
+}
+
+function _selSummary(){
+  const el = document.getElementById('picker-summary');
+  if(!el) return;
+  const folders = window._diskSel.folders || [];
+  const files = window._diskSel.files || [];
+  if(!folders.length && !files.length){
+    el.textContent = 'Ничего не выбрано — скачается только отмеченное.';
+    return;
+  }
+  const bytes = files.reduce((s, x) => s + (+x.size || 0), 0);
+  let text = `Выбрано: ${folders.length} ${folders.length === 1 ? 'папка' : 'папок'} · `
+           + `${files.length} ${_pluralFiles(files.length)}`;
+  if(bytes) text += ' · ' + human(bytes);
+  el.textContent = text;
+}
+
+async function pickerLoadSelection(){
+  try{
+    const r = await fetch('/api/selection/disk');
+    const d = await r.json();
+    if(d.ok){
+      window._diskSel = {folders: d.folders || [], files: d.files || []};
+      _selSummary();
+    }
+  }catch(e){ /* окно без связи с программой не должно падать */ }
+}
+
+async function pickerSaveSelection(){
+  try{
+    const r = await fetch('/api/selection/disk', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({folders: window._diskSel.folders, files: window._diskSel.files})
+    });
+    const d = await r.json();
+    if(d.ok){
+      window._diskSel = {folders: d.folders || [], files: d.files || []};
+      _selSummary();
+    } else {
+      toast(d.msg || 'Не удалось сохранить выбор', 'err');
+    }
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function pickerOpen(path){
+  window._pickerPath = path || 'disk:/';
+  const box = document.getElementById('picker-list');
+  if(box) box.textContent = 'Запрашиваю список у Яндекса…';
+  try{
+    const r = await fetch('/api/cloud/list?path=' + encodeURIComponent(window._pickerPath));
+    const d = await r.json();
+    const pathEl = document.getElementById('picker-path');
+    if(pathEl) pathEl.textContent = pickerLabel(d.path || window._pickerPath);
+    window._pickerData = d;
+    pickerRender(d);
+  }catch(e){
+    if(box) box.textContent = 'Нет связи с программой: ' + e.message;
+  }
+}
+
+function pickerRender(d){
+  const box = document.getElementById('picker-list');
+  if(!box) return;
+  box.innerHTML = '';
+  const up = document.getElementById('picker-up');
+  if(up) up.disabled = !d || !d.ok || !d.parent || d.parent === d.path;
+  const note = (text, cls) => {
+    const div = document.createElement('div');
+    div.className = 'setup-hint' + (cls ? ' ' + cls : '');
+    div.style.margin = '10px';
+    div.textContent = text;
+    box.appendChild(div);
+  };
+  if(!d || !d.ok){ note((d && d.msg) || 'Не удалось получить список', 'err'); return; }
+  const rows = [];
+  (d.folders || []).forEach(f => rows.push({...f, kind: 'folder'}));
+  (d.files || []).forEach(f => rows.push({...f, kind: 'file'}));
+  if(!rows.length){ note('Папка пуста.'); return; }
+  rows.forEach(item => box.appendChild(_pickerRow(item)));
+}
+
+function _pickerRow(item){
+  const isFolder = item.kind === 'folder';
+  const done = !isFolder && (item.status === 'downloaded' || item.status === 'skipped');
+  const covered = !isFolder && _folderCovers(item.path);
+  const row = document.createElement('div');
+  row.className = 'picker-row' + (isFolder ? ' folder' : '') + (done ? ' done' : '');
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'picker-check';
+  if(isFolder){
+    cb.checked = _selFind(window._diskSel.folders, item.path) >= 0;
+  } else {
+    cb.checked = done ? false : (covered || _selFind(window._diskSel.files, item.path) >= 0);
+  }
+  if(done || covered){
+    // Уже скачанное повторно не качаем; файл внутри выбранной папки
+    // снимать по одному нельзя — он войдёт в работу вместе с папкой.
+    cb.disabled = true;
+  }
+  cb.onchange = () => pickerToggle(item, cb.checked);
+  row.appendChild(cb);
+
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'picker-name';
+  name.textContent = (isFolder ? '📁 ' : '📄 ') + item.name;
+  if(isFolder){
+    name.onclick = () => pickerOpen(item.path);
+  } else if(!done && !covered){
+    name.onclick = () => { cb.checked = !cb.checked; pickerToggle(item, cb.checked); };
+  }
+  row.appendChild(name);
+
+  const meta = document.createElement('span');
+  meta.className = 'picker-meta';
+  if(isFolder) meta.textContent = 'папка';
+  else if(done) meta.textContent = 'уже скачан';
+  else if(covered) meta.textContent = 'в выбранной папке';
+  else meta.textContent = human(item.size || 0) + (item.status === 'failed' ? ' · сбойный' : '');
+  row.appendChild(meta);
+  return row;
+}
+
+function pickerToggle(item, on){
+  if(item.kind === 'folder'){
+    const i = _selFind(window._diskSel.folders, item.path);
+    if(on && i < 0) window._diskSel.folders.push(item.path);
+    if(!on && i >= 0) window._diskSel.folders.splice(i, 1);
+  } else {
+    const i = _selFind(window._diskSel.files, item.path);
+    if(on && i < 0) window._diskSel.files.push({path: item.path, size: item.size || null});
+    if(!on && i >= 0) window._diskSel.files.splice(i, 1);
+  }
+  _selSummary();
+  pickerSaveSelection();
+  // Перерисовываем: от выбранных папок зависит доступность файлов внутри.
+  if(window._pickerData) pickerRender(window._pickerData);
+}
+
+function pickerUp(){
+  const d = window._pickerData;
+  if(d && d.ok && d.parent) pickerOpen(d.parent);
+}
+
+async function pickerClear(){
+  const ok = await askConfirm({
+    title: 'Снять выбор?',
+    text: 'Отмеченные папки и файлы перестанут участвовать в «Скачать выбранное». В очереди и в базе ничего не изменится.'
+  });
+  if(!ok) return;
+  try{
+    const r = await fetch('/api/selection/disk/clear', {method: 'POST'});
+    const d = await r.json();
+    window._diskSel = {folders: [], files: []};
+    _selSummary();
+    if(window._pickerData) pickerRender(window._pickerData);
+    toast(d.msg || 'Выбор очищен', 'ok');
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
+}
+
+async function pickerDownload(){
+  const st = document.getElementById('picker-status');
+  const setStatus = (text, cls) => {
+    if(!st) return;
+    st.className = 'setup-hint' + (cls ? ' ' + cls : '');
+    st.textContent = text;
+  };
+  if(!window._diskSel.folders.length && !window._diskSel.files.length){
+    setStatus('Сначала отметьте папки или файлы', 'err');
+    toast('Сначала отметьте папки или файлы', 'err');
+    return;
+  }
+  const ok = await askConfirm({
+    title: 'Скачать выбранное?',
+    text: 'В работу попадут только отмеченные папки и файлы. Уже скачанное будет пропущено, остальная очередь останется как была.'
+  });
+  if(!ok) return;
+  try{
+    const r = await fetch('/api/disk/download_selection', {method: 'POST'});
+    const d = await r.json();
+    setStatus(d.msg || '', d.ok ? 'ok' : 'err');
+    toast(d.ok ? (d.msg || 'Выгрузка запущена') : (d.msg || 'Не удалось запустить'),
+          d.ok ? 'ok' : 'err');
+    refresh();
+  }catch(e){
+    setStatus('Нет связи с программой: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+// ── снимки баз ─────────────────────────────────────────────────────────────
+
+function _snapLabel(name){
+  // state-20261030-031500.db → 30.10.2026 03:15
+  const m = /^(\w+)-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(name || '');
+  if(!m) return name;
+  return `${m[4]}.${m[3]}.${m[2]} ${m[5]}:${m[6]}`;
+}
+
+function _snapScope(kind){
+  return kind === 'unlim' ? 'Безлимит' : 'Диск';
+}
+
+function renderSnapshots(items){
+  const box = document.getElementById('snapshots-list');
+  if(!box) return;
+  box.innerHTML = '';
+  if(!items || !items.length){
+    const empty = document.createElement('div');
+    empty.className = 'setup-hint';
+    empty.textContent = 'Снимков пока нет.';
+    box.appendChild(empty);
+    return;
+  }
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'snapshot-row';
+    const name = document.createElement('span');
+    name.className = 'snap-name';
+    name.textContent = `${_snapScope(item.kind)} · ${_snapLabel(item.name)}`;
+    row.appendChild(name);
+    const meta = document.createElement('span');
+    meta.className = 'snap-meta';
+    meta.textContent = human(item.size || 0);
+    row.appendChild(meta);
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.textContent = 'Вернуть';
+    restore.onclick = () => restoreSnapshot(item.name);
+    row.appendChild(restore);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost';
+    del.textContent = 'Удалить';
+    del.onclick = () => deleteSnapshot(item.name);
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+async function loadSnapshots(){
+  try{
+    const r = await fetch('/api/db/snapshots');
+    const d = await r.json();
+    if(d.ok) renderSnapshots(d.snapshots);
+  }catch(e){ /* список не критичен для работы */ }
+}
+
+async function makeSnapshot(){
+  const st = document.getElementById('snapshots-status');
+  try{
+    const r = await fetch('/api/db/snapshot', {method: 'POST'});
+    const d = await r.json();
+    if(d.ok){
+      renderSnapshots(d.snapshots);
+      if(st){ st.className = 'setup-hint ok'; st.textContent = d.msg || 'Снимок готов'; }
+      toast(d.msg || 'Снимок готов', 'ok');
+    } else {
+      if(st){ st.className = 'setup-hint err'; st.textContent = d.msg || 'Не удалось'; }
+      toast(d.msg || 'Не удалось сделать снимок', 'err');
+    }
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
+}
+
+async function restoreSnapshot(name){
+  const ok = await askConfirm({
+    title: 'Вернуть базу из снимка?',
+    text: `База будет восстановлена из ${_snapLabel(name)}. Текущее состояние сначала сохраним отдельным снимком — откат тоже будет обратимым. Сначала остановите выгрузку.`
+  });
+  if(!ok) return;
+  const st = document.getElementById('snapshots-status');
+  try{
+    const r = await fetch('/api/db/restore', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})
+    });
+    const d = await r.json();
+    if(d.ok){
+      renderSnapshots(d.snapshots);
+      if(st){ st.className = 'setup-hint ok'; st.textContent = d.msg || 'База восстановлена'; }
+      toast(d.msg || 'База восстановлена', 'ok');
+      refresh();
+    } else {
+      if(st){ st.className = 'setup-hint err'; st.textContent = d.msg || 'Не удалось'; }
+      toast(d.msg || 'Не удалось восстановить', 'err');
+    }
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
+}
+
+async function deleteSnapshot(name){
+  const ok = await askConfirm({title: 'Удалить снимок?', text: `Снимок ${_snapLabel(name)} будет удалён.`});
+  if(!ok) return;
+  try{
+    const r = await fetch('/api/db/snapshot/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})
+    });
+    const d = await r.json();
+    if(d.ok){ renderSnapshots(d.snapshots); toast(d.msg || 'Снимок удалён', 'ok'); }
+    else toast(d.msg || 'Не удалось удалить', 'err');
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
+}
+
 initVersion();
 initSetup();
 initDiagnostics();
 loadProfiles();
+pickerLoadSelection();
+loadSnapshots();
 refresh();
 setInterval(refresh, 1500);
 // Автопроверка обновлений при запуске: окно по центру появится, только если

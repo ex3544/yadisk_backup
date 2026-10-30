@@ -1248,3 +1248,105 @@ def test_profile_switch_explains_source_runs(tmp_path, monkeypatch):
         webui.ProfileIdPayload(id=created["profile"]["id"]))
     assert result["ok"] is False
     assert "исходников" in result["msg"]
+
+
+# ── выбор «что качать» (35.7.2) ─────────────────────────────────────────────
+
+@pytest.fixture()
+def selection_env(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    root.mkdir()
+    monkeypatch.setattr(webui.paths, "DATA_DIR", root)
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    return root
+
+
+def test_selection_endpoints_save_and_clear(selection_env):
+    saved = webui.api_selection_save(webui.SelectionDiskPayload(
+        folders=["/Фото"], files=[{"path": "/a.jpg", "size": 5}]))
+    assert saved["ok"] is True
+    assert saved["folders"] == ["disk:/Фото"]
+    assert saved["files"][0]["path"] == "disk:/a.jpg"
+
+    loaded = webui.api_selection_get()
+    assert loaded["folders"] == ["disk:/Фото"]
+    assert loaded["summary"]["files"] == 1
+
+    webui.api_selection_clear()
+    assert webui.api_selection_get()["folders"] == []
+
+
+def test_download_selection_refuses_an_empty_choice(selection_env):
+    webui.api_selection_clear()
+    result = webui.api_download_selection()
+    assert result["ok"] is False
+    assert "отметьте" in result["msg"]
+
+
+def test_download_selection_starts_disk_download(selection_env, monkeypatch):
+    webui.api_selection_save(webui.SelectionDiskPayload(files=["/a.jpg"]))
+    monkeypatch.setattr(webui, "check_target_dir", lambda _p: "")
+    monkeypatch.setattr(webui, "reset_session_counters", lambda _k: None)
+    calls = {}
+
+    def fake_start(slot, script, args):
+        calls.update(slot=slot, script=script, args=args)
+        return True, "запущено"
+
+    monkeypatch.setattr(webui.tm, "start", fake_start)
+    result = webui.api_download_selection()
+    assert result["ok"] is True
+    assert calls["slot"] == "disk"
+    assert "--selection" in calls["args"]
+    assert "--no-scan" in calls["args"]
+
+
+def test_cloud_parent_is_computed_correctly():
+    assert webui._cloud_parent("disk:/") == "disk:/"
+    assert webui._cloud_parent("disk:/Фото") == "disk:/"
+    assert webui._cloud_parent("disk:/Фото/2024") == "disk:/Фото"
+
+
+# ── снимки баз (35.7.2) ─────────────────────────────────────────────────────
+
+@pytest.fixture()
+def snap_env(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    root.mkdir()
+    disk = root / "state.db"
+    con = sqlite3.connect(disk)
+    con.execute("CREATE TABLE files (remote_path TEXT PRIMARY KEY, status TEXT)")
+    con.execute("INSERT INTO files VALUES ('disk:/a.jpg', 'pending')")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(webui.paths, "DATA_DIR", root)
+    monkeypatch.setattr(webui.paths, "DB_FILE", disk)
+    monkeypatch.setattr(webui.paths, "UNLIM_DB_FILE", root / "unlim_state.db")
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    return root
+
+
+def test_snapshot_endpoints_make_list_restore_and_delete(snap_env):
+    made = webui.api_snapshot_make()
+    assert made["ok"] is True
+    names = [item["name"] for item in made["snapshots"]]
+    assert any(name.startswith("state-") for name in names)
+
+    restored = webui.api_snapshot_restore(webui.SnapshotPayload(
+        name=next(n for n in names if n.startswith("state-"))))
+    assert restored["ok"] is True
+    # Перед откатом программа сохранила текущее состояние отдельным снимком.
+    assert len([i for i in restored["snapshots"] if i["kind"] == "state"]) >= 2
+
+    deleted = webui.api_snapshot_delete(webui.SnapshotPayload(name=names[0]))
+    assert deleted["ok"] is True
+    assert names[0] not in [item["name"] for item in deleted["snapshots"]]
+
+
+def test_snapshot_restore_refuses_while_downloading(snap_env, monkeypatch):
+    made = webui.api_snapshot_make()
+    name = made["snapshots"][0]["name"]
+    monkeypatch.setattr(webui, "_db_running", lambda _scope: True)
+    result = webui.api_snapshot_restore(webui.SnapshotPayload(name=name))
+    assert result["ok"] is False
+    assert "остановите" in result["msg"].lower()

@@ -38,11 +38,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import backups
+import dbsnapshots
 import diagnostics
 import monitor
 import paths
 import previews
 import profiles
+import selection
 import updater
 import verify as verify_mod
 import version
@@ -1348,7 +1350,14 @@ def write_profile_restart_helper(target_dir: Path) -> Path:
         "$ErrorActionPreference = 'Continue'",
         "('переключение профиля ' + (Get-Date -Format s)) | "
         "Out-File -Append -Encoding utf8 " + _ps_quote(log_file),
-        "try { Wait-Process -Id " + str(os.getpid()) + " -ErrorAction Stop } catch { }",
+        # Ждём штатного выхода до 10 секунд: принудительное убийство может
+        # оставить живыми дочерние воркеры и оборвать запись в базу. Только если
+        # процесс завис — завершаем его сами.
+        "$sw = Get-Process -Id " + str(os.getpid()) + " -ErrorAction SilentlyContinue",
+        "if ($sw) { try { $sw.WaitForExit(10000) | Out-Null } catch { } }",
+        "$left = Get-Process -Id " + str(os.getpid()) + " -ErrorAction SilentlyContinue",
+        "if ($left) { Stop-Process -Id " + str(os.getpid()) + " -Force "
+        "-ErrorAction SilentlyContinue }",
         "Start-Sleep -Milliseconds 700",
         # Дочерний процесс наследует переменную — так paths выбирает новый каталог.
         "$env:YADISK_DATA_DIR = " + _ps_quote(str(target_dir)),
@@ -2509,6 +2518,190 @@ def api_disk_folders(path: str = "/"):
                 "folders": []}
     folders = cloud_folders_from(items)
     return {"ok": True, "path": path, "folders": folders}
+
+
+# ── выбор того, что качать ──────────────────────────────────────────────────
+
+def _disk_statuses(paths_list: list[str]) -> dict[str, str]:
+    """Статусы файлов из базы Диска: по ним окно скрывает уже скачанное."""
+    if not DB_FILE.exists() or not paths_list:
+        return {}
+    out: dict[str, str] = {}
+    try:
+        con = sqlite3.connect(sqlite_ro_uri(DB_FILE), uri=True, timeout=30)
+        try:
+            for start in range(0, len(paths_list), 400):
+                chunk = paths_list[start:start + 400]
+                marks = ",".join("?" * len(chunk))
+                rows = con.execute(
+                    f"SELECT remote_path, status FROM files WHERE remote_path IN ({marks})",
+                    chunk,
+                )
+                for remote, status in rows:
+                    out[remote] = status
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return {}
+    return out
+
+
+def _cloud_parent(path: str) -> str:
+    body = path[len("disk:"):] if path.startswith("disk:") else path
+    parts = [p for p in body.split("/") if p]
+    if not parts:
+        return "disk:/"
+    return "disk:/" + "/".join(parts[:-1]) if len(parts) > 1 else "disk:/"
+
+
+@app.get("/api/cloud/list")
+def api_cloud_list(path: str = "/"):
+    """Содержимое папки облака для проводника «Что качать».
+
+    Отдаёт папки и файлы; у файлов — размер, дата изменения и статус из базы,
+    чтобы уже скачанное нельзя было отметить повторно.
+    """
+    cfg = get_config()
+    if not cfg.get("token"):
+        return {"ok": False, "msg": "Токен не задан", "path": path,
+                "folders": [], "files": []}
+    try:
+        folder = selection.normalize_remote(path) or "disk:/"
+    except ValueError:
+        return {"ok": False, "msg": "Недопустимый путь", "path": path,
+                "folders": [], "files": []}
+    try:
+        import yadisk
+
+        cli = yadisk.Client(token=cfg["token"])
+        try:
+            items = list(cli.listdir(folder, max_items=None))
+        finally:
+            cli.close()
+    except Exception as e:  # noqa: BLE001 — в окне нужна причина, а не трейсбек
+        return {"ok": False, "path": folder, "folders": [], "files": [],
+                "msg": f"Облако недоступно ({type(e).__name__})"}
+
+    folders: list[dict] = []
+    files: list[dict] = []
+    for item in items:
+        item_path = getattr(item, "path", "") or ""
+        if not item_path:
+            continue
+        name = (getattr(item, "name", "") or "").strip() or item_path.rsplit("/", 1)[-1]
+        if getattr(item, "type", "") == "dir":
+            folders.append({"name": name, "path": item_path})
+        else:
+            files.append({
+                "name": name,
+                "path": item_path,
+                "size": int(item.size) if getattr(item, "size", None) else None,
+                "modified": str(getattr(item, "modified", "") or ""),
+            })
+    folders.sort(key=lambda f: f["name"].lower())
+    files.sort(key=lambda f: f["name"].lower())
+    statuses = _disk_statuses([f["path"] for f in files])
+    for item in files:
+        item["status"] = statuses.get(item["path"], "")
+    return {"ok": True, "path": folder, "parent": _cloud_parent(folder),
+            "folders": folders, "files": files}
+
+
+class SelectionDiskPayload(BaseModel):
+    folders: list = Field(default_factory=list)
+    files: list = Field(default_factory=list)
+
+
+@app.get("/api/selection/disk")
+def api_selection_get():
+    data = selection.disk_selection()
+    return {"ok": True, **data, "summary": selection.summary(data)}
+
+
+@app.post("/api/selection/disk")
+def api_selection_save(payload: SelectionDiskPayload):
+    try:
+        data = selection.save_disk(payload.folders, payload.files)
+    except ValueError as e:
+        return {"ok": False, "msg": str(e)}
+    log_action("/api/selection/disk", selection.summary(data["disk"]))
+    return {"ok": True, **data["disk"], "summary": selection.summary(data["disk"])}
+
+
+@app.post("/api/selection/disk/clear")
+def api_selection_clear():
+    data = selection.clear_disk()
+    log_action("/api/selection/disk/clear")
+    return {"ok": True, "msg": "Выбор очищен", **data["disk"]}
+
+
+@app.post("/api/disk/download_selection")
+def api_download_selection():
+    """Скачивает только отмеченное. Статусы базы не меняются."""
+    if selection.is_empty():
+        return {"ok": False, "msg": "Сначала отметьте папки или файлы"}
+    cfg = get_config()
+    out_dir = cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR)
+    problem = check_target_dir(out_dir)
+    if problem:
+        return {"ok": False, "msg": problem}
+    args = ["download", "--no-scan", "--selection", "--workers", str(auto_workers())]
+    _session_retry["disk"] = False
+    reset_session_counters("disk")
+    ok, msg = tm.start("disk", "main.py", args)
+    return {"ok": ok, "msg": msg, "mode": "disk"}
+
+
+# ── снимки баз ─────────────────────────────────────────────────────────────
+
+class SnapshotPayload(BaseModel):
+    name: str = ""
+
+
+@app.get("/api/db/snapshots")
+def api_snapshots_list():
+    return {"ok": True, "snapshots": dbsnapshots.list_snapshots(),
+            "keep": dbsnapshots.KEEP}
+
+
+@app.post("/api/db/snapshot")
+def api_snapshot_make():
+    try:
+        made = dbsnapshots.make_snapshot("manual")
+    except sqlite3.Error as e:
+        return {"ok": False, "msg": f"Не удалось сделать снимок: {e}"}
+    log_action("/api/db/snapshot")
+    if not made:
+        return {"ok": False, "msg": "Баз ещё нет — снимок делать нечего"}
+    return {"ok": True, "msg": f"Снимок готов: {len(made)}",
+            "made": made, "snapshots": dbsnapshots.list_snapshots()}
+
+
+@app.post("/api/db/restore")
+def api_snapshot_restore(payload: SnapshotPayload):
+    if _db_running("disk") or _db_running("unlim"):
+        return {"ok": False, "msg": "Сначала остановите выгрузку"}
+    try:
+        # Сначала снимок текущего состояния: сам откат тоже должен быть
+        # обратимым, если снимок окажется неудачным.
+        dbsnapshots.make_snapshot("before-restore")
+        target = dbsnapshots.restore(payload.name)
+    except (ValueError, sqlite3.Error) as e:
+        return {"ok": False, "msg": str(e)}
+    log_action("/api/db/restore", {"name": payload.name})
+    return {"ok": True, "msg": f"База восстановлена из {payload.name}",
+            "target": str(target), "snapshots": dbsnapshots.list_snapshots()}
+
+
+@app.post("/api/db/snapshot/delete")
+def api_snapshot_delete(payload: SnapshotPayload):
+    try:
+        dbsnapshots.delete(payload.name)
+    except ValueError as e:
+        return {"ok": False, "msg": str(e)}
+    log_action("/api/db/snapshot/delete", {"name": payload.name})
+    return {"ok": True, "msg": "Снимок удалён",
+            "snapshots": dbsnapshots.list_snapshots()}
 
 
 class BrowseDirPayload(BaseModel):
