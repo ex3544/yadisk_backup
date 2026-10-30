@@ -1200,3 +1200,51 @@ def test_ping_endpoint_reports_reachability(tmp_path, monkeypatch):
     result = webui.api_diagnostics_ping()
     assert result["ok"] is False
     assert "провайдер" in result["message"]
+
+
+def test_profiles_endpoints_create_rename_delete(tmp_path, monkeypatch):
+    """35.7.1: профили клиентов создаются, переименовываются и удаляются."""
+    import paths
+
+    base = tmp_path / "base"
+    base.mkdir()
+    monkeypatch.setattr(paths, "BASE_DATA_DIR", base)
+    monkeypatch.setattr(paths, "DATA_DIR", base)
+
+    listed = webui.api_profiles()
+    assert listed["ok"] is True
+    assert [p["id"] for p in listed["profiles"]] == ["main"]
+
+    created = webui.api_profiles_create(webui.ProfileCreatePayload(name="Клиент"))
+    assert created["ok"] is True
+    pid = created["profile"]["id"]
+    assert (base / "profiles" / pid).is_dir()
+
+    again = webui.api_profiles_create(webui.ProfileCreatePayload(name="клиент"))
+    assert again["ok"] is False
+    assert "уже есть" in again["error"]
+
+    renamed = webui.api_profiles_rename(
+        webui.ProfileRenamePayload(id=pid, name="Клиент 2"))
+    assert renamed["ok"] is True
+    assert renamed["profile"]["name"] == "Клиент 2"
+
+    deleted = webui.api_profiles_delete(webui.ProfileIdPayload(id=pid))
+    assert deleted["ok"] is True
+    assert not (base / "profiles" / pid).exists()
+
+
+def test_profile_switch_explains_source_runs(tmp_path, monkeypatch):
+    """Из исходников перезапуск не делаем — честно говорим, что делать."""
+    import paths
+
+    base = tmp_path / "base"
+    base.mkdir()
+    monkeypatch.setattr(paths, "BASE_DATA_DIR", base)
+    monkeypatch.setattr(paths, "DATA_DIR", base)
+    created = webui.api_profiles_create(webui.ProfileCreatePayload(name="Клиент"))
+
+    result = webui.api_profiles_switch(
+        webui.ProfileIdPayload(id=created["profile"]["id"]))
+    assert result["ok"] is False
+    assert "исходников" in result["msg"]

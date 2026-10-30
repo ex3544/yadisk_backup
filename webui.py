@@ -42,6 +42,7 @@ import diagnostics
 import monitor
 import paths
 import previews
+import profiles
 import updater
 import verify as verify_mod
 import version
@@ -1333,6 +1334,32 @@ def write_update_helper(payload: Path, kind: str, restart: bool = True) -> Path:
     return helper
 
 
+def write_profile_restart_helper(target_dir: Path) -> Path:
+    """Помощник, который дождётся выхода программы и запустит её с профилем.
+
+    Пути данных фиксируются при импорте `paths`, поэтому сменить профиль в
+    работающем процессе нельзя — только перезапуск с другим `YADISK_DATA_DIR`.
+    """
+    work = paths.LOG_DIR
+    work.mkdir(parents=True, exist_ok=True)
+    helper = work / "switch_profile.ps1"
+    log_file = work / "switch_profile.log"
+    lines = [
+        "$ErrorActionPreference = 'Continue'",
+        "('переключение профиля ' + (Get-Date -Format s)) | "
+        "Out-File -Append -Encoding utf8 " + _ps_quote(log_file),
+        "try { Wait-Process -Id " + str(os.getpid()) + " -ErrorAction Stop } catch { }",
+        "Start-Sleep -Milliseconds 700",
+        # Дочерний процесс наследует переменную — так paths выбирает новый каталог.
+        "$env:YADISK_DATA_DIR = " + _ps_quote(str(target_dir)),
+        "Start-Process -FilePath " + _ps_quote(sys.executable),
+        "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force "
+        "-ErrorActionSilentlyContinue",
+    ]
+    helper.write_text(chr(10).join(lines) + chr(10), encoding="utf-8-sig")
+    return helper
+
+
 def _free_gb(paths: list[str]) -> Optional[float]:
     """Минимум свободного места по указанным папкам (по одному разу на диск)."""
     frees: list[float] = []
@@ -1838,6 +1865,9 @@ def api_status():
         # Есть ли канал системных уведомлений (иконка в трее). В браузере
         # канала нет, и окно честно показывает это в настройках.
         "notify_native": _notifier is not None,
+        # Имя текущего профиля — для пилюли в шапке. Список профилей отдельно,
+        # в /api/profiles: он меняется только по действию человека.
+        "profile": profiles.current_profile(),
         # Свободное место на дисках выгрузки — для оценки «влезет ли очередь».
         # Считается даже при выключенном стороже: shutil.disk_usage дешёвый.
         "free_gb": _free_gb([
@@ -3514,6 +3544,95 @@ def api_diagnostics_key(payload: ReportKeyPayload):
 @app.get("/api/diagnostics/reports")
 def api_diagnostics_reports():
     return {"ok": True, "reports": diagnostics.latest_reports()}
+
+
+class ProfileCreatePayload(BaseModel):
+    name: str = ""
+    disk_dir: str = ""
+    unlim_dir: str = ""
+
+
+class ProfileRenamePayload(BaseModel):
+    id: str = ""
+    name: str = ""
+
+
+class ProfileIdPayload(BaseModel):
+    id: str = ""
+
+
+@app.get("/api/profiles")
+def api_profiles():
+    """Профили пользователей: у каждого свой каталог данных."""
+    return {
+        "ok": True,
+        "profiles": profiles.list_profiles(),
+        "current": profiles.current_profile(),
+        "data_dir": str(paths.DATA_DIR),
+    }
+
+
+@app.post("/api/profiles/create")
+def api_profiles_create(payload: ProfileCreatePayload):
+    log_action("/api/profiles/create", {"name": payload.name})
+    try:
+        created = profiles.create_profile(
+            payload.name, payload.disk_dir, payload.unlim_dir)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "profile": created}
+
+
+@app.post("/api/profiles/rename")
+def api_profiles_rename(payload: ProfileRenamePayload):
+    log_action("/api/profiles/rename", {"id": payload.id})
+    try:
+        item = profiles.rename_profile(payload.id, payload.name)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "profile": item}
+
+
+@app.post("/api/profiles/delete")
+def api_profiles_delete(payload: ProfileIdPayload):
+    log_action("/api/profiles/delete", {"id": payload.id})
+    try:
+        item = profiles.delete_profile(payload.id)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "deleted": item}
+
+
+@app.post("/api/profiles/switch")
+def api_profiles_switch(payload: ProfileIdPayload):
+    """Перезапускает программу с данными другого профиля."""
+    log_action("/api/profiles/switch", {"id": payload.id})
+    try:
+        target = profiles.profile_dir(payload.id)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "msg": str(e)}
+    if not IS_FROZEN:
+        return {"ok": False,
+                "msg": "Запущено из исходников: закройте программу и запустите "
+                       "с YADISK_DATA_DIR, указывающим на папку профиля."}
+    with tm._lock:
+        busy = [slot for slot, task in tm._tasks.items() if task.alive()]
+    if busy or pipeline.is_running() or full_cycle.is_running():
+        return {"ok": False, "msg": "Сначала остановите скачивание."}
+    try:
+        helper = write_profile_restart_helper(target)
+        flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0) |
+                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-WindowStyle", "Hidden", "-File", str(helper)],
+            cwd=str(helper.parent), close_fds=True, creationflags=flags,
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "msg": f"Не удалось переключить профиль: {e}"}
+    threading.Timer(1.2, _quit_application).start()
+    return {"ok": True,
+            "msg": "Программа перезапустится с другим профилем."}
 
 
 class ReportUrlPayload(BaseModel):

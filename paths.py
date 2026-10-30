@@ -72,6 +72,10 @@ def _resolve_data_dir() -> Path:
 # ── Основные каталоги ───────────────────────────────────────────────────────
 
 DATA_DIR = _resolve_data_dir()
+# «Родной» каталог данных — место, где живут профили пользователей. Он не
+# зависит от `YADISK_DATA_DIR`: при работе внутри профиля DATA_DIR указывает на
+# папку профиля, а реестр профилей должен оставаться один на всех.
+BASE_DATA_DIR = _default_data_dir()
 LOG_DIR = DATA_DIR / "logs"
 REPORT_DIR = DATA_DIR / "reports"
 

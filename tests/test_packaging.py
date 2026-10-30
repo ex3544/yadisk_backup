@@ -843,16 +843,53 @@ def test_watchdog_is_on_by_default_with_20gb():
 
 
 def test_updates_are_checked_on_startup_with_a_centered_dialog():
-    """Автопроверка при старте: окно по центру «Обновить / Позже», без сети — молча."""
+    """Автопроверка при старте: то же окно «Что нового», без сети — молча."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     assert "async function startupUpdateCheck()" in html
     assert "setTimeout(startupUpdateCheck, 2500)" in html
     start = html.index("async function startupUpdateCheck()")
-    chunk = html[start:start + 1800]
-    assert "askConfirm({" in chunk
-    assert "ok: 'Обновить'" in chunk
-    assert "cancel: 'Позже'" in chunk
+    chunk = html[start:start + 1200]
+    assert "showUpdateModal(d);" in chunk
     assert "catch(e){ /* нет сети — молча */ }" in chunk
+
+
+def test_update_window_shows_what_is_new_and_stays_during_download():
+    """35.7.1: окно «Что нового в версии X» с кнопками и справкой."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="update-modal"', 'id="update-modal-title"',
+                   'id="update-modal-action"', 'id="update-modal-close"',
+                   'id="update-notes"'):
+        assert marker in html
+    assert "function showUpdateModal(" in html
+    assert "function closeUpdateModal(" in html
+    assert "function _notesText(" in html
+    assert "Закрыть и обновить" in html
+    assert "notes.style.display = 'block'" in html
+    # Справка — из описания релиза на GitHub, без исполнения HTML.
+    assert "d.notes" in html
+    close_start = html.index("function closeUpdateModal(")
+    close_chunk = html[close_start:close_start + 400]
+    assert "cancelUpdateDownload" not in close_chunk
+
+
+def test_profiles_card_lists_and_switches_users():
+    """35.7.1: профили клиентов — карточка, пилюля, создание и переключение."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="profiles-card"', 'id="profiles-list"',
+                   'id="pill-profile"', 'id="profile-modal"',
+                   'id="profile-name"', 'id="profile-disk-dir"',
+                   'id="profile-unlim-dir"'):
+        assert marker in html
+    assert "async function loadProfiles(" in html
+    assert "async function switchProfile(" in html
+    assert "async function deleteProfile(" in html
+    assert "function openProfileCreate(" in html
+    assert "async function submitProfileModal(" in html
+    assert "'pill-profile':      {panel:'setup', selector:'#profiles-card'}" in html
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.get("/api/profiles")' in py
+    assert '@app.post("/api/profiles/switch")' in py
+    assert "def write_profile_restart_helper(" in py
 
 
 def test_stop_button_is_available_in_the_quick_launch_card():

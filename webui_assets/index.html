@@ -433,6 +433,19 @@
   .stat-left{font-size:11px;margin-top:3px;font-weight:400;color:var(--text-tertiary)}
   .stat-left.none{color:var(--green)}
 
+  /* ── Профили пользователей ── */
+  .profile-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+  .profile-row{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:10px 12px;border-radius:10px;background:var(--surface2);
+    border:0.5px solid var(--hairline);flex-wrap:wrap;
+  }
+  .profile-row.current{border-color:rgba(10,132,255,.45);background:rgba(10,132,255,.08)}
+  .profile-name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+  .profile-dir{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
+  .profile-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .profile-actions button{padding:6px 10px;font-size:12.5px}
+
   /* ── Progress ── */
   .progress{margin-top:14px}
   .progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--text-tertiary);margin-bottom:6px}
@@ -743,6 +756,9 @@
   .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
   .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
+  /* Справка о новой версии в окне обновления: свой размер, прокрутка внутри. */
+  .update-box .diag-pre{max-height:38vh;margin-top:0;font-size:12.5px}
+  .update-box .modal-actions{justify-content:flex-end}
 
   /* ── Подтверждение действия ──
      Компактное окно в цветах приложения, чуть ниже центра экрана.
@@ -914,6 +930,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
     </span>
+    <span class="pill service clickable" id="pill-profile" role="button" tabindex="0" data-tip="Профиль пользователя: у каждого свои куки, токен, базы и папки выгрузки. Нажмите — откроет список профилей в «Настройках»."><span class="dot"></span><span id="pill-profile-text">👤 Основной</span></span>
     <span class="pill service clickable" id="pill-token" role="button" tabindex="0" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Нажмите — откроет поле токена в «Настройках»."><span class="dot"></span><span id="pill-token-text">токен</span></span>
     <span class="pill service clickable" id="pill-cookies" role="button" tabindex="0" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Нажмите — откроет поле кук в «Настройках»."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
     <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
@@ -1316,6 +1333,16 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 <div class="panel" data-panel="setup">
 
   <div class="setup-col">
+
+  <div class="card" id="profiles-card">
+    <div class="card-title">Пользователь</div>
+    <div class="card-sub">Профиль — отдельный набор данных: свои куки, токен, базы, логи, отчёты и папки выгрузки. При переключении программа перезапустится.</div>
+    <div id="profiles-list" class="profile-list"></div>
+    <div class="actions" style="margin-top:4px">
+      <button class="ghost" onclick="openProfileCreate()">Создать профиль</button>
+      <span class="setup-hint" id="profiles-status" role="status" aria-live="polite"></span>
+    </div>
+  </div>
 
   <div class="card" id="unlim-dir-card">
     <div class="card-title">Папка для Безлимита</div>
@@ -1778,7 +1805,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       Программа закроется, установит новую версию и снова откроется. Права
       администратора не нужны. Настройки и скачанные файлы не удаляются.
     </div>
-    <pre id="update-notes" class="diag-pre" style="display:none"></pre>
   </div>
 
 </div>
@@ -1800,6 +1826,46 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="modal-actions">
       <button class="ghost" id="confirm-cancel-btn" onclick="askConfirmClose(false)">Отмена</button>
       <button class="primary" id="confirm-ok-btn" onclick="askConfirmClose(true)">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============= ЧТО НОВОГО В ОБНОВЛЕНИИ ============= -->
+<div class="modal-backdrop" id="update-modal" onclick="if(event.target===this) closeUpdateModal()">
+  <div class="modal-box update-box" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+    <div class="modal-kicker">Обновление · Yad.backup</div>
+    <div class="modal-title" id="update-modal-title">Что нового</div>
+    <div class="modal-sub" id="update-modal-sub">—</div>
+    <pre id="update-notes" class="diag-pre" style="display:none"></pre>
+    <div id="update-modal-progress" style="display:none;margin-top:12px;height:6px;border-radius:3px;background:var(--surface2);overflow:hidden">
+      <div id="update-modal-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
+    </div>
+    <div id="update-modal-status" class="setup-hint" role="status" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button class="ghost" id="update-modal-close" onclick="closeUpdateModal()">Закрыть</button>
+      <button class="primary" id="update-modal-action" onclick="updateModalAction()">Закрыть и обновить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============= ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ============= -->
+<div class="modal-backdrop" id="profile-modal" onclick="if(event.target===this) closeProfileModal()">
+  <div class="modal-box confirm-box" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <div class="modal-title" id="profile-modal-title">Новый профиль</div>
+    <div class="modal-sub" id="profile-modal-sub">У профиля будет своя папка данных: куки, токен, базы, логи и отчёты клиента.</div>
+    <div id="profile-create-fields">
+      <label class="field-label" for="profile-name">Имя профиля</label>
+      <input type="text" id="profile-name" maxlength="40" placeholder="например: Клиент Пётр"
+             onkeydown="if(event.key==='Enter') submitProfileModal()">
+      <label class="field-label" for="profile-disk-dir" style="margin-top:12px">Папка обычного Диска</label>
+      <input type="text" id="profile-disk-dir" placeholder="например: E:\Клиент\Disk">
+      <label class="field-label" for="profile-unlim-dir" style="margin-top:12px">Папка Безлимита</label>
+      <input type="text" id="profile-unlim-dir" placeholder="например: E:\Клиент\Unlim">
+      <div class="setup-hint">Пустой путь — папка «Клиенты\&lt;имя профиля&gt;» на диске выгрузки. Своя папка у каждого профиля важна: иначе файлы клиента лягут рядом с вашими.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost" onclick="closeProfileModal()">Отмена</button>
+      <button class="primary" id="profile-modal-ok" onclick="submitProfileModal()">Создать</button>
     </div>
   </div>
 </div>
@@ -2013,6 +2079,7 @@ function gotoSetting(panel, selector){
 // Куда ведёт клик по плашке в шапке: панель и поле, к которому прокрутить.
 const PILL_TARGETS = {
   'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
+  'pill-profile':      {panel:'setup', selector:'#profiles-card'},
   'pill-token':        {panel:'setup', selector:'#token-input'},
   'pill-cookies':      {panel:'setup', selector:'#cookies-input'},
   'pill-watchdog':     {panel:'setup', selector:'#watchdog-card'},
@@ -3938,6 +4005,13 @@ async function refresh(){
     pc.className = 'pill service '+(s.cookies.ok?'ok':'err');
     document.getElementById('pill-cookies-text').textContent = s.cookies.ok ? 'cookies · OK' : 'нет cookies';
 
+    const pp = document.getElementById('pill-profile');
+    if(pp && s.profile){
+      pp.className = 'pill service ' + (s.profile.active ? 'ok' : '');
+      const pn = document.getElementById('pill-profile-text');
+      if(pn) pn.textContent = '👤 ' + (s.profile.name || 'профиль');
+    }
+
     const pSpeed = document.getElementById('pill-speed');
     const sp = s.speed || {};
     const unlimLive = !!(s.tasks && s.tasks.unlim && s.tasks.unlim.running);
@@ -4596,10 +4670,7 @@ async function checkUpdates(){
         install.disabled = false;
         install.style.display = '';
       }
-      if(d.notes){
-        notes.textContent = d.notes;
-        notes.style.display = '';
-      }
+      showUpdateModal(d);
     }else{
       status.className = 'setup-hint ok';
       status.textContent = `У вас последняя версия (${d.current}).`;
@@ -4626,25 +4697,122 @@ async function startupUpdateCheck(){
     if(!d || !d.ok || !d.update_available) return;
     if(!(d.installer || d.portable)) return;   // обновиться нечем — не мешаем
     lastUpdateUrl = d.url || '';
-    const sure = await askConfirm({
-      title: `Доступна версия ${d.latest}`,
-      text: `У вас ${d.current}. Скачать обновление сейчас? Программа скачает установщик, `
-        + 'проверит его по SHA-256 и предложит перезапуститься. Настройки и скачанные '
-        + 'файлы не затрагиваются.',
-      ok: 'Обновить',
-      cancel: 'Позже'
-    });
-    if(!sure) return;
-    showPanel('setup');
-    const card = document.getElementById('update-card');
-    if(card){
-      card.scrollIntoView({block:'center'});
-      card.classList.remove('flash');
-      void card.offsetWidth;
-      card.classList.add('flash');
-    }
-    startUpdateDownload();
+    // То же окно, что и по кнопке «Проверить обновления»: сначала справка,
+    // что нового, потом «Закрыть и обновить».
+    showUpdateModal(d);
   }catch(e){ /* нет сети — молча */ }
+}
+
+// ── Окно «Что нового в версии X» ───────────────────────────────────────────
+// Открывается по «Проверить обновления» и при автопроверке на старте. Во время
+// скачивания остаётся на экране и показывает прогресс; закрыть можно кнопкой
+// «Скрыть» или кликом мимо окна — скачивание при этом продолжается.
+let _updateModalInfo = {};
+let _updateModalMode = 'offer';
+
+function _notesText(raw){
+  // Справка приходит из GitHub в markdown. Показываем её простым текстом:
+  // снимаем заголовки и звёздочки, пункты списка оставляем строками «•».
+  return String(raw || '')
+    .replace(/\r/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .trim();
+}
+
+function showUpdateModal(d){
+  const modal = document.getElementById('update-modal');
+  if(!modal || !d) return;
+  _updateModalInfo = d;
+  const title = document.getElementById('update-modal-title');
+  const sub = document.getElementById('update-modal-sub');
+  const notes = document.getElementById('update-notes');
+  if(title){
+    title.textContent = d.latest ? `Что нового в версии ${d.latest}` : 'Что нового';
+  }
+  if(sub){
+    sub.textContent = d.current
+      ? `Сейчас установлена ${d.current}. Программа скачает установщик, проверит его `
+        + 'по SHA-256 и предложит перезапуститься. Настройки и скачанные файлы не затрагиваются.'
+      : 'Программа скачает установщик и предложит перезапуститься.';
+  }
+  const text = _notesText(d.notes);
+  if(notes){
+    if(text){ notes.textContent = text; notes.style.display = 'block'; }
+    else { notes.textContent = ''; notes.style.display = 'none'; }
+  }
+  setUpdateModalState('offer');
+  modal.classList.add('show');
+}
+
+function closeUpdateModal(){
+  const modal = document.getElementById('update-modal');
+  if(modal) modal.classList.remove('show');
+}
+
+function setUpdateModalState(mode, u){
+  u = u || _updateModalInfo || {};
+  _updateModalMode = mode;
+  const progress = document.getElementById('update-modal-progress');
+  const bar = document.getElementById('update-modal-bar');
+  const status = document.getElementById('update-modal-status');
+  const action = document.getElementById('update-modal-action');
+  const close = document.getElementById('update-modal-close');
+  if(!action || !close) return;
+  action.style.display = '';
+  action.disabled = false;
+  if(mode === 'downloading'){
+    if(progress) progress.style.display = 'block';
+    if(bar) bar.style.width = (u.percent || 0) + '%';
+    if(status){
+      status.className = 'setup-hint';
+      status.textContent = `Скачиваю ${human(u.done_bytes || 0)} из `
+        + `${human(u.total_bytes || 0)} · ${u.percent || 0}%`;
+    }
+    action.style.display = 'none';
+    close.textContent = 'Скрыть';
+  }else if(mode === 'ready'){
+    if(progress) progress.style.display = 'block';
+    if(bar) bar.style.width = '100%';
+    if(status){
+      status.className = 'setup-hint ok';
+      status.textContent = `Версия ${u.version || ''} скачана и проверена по SHA-256.`;
+    }
+    action.style.display = u.can_install === false ? 'none' : '';
+    action.textContent = 'Закрыть и обновить';
+    close.textContent = 'Позже';
+  }else if(mode === 'error'){
+    if(progress) progress.style.display = 'none';
+    if(status){
+      status.className = 'setup-hint err';
+      status.textContent = u.error || 'Не удалось скачать обновление.';
+    }
+    action.textContent = 'Скачать ещё раз';
+    close.textContent = 'Закрыть';
+  }else{
+    if(progress) progress.style.display = 'none';
+    if(status){ status.className = 'setup-hint'; status.textContent = ''; }
+    action.textContent = 'Скачать обновление';
+    close.textContent = 'Закрыть';
+  }
+}
+
+function updateModalAction(){
+  if(_updateModalMode === 'ready'){
+    closeUpdateModal();
+    applyUpdate();
+    return;
+  }
+  if(_updateModalMode === 'error'){
+    setUpdateModalState('downloading', {percent: 0});
+    startUpdateDownload();
+    return;
+  }
+  // «Скачать обновление»: окно остаётся, прогресс пойдёт внутри него.
+  setUpdateModalState('downloading', {percent: 0});
+  startUpdateDownload();
 }
 
 async function startUpdateDownload(){
@@ -4758,6 +4926,14 @@ function renderUpdate(u){
     if(apply) apply.style.display = 'none';
     if(cancel) cancel.style.display = 'none';
     if(hint) hint.style.display = 'none';
+  }
+  // Открытое окно «Что нового» повторяет тот же прогресс. Закрытое окно само
+  // не открывается: скачивание идёт, а человек вернётся к нему в «Настройках».
+  const modal = document.getElementById('update-modal');
+  if(modal && modal.classList.contains('show')){
+    if(state === 'downloading' || state === 'checking') setUpdateModalState('downloading', u);
+    else if(state === 'ready') setUpdateModalState('ready', u);
+    else if(state === 'error') setUpdateModalState('error', u);
   }
 }
 
@@ -5377,6 +5553,184 @@ async function clearReportKey(){
   }catch(e){ toast('Ошибка: ' + e.message, 'err'); }
 }
 
+// ── Профили пользователей ──────────────────────────────────────────────────
+// Профиль = отдельный каталог данных (куки, токен, базы, логи, отчёты, папки
+// выгрузки). Переключение — перезапуск программы, поэтому кнопка честно
+// предупреждает и требует остановить скачивание.
+let _profilesData = {profiles: [], current: {}};
+let _profileModalMode = 'create';
+let _profileRenameId = '';
+
+async function loadProfiles(){
+  try{
+    const r = await fetch('/api/profiles', {cache:'no-store'});
+    const d = await r.json();
+    if(!d || !d.ok) return;
+    _profilesData = d;
+    renderProfiles(d);
+  }catch(e){ /* сервер только поднимается — не мешаем */ }
+}
+
+function _profileAt(i){
+  return (_profilesData.profiles || [])[i] || null;
+}
+
+function renderProfiles(d){
+  const box = document.getElementById('profiles-list');
+  if(!box) return;
+  const list = (d && d.profiles) || [];
+  const cur = (d && d.current) || {};
+  box.innerHTML = list.map((p, i)=>{
+    const isCur = !!p.active;
+    const actions = [];
+    if(!isCur){
+      actions.push(`<button onclick="switchProfile(${i})">Переключиться</button>`);
+    }
+    if(!p.main){
+      actions.push(`<button class="ghost" onclick="openProfileRename(${i})">Переименовать</button>`);
+    }
+    if(!p.main && !isCur){
+      actions.push(`<button class="ghost" onclick="deleteProfile(${i})">Удалить</button>`);
+    }
+    return `<div class="profile-row${isCur?' current':''}">
+      <div class="profile-main">
+        <div class="profile-name">${esc(p.name)}${isCur?'<span class="badge">текущий</span>':''}</div>
+        <div class="profile-dir">${esc(p.dir || '')}</div>
+      </div>
+      <div class="profile-actions">${actions.join('')}</div>
+    </div>`;
+  }).join('');
+  if(cur && cur.custom){
+    box.innerHTML += '<div class="setup-hint" style="margin-top:8px">Программа запущена с папкой данных вне списка профилей. Управлять такой папкой из окна нельзя.</div>';
+  }
+}
+
+async function switchProfile(i){
+  const p = _profileAt(i);
+  if(!p) return;
+  const sure = await askConfirm({
+    title: `Переключиться на профиль «${p.name}»?`,
+    text: 'Программа закроется и снова откроется с данными этого профиля: '
+      + 'свои куки, токен, базы и папки выгрузки. Идущее скачивание сначала остановите.',
+    ok: 'Переключиться'
+  });
+  if(!sure) return;
+  try{
+    const r = await fetch('/api/profiles/switch', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: p.id})
+    });
+    const d = await r.json();
+    if(!d.ok){ toast(d.msg || 'Не удалось переключить профиль', 'err'); return; }
+    toast(d.msg || 'Перезапускаю программу…', 'ok');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function deleteProfile(i){
+  const p = _profileAt(i);
+  if(!p) return;
+  const sure = await askConfirm({
+    title: `Удалить профиль «${p.name}»?`,
+    text: 'Вместе с профилем удалится его папка данных: куки, токен, базы, логи и отчёты. '
+      + 'Скачанные файлы в папках выгрузки останутся на месте.',
+    ok: 'Удалить'
+  });
+  if(!sure) return;
+  try{
+    const r = await fetch('/api/profiles/delete', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: p.id})
+    });
+    const d = await r.json();
+    if(!d.ok){ toast(d.error || d.msg || 'Не удалось удалить профиль', 'err'); return; }
+    toast(`Профиль «${p.name}» удалён`, 'ok');
+    loadProfiles();
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+function openProfileCreate(){
+  _profileModalMode = 'create';
+  _profileRenameId = '';
+  const title = document.getElementById('profile-modal-title');
+  const sub = document.getElementById('profile-modal-sub');
+  const fields = document.getElementById('profile-create-fields');
+  const ok = document.getElementById('profile-modal-ok');
+  const name = document.getElementById('profile-name');
+  const disk = document.getElementById('profile-disk-dir');
+  const unlim = document.getElementById('profile-unlim-dir');
+  if(title) title.textContent = 'Новый профиль';
+  if(sub) sub.textContent = 'У профиля будет своя папка данных: куки, токен, базы, логи и отчёты клиента.';
+  if(fields) fields.style.display = '';
+  if(ok) ok.textContent = 'Создать';
+  if(name) name.value = '';
+  if(disk) disk.value = '';
+  if(unlim) unlim.value = '';
+  document.getElementById('profile-modal').classList.add('show');
+  if(name) setTimeout(()=>name.focus(), 60);
+}
+
+function openProfileRename(i){
+  const p = _profileAt(i);
+  if(!p) return;
+  _profileModalMode = 'rename';
+  _profileRenameId = p.id;
+  const title = document.getElementById('profile-modal-title');
+  const sub = document.getElementById('profile-modal-sub');
+  const fields = document.getElementById('profile-create-fields');
+  const ok = document.getElementById('profile-modal-ok');
+  const name = document.getElementById('profile-name');
+  if(title) title.textContent = 'Переименовать профиль';
+  if(sub) sub.textContent = 'Имя меняется только в списке — папка данных остаётся прежней.';
+  if(fields) fields.style.display = 'none';
+  if(ok) ok.textContent = 'Сохранить';
+  if(name) name.value = p.name || '';
+  document.getElementById('profile-modal').classList.add('show');
+  if(name) setTimeout(()=>name.focus(), 60);
+}
+
+function closeProfileModal(){
+  document.getElementById('profile-modal').classList.remove('show');
+}
+
+async function submitProfileModal(){
+  const name = (document.getElementById('profile-name').value || '').trim();
+  const status = document.getElementById('profiles-status');
+  if(!name){
+    if(status){ status.className = 'setup-hint err'; status.textContent = 'Введите имя профиля.'; }
+    return;
+  }
+  try{
+    let url = '/api/profiles/create';
+    let body = {name};
+    if(_profileModalMode === 'rename'){
+      url = '/api/profiles/rename';
+      body = {id: _profileRenameId, name};
+    }else{
+      body.disk_dir = (document.getElementById('profile-disk-dir').value || '').trim();
+      body.unlim_dir = (document.getElementById('profile-unlim-dir').value || '').trim();
+    }
+    const r = await fetch(url, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if(!d.ok){
+      if(status){ status.className = 'setup-hint err'; status.textContent = d.error || 'Не удалось сохранить профиль.'; }
+      return;
+    }
+    closeProfileModal();
+    if(status){ status.className = 'setup-hint ok'; status.textContent = ''; }
+    toast(_profileModalMode === 'rename' ? 'Профиль переименован' : `Профиль «${name}» создан`, 'ok');
+    loadProfiles();
+  }catch(e){
+    if(status){ status.className = 'setup-hint err'; status.textContent = 'Нет связи с программой: ' + e.message; }
+  }
+}
+
 async function initDiagnostics(){
   try{
     const r = await fetch('/api/diagnostics/reports');
@@ -5569,7 +5923,6 @@ function makeResizable(el, opts){
 // Журнал тянется в обе стороны, диагностика и примечания обновления — по высоте.
 makeResizable(document.getElementById('pipeline-console'), {axis: 'both'});
 makeResizable(document.getElementById('diag-output'), {axis: 'y'});
-makeResizable(document.getElementById('update-notes'), {axis: 'y'});
 
 // Карточки: тянутся только по высоте и без обёртки — они лежат в сетках и
 // flex-колонках, лишний <div> сломал бы раскладку.
@@ -5581,6 +5934,7 @@ makeResizable(document.getElementById('update-notes'), {axis: 'y'});
 initVersion();
 initSetup();
 initDiagnostics();
+loadProfiles();
 refresh();
 setInterval(refresh, 1500);
 // Автопроверка обновлений при запуске: окно по центру появится, только если
