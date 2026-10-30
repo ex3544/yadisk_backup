@@ -100,7 +100,7 @@
   .container{max-width:1600px;margin:0 auto}
 
   /* ── Header ── */
-  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:16px;flex-wrap:wrap}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:0;gap:10px 16px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:10px}
   .brand-logo{
     width:28px;height:28px;border-radius:8px;
@@ -112,6 +112,16 @@
   .brand-sub{font-size:12px;color:var(--text-tertiary);margin-top:0;letter-spacing:0}
 
   .pills{display:flex;gap:8px;flex-wrap:wrap}
+  /* Постоянные плашки прижаты вправо и при нехватке места переносятся
+     поодиночке, не утаскивая за собой весь блок. */
+  .pills-main{flex:1 1 320px;justify-content:flex-end;min-width:0}
+  /* Живые плашки — свой ряд под шапкой. Когда показывать нечего, JS ставит
+     row.style.display='none', и ряд не занимает места. */
+  .pills-live{justify-content:flex-end;margin:6px 0 10px}
+  .pills-live:empty{display:none}
+  @media (max-width:700px){
+    .pills-main,.pills-live{justify-content:flex-start}
+  }
   .pill{
     display:inline-flex;align-items:center;gap:6px;
     padding:4px 11px;border-radius:99px;
@@ -139,7 +149,6 @@
      и рамкой, из-за чего плашка выглядела квадратнее и выше соседних. */
   .pill.service.on{background:transparent;border-color:transparent;color:var(--green)}
   .pill.service.on .dot{background:var(--green);box-shadow:0 0 8px rgba(48,209,88,.55)}
-  .pills-sep{width:1px;height:22px;align-self:center;background:var(--hairline-strong)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
   /* Подсказка при наведении: своя плашка в цветах приложения вместо системного
@@ -201,29 +210,54 @@
   #eta-box .eta-value{font-weight:600;color:var(--accent)}
   #eta-box .eta-note{font-size:11.5px;color:var(--text-tertiary);margin-left:6px}
 
+  /* Итог запуска числами — рядом с журналом: видно и общее время, и результат.
+     Строка живёт и после остановки, пока не начнётся новый запуск. */
+  #run-summary{display:none;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
+  #run-summary .rs-lane{font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-right:2px}
+  .rs-item{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:3px 9px;border-radius:99px;
+    background:var(--surface2);border:0.5px solid var(--hairline-strong);
+    font-size:12px;color:var(--text-secondary);
+  }
+  .rs-item.ok{color:var(--green)}
+  .rs-item.warn{color:var(--orange)}
+  .rs-item.wait{color:var(--yellow)}
+  .rs-item.bad{color:var(--red)}
+  .rs-item.sel{color:var(--accent);border-color:rgba(10,132,255,.4);background:rgba(10,132,255,.08)}
+
   /* ── Tabs (segmented control) ── */
   .tabs{
-    display:flex;gap:2px;
-    background:var(--surface);
-    padding:2px;border-radius:10px;
-    margin-bottom:8px;overflow-x:auto;
-    border:0.5px solid var(--hairline);
+    display:flex;gap:6px;
+    margin-bottom:10px;overflow-x:auto;
+    padding-bottom:2px;
   }
+  /* Вкладки — не серые подписи, а кнопки: у каждой иконка, у активной —
+     акцентная заливка. Раньше активная вкладка отличалась только чуть более
+     светлым фоном, и было непонятно, где ты находишься. */
   .tab{
-    flex:1;min-width:80px;
-    padding:6px 12px;text-align:center;
-    border-radius:8px;cursor:pointer;
-    font-size:13px;font-weight:500;
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    flex:1;min-width:104px;
+    padding:9px 14px;
+    border-radius:10px;cursor:pointer;
+    font-size:13.5px;font-weight:600;
     color:var(--text-secondary);
-    transition:color .15s,background .15s;
+    background:var(--surface);
+    border:0.5px solid var(--hairline-strong);
+    transition:color .15s,background .15s,border-color .15s,box-shadow .15s;
     white-space:nowrap;
   }
-  .tab:hover{color:var(--text)}
+  .tab .ico-sm{opacity:.75;transition:opacity .15s}
+  .tab:hover{color:var(--text);background:var(--surface2)}
+  .tab:hover .ico-sm{opacity:1}
   .tab.active{
-    background:var(--surface3);
+    background:linear-gradient(135deg,rgba(10,132,255,.22),rgba(191,90,242,.18));
+    border-color:rgba(10,132,255,.65);
     color:var(--text);
-    box-shadow:0 1px 2px rgba(0,0,0,.3);
+    box-shadow:0 2px 12px rgba(10,132,255,.22);
   }
+  .tab.active .ico-sm{opacity:1;color:var(--accent)}
+  .tab:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(10,132,255,.65)}
 
   /* ── Panel ── */
   .panel{display:none}
@@ -965,7 +999,8 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.6</span></div>
     </div>
   </div>
-  <div class="pills">
+  <!-- Постоянные плашки: тема, задачи, профиль, токен, куки, сторож. -->
+  <div class="pills pills-main" id="pills-main">
     <button id="theme-btn" class="ghost tipnode" onclick="toggleTheme()"
       data-tip="Светлая или тёмная тема. Выбор запоминается."
       aria-label="Переключить тему" aria-pressed="false"
@@ -978,12 +1013,17 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <span class="pill service clickable" id="pill-token" role="button" tabindex="0" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Нажмите — откроет поле токена в «Настройках»."><span class="dot"></span><span id="pill-token-text">токен</span></span>
     <span class="pill service clickable" id="pill-cookies" role="button" tabindex="0" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Нажмите — откроет поле кук в «Настройках»."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
     <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
-    <span class="pills-sep" aria-hidden="true"></span>
-    <span class="pill ok clickable" id="pill-speed" style="display:none" role="button" tabindex="0" data-tip="Скорость скачивания Безлимита в этом запуске. Нажмите — откроет журнал выполнения."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
-    <span class="pill ok clickable" id="pill-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии Безлимита: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Безлимита."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
-    <span class="pill ok clickable" id="pill-disk-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии обычного Диска: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Диска."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
   </div>
 </header>
+
+<!-- Живые плашки: скорость и итоги выгрузки. Отдельный ряд под шапкой —
+     когда они не умещаются рядом с названием программы, уезжает только этот
+     ряд, а постоянные плашки остаются на месте. -->
+<div class="pills pills-live" id="pills-live" aria-label="Ход выгрузки">
+  <span class="pill ok clickable" id="pill-speed" style="display:none" role="button" tabindex="0" data-tip="Скорость скачивания Безлимита в этом запуске. Нажмите — откроет журнал выполнения."><span class="dot"></span><span id="pill-speed-text">⚡ 0 МБ/с</span></span>
+  <span class="pill ok clickable" id="pill-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии Безлимита: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Безлимита."><span class="dot"></span><span id="pill-session-text">✅ 0 файлов</span></span>
+  <span class="pill ok clickable" id="pill-disk-session" style="display:none" role="button" tabindex="0" data-tip="Итог сессии обычного Диска: скачано за все проходы и сбойные сейчас. Нажмите — откроет папку выгрузки Диска."><span class="dot"></span><span id="pill-disk-session-text">✅ 0 файлов</span></span>
+</div>
 
 <div id="cookies-expired-banner" style="display:none; background:var(--red); color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,69,58,.35);">
   🍪 Сессия Яндекса истекла — скачивание остановлено (HTTP 401/403).<br>
@@ -1019,10 +1059,10 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 </div>
 
 <div class="tabs" id="tabs" role="tablist" aria-label="Разделы программы">
-  <div class="tab active" data-tab="home" role="tab" tabindex="0" aria-selected="true">Главная</div>
-  <div class="tab" data-tab="setup" role="tab" tabindex="-1" aria-selected="false">Настройки</div>
-  <div class="tab" data-tab="organize" role="tab" tabindex="-1" aria-selected="false">Организация</div>
-  <div class="tab" data-tab="diagnostics" role="tab" tabindex="-1" aria-selected="false">Диагностика</div>
+  <button class="tab active" data-tab="home" role="tab" tabindex="0" aria-selected="true" type="button"><svg class="ico-sm"><use href="#i-cloud"/></svg>Главная</button>
+  <button class="tab" data-tab="setup" role="tab" tabindex="-1" aria-selected="false" type="button"><svg class="ico-sm"><use href="#i-settings"/></svg>Настройки</button>
+  <button class="tab" data-tab="organize" role="tab" tabindex="-1" aria-selected="false" type="button"><svg class="ico-sm"><use href="#i-folder"/></svg>Организация</button>
+  <button class="tab" data-tab="diagnostics" role="tab" tabindex="-1" aria-selected="false" type="button"><svg class="ico-sm"><use href="#i-search"/></svg>Диагностика</button>
 </div>
 
 <!-- ============= ГЛАВНАЯ ============= -->
@@ -1252,6 +1292,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
       <span class="eta-note">всего по заданию · оценка</span>
     </div>
+    <div id="run-summary" role="status" aria-live="polite"></div>
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
@@ -3328,7 +3369,81 @@ function renderSessionCounters(s){
   const sess = s.session || {};
   renderSessionPill('pill-session', 'pill-session-text', sess.unlim, 'Безлимит', 'unlim', (s.unlim||{}).db);
   renderSessionPill('pill-disk-session', 'pill-disk-session-text', sess.disk, 'Диск', 'disk', (s.disk||{}).db);
+  syncLivePills();
+  renderRunSummary(s);
   renderEta(s);
+}
+
+// Ряд живых плашек скрывается целиком, если показывать нечего: пустой ряд
+// с отступом выглядел как дырка под шапкой.
+function syncLivePills(){
+  const row = document.getElementById('pills-live');
+  if(!row) return;
+  const any = Array.from(row.children).some(el => el.style.display !== 'none');
+  row.style.display = any ? 'flex' : 'none';
+}
+
+// ── Итог запуска числами ──
+// Одни и те же цифры, что в плашках, но рядом с журналом: «скачано /
+// пропущено / сбойные / ждут Яндекса / сгорело». Считаются по базе и по
+// файлу статуса, а не по строкам журнала — поэтому не врут после остановки.
+function runNumbers(kind, s){
+  const db = ((kind === 'disk' ? s.disk : s.unlim) || {}).db || {};
+  const st = (kind === 'disk' ? s.disk_speed : s.speed) || {};
+  const ses = (s.session || {})[kind] || null;
+  const failedKey = kind === 'unlim' ? 'skipped' : 'failed';
+  const fromFile = kind === 'unlim' ? (+st.success || 0) : (+st.downloaded || 0);
+  return {
+    downloaded: ses ? (+ses.success || 0) : fromFile,
+    skipped: +st.skipped || 0,
+    failed: ses ? (+ses.failed || 0) : (+db[failedKey] || 0),
+    waiting: ses ? (+ses.waiting || 0) : (+db.waiting || 0),
+    lost: ses ? (+ses.lost || 0) : (+db.lost || 0),
+    mode: (ses && ses.mode) || st.mode || 'all',
+    total: (ses && +ses.total) || +st.total_files || 0,
+    active: !!st.active,
+  };
+}
+
+function _runItem(cls, text){
+  return `<span class="rs-item${cls ? ' ' + cls : ''}">${text}</span>`;
+}
+
+function renderRunSummary(s){
+  const box = document.getElementById('run-summary');
+  if(!box) return;
+  const sess = s.session || {};
+  const lanes = [];
+  ['disk', 'unlim'].forEach(kind => {
+    const n = runNumbers(kind, s);
+    const live = !!(sess[kind] && sess[kind].running) || n.active;
+    if(!live && !n.downloaded && !n.skipped && !n.failed && !n.waiting && !n.lost) return;
+    lanes.push([kind, n, live]);
+  });
+  if(!lanes.length){
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  const ru = v => (+v || 0).toLocaleString('ru');
+  const items = [];
+  lanes.forEach(([kind, n, live]) => {
+    if(lanes.length > 1){
+      items.push(`<span class="rs-lane">${kind === 'disk' ? 'Диск' : 'Безлимит'}:</span>`);
+    }
+    if(n.mode === 'selection' && !live && n.total){
+      items.push(_runItem('sel',
+        `📥 Выбрано ${ru(n.total)}, скачано ${ru(n.downloaded)} из ${ru(n.total)}`));
+    } else {
+      items.push(_runItem('ok', `✅ скачано ${ru(n.downloaded)}`));
+    }
+    if(n.skipped) items.push(_runItem('', `⏭ пропущено ${ru(n.skipped)}`));
+    if(n.failed) items.push(_runItem('warn', `⚠ сбойные ${ru(n.failed)}`));
+    if(n.waiting) items.push(_runItem('wait', `🕓 ждут Яндекса ${ru(n.waiting)}`));
+    if(n.lost) items.push(_runItem('bad', `🔥 сгорело ${ru(n.lost)}`));
+  });
+  box.innerHTML = items.join('');
+  box.style.display = 'flex';
 }
 
 // Сколько ещё не скачано: новые + сбойные (у Безлимита сбойные — это skipped).
@@ -3941,9 +4056,49 @@ function _sessionSummaryText(s){
     const v = ses[k];
     if(!v) return;
     const name = k === 'disk' ? 'Диск' : 'Безлимит';
-    parts.push(`${name}: скачано ${v.success || 0}, сбойных ${v.failed || 0}`);
+    const st = (k === 'disk' ? (s && s.disk_speed) : (s && s.speed)) || {};
+    const picked = k === 'disk' && st.mode === 'selection' && +st.total_files
+      ? `выбрано ${st.total_files}, ` : '';
+    const bits = [`${picked}скачано ${v.success || 0}`];
+    if(+st.skipped) bits.push(`пропущено ${st.skipped}`);
+    bits.push(`сбойных ${v.failed || 0}`);
+    if(+v.waiting) bits.push(`ждут Яндекса ${v.waiting}`);
+    if(+v.lost) bits.push(`сгорело ${v.lost}`);
+    parts.push(`${name}: ${bits.join(', ')}`);
   });
   return parts.join(' · ');
+}
+
+// Результат «Скачать выбранное» в карточке «Что качать». Пока идёт — прогресс,
+// после — итог: выбрано N, скачано X из N, плюс сбойные и ждущие Яндекса.
+function renderPickerResult(s){
+  const st = document.getElementById('picker-status');
+  if(!st) return;
+  const d = (s && s.disk_speed) || {};
+  if(d.mode !== 'selection') return;
+  const running = !!(s.tasks && s.tasks.disk && s.tasks.disk.running);
+  const total = +d.total_files || 0;
+  const done = +d.downloaded || 0;
+  const ru = v => (+v || 0).toLocaleString('ru');
+  if(running){
+    st.className = 'setup-hint';
+    st.textContent = total
+      ? `Выгрузка идёт: скачано ${ru(done)} из ${ru(total)}…`
+      : 'Выгрузка запущена…';
+    return;
+  }
+  if(d.active) return;   // статус ещё не финальный — не выдаём его за итог
+  if(!total){
+    st.className = 'setup-hint';
+    st.textContent = d.state === 'empty'
+      ? 'В выбранном нечего скачивать: всё уже на диске.' : '';
+    return;
+  }
+  let text = `Готово: выбрано ${ru(total)}, скачано ${ru(done)} из ${ru(total)}`;
+  if(+d.failed) text += ` · сбойных ${ru(d.failed)}`;
+  if(+d.waiting) text += ` · ждут Яндекса ${ru(d.waiting)}`;
+  st.className = 'setup-hint ok';
+  st.textContent = text + '.';
 }
 
 function checkRunFinished(isRunning, s){
@@ -4132,6 +4287,7 @@ async function refresh(){
     } else if (pSpeed) {
       pSpeed.style.display = 'none';
     }
+    syncLivePills();
 
     // Баннер «cookies протухли» (когда загрузчик оборвался по 401/403)
     const ckExpBanner = document.getElementById('cookies-expired-banner');
@@ -4296,6 +4452,9 @@ async function refresh(){
     // Счётчики успешно скачанных файлов за текущую сессию (Диск и Безлимит)
     // и оценка времени до конца.
     renderSessionCounters(s);
+    // «Что качать»: после выгрузки по выбору карточка показывает результат,
+    // а не вечное «Выгрузка запущена».
+    renderPickerResult(s);
 
     if (isRunning) {
       if (card) card.style.display = 'block';
@@ -4364,9 +4523,22 @@ async function refresh(){
         const isPartial = !isDone && !isUserStop && lastTask === diskTask &&
                           lastTask.exit_code === 1 && diskFailed > 0;
         const isScanTask = (lastTask.log_tail || []).some(l => /фотосреза|кластер|scan|Обхожу/i.test(l));
-        const doneLabel = isScanTask ? 'сканирование завершено (база готова)' : 'скачивание завершено';
+        // Бейдж «база готова» — только у сканирования. Раньше он висел после
+        // любой успешной задачи Диска, в том числе после выгрузки выбранного.
+        const selInfo = s.disk_speed || {};
+        const isSelection = lastTask === diskTask && selInfo.mode === 'selection';
+        const selTotal = +selInfo.total_files || 0;
+        const selDone = +selInfo.downloaded || 0;
+        const doneLabel = isScanTask ? 'сканирование завершено (база готова)'
+          : isSelection && selTotal
+            ? `выбрано ${selTotal.toLocaleString('ru')}, скачано ${selDone.toLocaleString('ru')} из ${selTotal.toLocaleString('ru')}`
+          : 'скачивание завершено';
         if (ps) {
-          if (isDone) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
+          if (isDone) {
+            ps.textContent = isScanTask ? 'база готова'
+              : isSelection ? 'выгрузка завершена' : 'скачивание завершено';
+            ps.className = 'badge ok';
+          }
           else if (isPartial) { ps.textContent = 'с ошибками'; ps.className = 'badge warn'; }
           else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge stop'; }
           else { ps.textContent = 'ошибка'; ps.className = 'badge err'; }

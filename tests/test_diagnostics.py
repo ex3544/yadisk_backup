@@ -49,6 +49,7 @@ def temp_paths(tmp_path, monkeypatch):
         "LAUNCHER_LOG": logs / "launcher.log",
         "LAUNCHER_OUTPUT_LOG": logs / "launcher_output.log",
         "DOWNLOAD_REPORT": logs / "download_report.md",
+        "UPDATES_STATUS_FILE": logs / "updates_status.json",
     }
     for name, value in mapping.items():
         monkeypatch.setattr(paths, name, value)
@@ -125,11 +126,23 @@ def test_zip_contains_only_safe_files(temp_paths):
         names = set(zf.namelist())
         payload = "".join(zf.read(n).decode("utf-8") for n in names)
     # С 35.6.0 в архив кладутся хвосты логов: report.json/… плюс logs/<файл>.log.
-    assert {"report.json", "report.txt", "README.txt"} <= names
-    extra = names - {"report.json", "report.txt", "README.txt"}
+    # С 35.7.4 — ещё changelog.md, чтобы в отчёте была история изменений.
+    assert {"report.json", "report.txt", "README.txt", "changelog.md"} <= names
+    extra = names - {"report.json", "report.txt", "README.txt", "changelog.md"}
     assert all(n.startswith("logs/") and n.endswith(".log") for n in extra)
     assert TOKEN not in payload
     assert COOKIE_VALUE not in payload
+
+
+def test_zip_name_has_report_id_and_profile(temp_paths):
+    """По имени файла видно, чей отчёт и какой номер — без распаковки."""
+    report = diagnostics.build_report()
+    target = diagnostics.write_report(report)
+
+    assert target.name.startswith(f"diagnostics_{report['report_id']}_")
+    assert target.name.endswith(".zip")
+    # Кириллица не превращается в двойное подчёркивание.
+    assert "__" not in target.name
 
 
 def test_summary_is_human_readable(temp_paths):

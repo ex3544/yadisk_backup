@@ -563,7 +563,12 @@ def test_service_pills_look_different_from_download_totals():
 
     assert 'class="pill service clickable" id="pill-token"' in html
     assert 'class="pill service clickable" id="pill-cookies"' in html
-    assert 'class="pills-sep"' in html
+    # С 35.7.4 плашки идут в два ряда: постоянные сверху, живые вторым рядом.
+    # Разделитель в общей строке больше не нужен — ряд сам отделяет группы.
+    assert 'class="pills pills-main" id="pills-main"' in html
+    assert 'class="pills pills-live" id="pills-live"' in html
+    assert ".pills-live:empty{display:none}" in html
+    assert 'class="pills-sep"' not in html
     assert ".pill.service{" in html
     assert ".pill.info{" in html
     # Сторож включён — тот же овал без заливки и рамки: состояние показывают
@@ -1185,3 +1190,41 @@ def test_unlim_schema_has_cluster_index():
     schema = (PROJECT_DIR / "unlim_schema.py").read_text(encoding="utf-8")
     assert "idx_unlim_cluster" in schema
     assert "(6, _migration_6)" in schema
+
+
+# ── 35.7.4: итог выполнения в панели, вкладки-кнопки, два ряда плашек ───────
+
+
+def test_run_summary_shows_numbers_not_green_badge():
+    """После выгрузки панель показывает итог числами, а не только «готово»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="run-summary" role="status" aria-live="polite"' in html
+    assert "function renderRunSummary(s)" in html
+    assert "function runNumbers(kind, s)" in html
+    assert "renderRunSummary(s);" in html
+    for text in ("✅ скачано", "⚠ сбойные", "🕓 ждут Яндекса", "🔥 сгорело"):
+        assert text in html
+
+
+def test_selection_shows_custom_total_and_no_db_ready_badge():
+    """«Выбрано N, скачано X из N» и никакой «базы готово» у выгрузки по выбору."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "function renderPickerResult(s)" in html
+    assert "Выгрузка идёт: скачано" in html
+    assert "Готово: выбрано" in html
+    # Бейдж базы — только у сканирования, у выбора — «выгрузка завершена».
+    assert "isScanTask ? 'база готова'" in html
+    assert ": isSelection ? 'выгрузка завершена' : 'скачивание завершено'" in html
+
+
+def test_tabs_are_buttons_with_icons():
+    """Вкладки видно с первого взгляда: кнопки с иконками, активная подсвечена."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "<button class=\"tab active\" data-tab=\"home\"" in html
+    assert '<svg class="ico-sm"><use href="#i-cloud"/></svg>Главная' in html
+    assert ".tab.active{" in html
+    assert ".tab.active{" in html
+    assert "background:linear-gradient(135deg,rgba(10,132,255,.22)" in html

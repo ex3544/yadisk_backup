@@ -103,6 +103,9 @@ UNLIM_DIRECT_LOG = LOG_DIR / "unlim_direct.log"
 DISK_STATUS_FILE = LOG_DIR / "disk_download_status.json"
 UNLIM_STATUS_FILE = LOG_DIR / "download_status.json"
 COOKIES_FETCH_STATUS = LOG_DIR / "cookies_fetch_status.json"
+# Последняя проверка обновлений: версия, описание «что нового» и когда проверяли.
+# Отчёт диагностики берёт отсюда блок «ОБНОВЛЕНИЯ», не дожидаясь сети.
+UPDATES_STATUS_FILE = LOG_DIR / "updates_status.json"
 # Проверка скачанных файлов (C1): прогресс для окна и читаемый отчёт.
 VERIFY_STATUS_FILE = LOG_DIR / "verify_status.json"
 VERIFY_REPORT_FILE = LOG_DIR / "verify_report.md"

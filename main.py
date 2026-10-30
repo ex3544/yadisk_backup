@@ -37,6 +37,7 @@ from downloader import (
     download_all,
     scan_media,
     scan_tree,
+    write_status_final,
     write_status_start,
 )
 from fetch import DeadHosts
@@ -226,6 +227,9 @@ def _download_selection(cfg: dict, args: argparse.Namespace, state: State) -> in
     Статусы в базе не переписываются: невыбранное остаётся в очереди, а уже
     скачанное в задания не попадает (его нет среди pending/failed/lost).
     """
+    # Сразу говорим окну, что это выгрузка выбранного: по этому флагу панель
+    # покажет «Выбрано N, скачано X из N», а не «база готова».
+    write_status_start("selection")
     client = yadisk.Client(token=cfg["token"])
     try:
         built = selection.build_disk_jobs(
@@ -243,6 +247,9 @@ def _download_selection(cfg: dict, args: argparse.Namespace, state: State) -> in
     if built["already_done"]:
         print(f"Уже скачано, повторно не берём: {built['already_done']}.")
     if not jobs:
+        # Статус уже помечен как «идёт» — закрываем его, иначе окно решит,
+        # что выгрузка выбранного зависла.
+        write_status_final("selection", "empty")
         state.close()
         return 0
 
@@ -259,6 +266,7 @@ def _download_selection(cfg: dict, args: argparse.Namespace, state: State) -> in
             jobs=jobs,
             dead_hosts=dead_hosts,
             make_previews=cfg.get("previews", True),
+            mode="selection",
         )
     except KeyboardInterrupt:
         print("\nПрервано пользователем. Прогресс сохранён в state.db.")
@@ -282,6 +290,15 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
     print(msg)
 
     state = State(str(DB_FILE))
+
+    # Сгоревшие файлы получают второй шанс в начале каждого запуска: те, что
+    # прождали свою паузу (полчаса), возвращаются в очередь — но не больше 200
+    # за запуск. В режиме «скачать выбранное» ничего не трогаем: выбор и так
+    # берёт сгоревшие файлы внутри отмеченных папок.
+    if not getattr(args, "selection", False) and not getattr(args, "no_return_lost", False):
+        returned = state.return_lost()
+        if returned:
+            print(f"Сгоревших возвращено в очередь: {returned}", flush=True)
 
     # Режим «скачать выбранное»: список работ берётся из selection.json,
     # а не из всей очереди базы.
@@ -532,6 +549,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--selection",
         action="store_true",
         help="Скачать только отмеченное в окне (selection.json), статусы базы не менять",
+    )
+    p_dl.add_argument(
+        "--no-return-lost",
+        action="store_true",
+        help="Не возвращать сгоревшие файлы в очередь (повторные проходы полного цикла)",
     )
     p_dl.set_defaults(func=cmd_download)
 

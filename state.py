@@ -68,6 +68,16 @@ SERVER_COOLDOWN_SEC = 600
 # Сколько разных проходов с 5xx терпим, прежде чем считать файл сгоревшим.
 SERVER_FAIL_LIMIT = 3
 
+# Пауза сгоревшего файла: сразу после приговора его не трогаем полчаса.
+# Без паузы новый запуск начинался бы с сотен мёртвых запросов — у тестера
+# сгорело около 995 файлов, и каждый запуск тратил на них десятки минут.
+LOST_RETRY_SEC = 30 * 60
+
+# Сколько сгоревших файлов возвращаем в очередь за один запуск. Остальные
+# остаются сгоревшими до следующего запуска — иначе после долгого простоя
+# один прогон превращается в сплошные повторы.
+LOST_RETURN_LIMIT = 200
+
 
 def is_deferred_error(error: object) -> bool:
     return isinstance(error, str) and error.startswith(DEFERRED_PREFIX)
@@ -231,6 +241,9 @@ class State:
                 )
             return "pending"
         until = int(time.time()) + cooldown
+        # Сгоревший файл получает свою, более долгую паузу: автоматический
+        # возврат в очередь (return_lost) берёт только просроченные.
+        lost_until = int(time.time()) + LOST_RETRY_SEC
         with self._tx() as conn:
             conn.execute(
                 """
@@ -239,14 +252,14 @@ class State:
                        status = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
                                      THEN 'lost' ELSE 'pending' END,
                        retry_after = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
-                                          THEN NULL ELSE ? END,
+                                          THEN ? ELSE ? END,
                        error = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
                                     THEN ? ELSE ? END,
                        storage_host = COALESCE(?, storage_host)
                  WHERE remote_path = ?
                 """,
                 (
-                    limit, limit, until, limit,
+                    limit, limit, lost_until, until, limit,
                     lost_marker(host), deferred_marker(kind, host),
                     host, remote_path,
                 ),
@@ -327,6 +340,31 @@ class State:
             cur = conn.execute(
                 "UPDATE files SET status='pending', error=NULL, "
                 "server_fails=0, retry_after=NULL WHERE status='lost'"
+            )
+            return cur.rowcount
+
+    def return_lost(self, limit: int = LOST_RETURN_LIMIT) -> int:
+        """Возвращает в очередь сгоревшие файлы, чья пауза уже прошла.
+
+        Это не кнопка «Попробовать», а то, что делает каждый запуск: файл,
+        прождавший полчаса, снова получает шанс. Счётчик 5xx НЕ обнуляем —
+        сгоревший файл при первом же новом ответе 500 снова уйдёт в lost,
+        а не потратит ещё три попытки. Успешная попытка всё равно скачает его.
+        """
+        now = int(time.time())
+        with self._tx() as conn:
+            cur = conn.execute(
+                """
+                UPDATE files
+                   SET status='pending', error=NULL, retry_after=NULL
+                 WHERE remote_path IN (
+                       SELECT remote_path FROM files
+                        WHERE status='lost'
+                          AND (retry_after IS NULL OR retry_after <= ?)
+                        ORDER BY COALESCE(retry_after, 0), rowid
+                        LIMIT ?)
+                """,
+                (now, max(1, int(limit))),
             )
             return cur.rowcount
 

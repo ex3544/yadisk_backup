@@ -690,10 +690,14 @@ def _write_disk_status(
     active: bool,
     state: str = "running",
     waiting: Optional[int] = None,
+    mode: str = "all",
 ) -> None:
     data = {
         "active": active,
         "state": state,
+        # «all» — вся очередь, «selection» — отмеченное в окне «Что качать».
+        # По этому полю окно показывает итог «Выбрано N, скачано X из N».
+        "mode": mode,
         "started_at": SESSION_STARTED_AT,
         "downloaded": int(counters.get("downloaded", 0)),
         "skipped": int(counters.get("skipped", 0)),
@@ -715,13 +719,24 @@ def _write_disk_status(
         pass
 
 
-def write_status_start() -> None:
+def write_status_start(mode: str = "all") -> None:
     """Нулевой статус в начале сессии: UI сразу видит «идёт», а не «подготовка».
 
     Пишется до проверки токена и сканирования — иначе плашка висит в
     «⏳ подготовка», пока идёт сетевой запрос.
     """
-    _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0}, 0, 0, True)
+    _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0},
+                       0, 0, True, mode=mode)
+
+
+def write_status_final(mode: str = "all", state: str = "done") -> None:
+    """Закрывает сессию, которая не дошла до скачивания.
+
+    Нужно для пустого выбора: «Скачать выбранное» сразу пишет «идёт», а если
+    скачивать нечего, статус без этой записи остался бы активным навсегда.
+    """
+    _write_disk_status({"downloaded": 0, "skipped": 0, "failed": 0, "bytes": 0},
+                       0, 0, False, state=state, mode=mode)
 
 
 def download_all(
@@ -734,6 +749,7 @@ def download_all(
     dead_hosts: Optional[DeadHosts] = None,
     prioritize_deferred: bool = True,
     make_previews: bool = True,
+    mode: str = "all",
 ) -> dict[str, int]:
     """Скачивает все pending файлы из state в пул потоков.
     Возвращает счётчики: {downloaded, skipped, failed, deferred, bytes}.
@@ -800,12 +816,13 @@ def download_all(
     if not jobs_list:
         log.info("Нет файлов для скачивания.")
         # Пустой проход не должен обнулять итог сессии: пишем то, что уже накоплено.
-        _write_disk_status(counters, 0, 0, False)
+        _write_disk_status(counters, 0, 0, False, mode=mode)
         return counters
 
     total_bytes = sum(j.size for j in jobs_list if j.size)
     waiting_count = _waiting_stats(state)
-    _write_disk_status(counters, len(jobs_list), total_bytes, True, waiting=waiting_count)
+    _write_disk_status(counters, len(jobs_list), total_bytes, True,
+                       waiting=waiting_count, mode=mode)
 
     deferred_jobs = {j.remote_path for j in jobs_list if j.was_deferred}
     deferred_ok = 0
@@ -876,7 +893,8 @@ def download_all(
                     break
 
                 _write_disk_status(
-                    counters, len(jobs_list), total_bytes, True, waiting=waiting_count
+                    counters, len(jobs_list), total_bytes, True,
+                    waiting=waiting_count, mode=mode,
                 )
         except KeyboardInterrupt:
             print("\nCtrl+C — отменяю очередь, дожидаюсь только текущих файлов...",
@@ -893,7 +911,7 @@ def download_all(
         byte_bar.close()
         _write_disk_status(
             counters, len(jobs_list), total_bytes, False,
-            state=stop_state, waiting=waiting_count,
+            state=stop_state, waiting=waiting_count, mode=mode,
         )
 
     if deferred_jobs:

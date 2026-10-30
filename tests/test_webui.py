@@ -1459,3 +1459,37 @@ def test_unlim_download_selection_starts_backup(unlim_selection_env, monkeypatch
     assert calls["args"][calls["args"].index("--media") + 1] == "all"
     assert str(tmp_path) in calls["args"]
     assert webui._session_retry["unlim"] is True
+
+
+# ── 35.7.4: в итоги сессии попадают «ждут Яндекса», сгоревшие и режим ──────
+
+
+def test_session_reports_waiting_lost_and_mode():
+    """Панель показывает все цифры файла статуса и базы, а не только скачано."""
+    sess = _build_session(
+        tasks={"disk": {"running": True, "started_at": 100.0, "exit_code": None}},
+        disk_st={"started_at": 100.0, "updated_at": 200.0, "downloaded": 5,
+                 "mode": "selection", "total_files": 12},
+        disk_db={"pending": 7, "failed": 2, "waiting": 3, "lost": 4},
+    )
+
+    disk = sess["disk"]
+    assert disk["waiting"] == 3
+    assert disk["lost"] == 4
+    assert disk["mode"] == "selection"
+    assert disk["total"] == 12
+
+
+def test_session_defaults_to_full_mode_without_status_fields():
+    """Старый файл статуса без mode/total_files не ломает панель."""
+    sess = _build_session(
+        tasks={"unlim": {"running": True, "started_at": 100.0, "exit_code": None}},
+        unlim_st={"started_at": 100.0, "updated_at": 200.0, "success": 1},
+        unlim_db={"pending": 3, "skipped": 1},
+    )
+
+    unlim = sess["unlim"]
+    assert unlim["mode"] == "all"
+    assert unlim["total"] == 0
+    assert unlim["waiting"] == 0
+    assert unlim["lost"] == 0

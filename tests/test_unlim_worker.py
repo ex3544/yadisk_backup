@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import unlim_backup
+import unlim_dates
 import unlim_schema
 import unlim_worker as uw
 
@@ -494,3 +496,94 @@ def test_plain_defer_never_makes_file_lost(db):
         con.close()
     assert row[0] == "pending"
     assert row[1].startswith("storage_down")
+
+
+# ── 35.7.4: авто-возврат сгоревших файлов Безлимита ────────────────────────
+
+
+def _unlim_db_with_lost(tmp_path, rows):
+    """База Безлимита с готовыми сгоревшими файлами.
+
+    rows — пары (file_id, cluster_id); всем ставим status='lost',
+    server_fails=3 и заданную паузу retry_after.
+    """
+    db = tmp_path / "unlim_state.db"
+    unlim_backup.init_db(db)
+    con = unlim_backup.get_db(db)
+    with con:
+        for file_id, cluster_id in rows:
+            con.execute(
+                """INSERT INTO unlim_files
+                   (file_id, cluster_id, name, size, status, error,
+                    server_fails, retry_after, assigned_at)
+                   VALUES (?, ?, ?, 10, 'lost', 'yandex_lost',
+                           3, 1, 12345)""",
+                (file_id, cluster_id, f"{file_id}.jpg"),
+            )
+    con.close()
+    return db
+
+
+def _unlim_statuses(db):
+    con = unlim_backup.get_db(db)
+    try:
+        return {
+            row["file_id"]: (row["status"], row["server_fails"],
+                             row["retry_after"], row["assigned_at"])
+            for row in con.execute("SELECT * FROM unlim_files")
+        }
+    finally:
+        con.close()
+
+
+def test_unlim_lost_waits_before_return(tmp_path):
+    db = tmp_path / "unlim_state.db"
+    unlim_backup.init_db(db)
+    con = unlim_backup.get_db(db)
+    with con:
+        # retry_after далеко в будущем — пауза ещё не прошла.
+        con.execute(
+            """INSERT INTO unlim_files
+               (file_id, name, size, status, retry_after)
+               VALUES ('f1', 'a.jpg', 10, 'lost', 9999999999)"""
+        )
+    con.close()
+    assert unlim_backup.return_lost_files(db) == 0
+    assert _unlim_statuses(db)["f1"][0] == "lost"
+
+
+def test_unlim_return_lost_keeps_server_fails_and_clears_assign(tmp_path):
+    db = _unlim_db_with_lost(tmp_path, [("f1", "c1")])
+    assert unlim_backup.return_lost_files(db) == 1
+    status, fails, retry_after, assigned = _unlim_statuses(db)["f1"]
+    assert status == "pending"
+    # Счётчик 5xx сохраняется: при новом 500 файл сразу снова сгоревший.
+    assert fails == 3
+    assert retry_after is None
+    assert assigned is None
+
+
+def test_unlim_return_lost_respects_limit(tmp_path):
+    db = _unlim_db_with_lost(
+        tmp_path, [(f"f{i}", "c1") for i in range(5)]
+    )
+    assert unlim_backup.return_lost_files(db, limit=3) == 3
+    assert sum(1 for s in _unlim_statuses(db).values() if s[0] == "pending") == 3
+
+
+def test_unlim_return_lost_only_inside_chosen_days(tmp_path):
+    """В режиме дат возвращаем только файлы внутри выбранных дней."""
+    import datetime as dt
+
+    inside = f"{unlim_dates.date_to_ms(dt.date(2024, 5, 1)):019d}_" + "0" * 19
+    outside = f"{unlim_dates.date_to_ms(dt.date(2024, 8, 1)):019d}_" + "0" * 19
+    db = _unlim_db_with_lost(
+        tmp_path, [("in", inside), ("out", outside)]
+    )
+    returned = unlim_backup.return_lost_files(
+        db, cluster_ranges=[["2024-05-01", "2024-05-01"]]
+    )
+    assert returned == 1
+    statuses = _unlim_statuses(db)
+    assert statuses["in"][0] == "pending"
+    assert statuses["out"][0] == "lost"

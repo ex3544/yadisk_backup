@@ -224,3 +224,106 @@ def test_download_asset_rejects_foreign_url(tmp_path):
 
     with pytest.raises(ValueError, match="недопустимый адрес"):
         updater.download_asset("https://evil.example/setup.exe", tmp_path / "x.exe")
+
+
+# ── 35.7.4: сохранённая проверка обновлений для отчёта ─────────────────────
+
+
+def _status_file(monkeypatch, tmp_path):
+    import paths
+
+    target = tmp_path / "logs" / "updates_status.json"
+    monkeypatch.setattr(paths, "UPDATES_STATUS_FILE", target)
+    return target
+
+
+def test_record_check_saves_release_notes(monkeypatch, tmp_path):
+    target = _status_file(monkeypatch, tmp_path)
+    updater.record_check({
+        "ok": True, "current": "35.7.3", "latest": "35.7.4",
+        "update_available": True,
+        "url": "https://github.com/ex3544/yadisk_backup/releases/tag/v35.7.4",
+        "name": "35.7.4", "published_at": "2026-10-30T09:00:00Z",
+        "notes": "Что нового в 35.7.4",
+    })
+
+    assert target.exists()
+    data = updater.last_check()
+    assert data["latest"] == "35.7.4"
+    assert data["update_available"] is True
+    assert data["notes"] == "Что нового в 35.7.4"
+    assert data["checked_ts"] > 0
+
+
+def test_record_check_does_not_crash_without_directory(monkeypatch, tmp_path):
+    """Папка логов пропала — проверка обновлений всё равно не падает."""
+    target = tmp_path / "missing" / "updates_status.json"
+    monkeypatch.setattr(
+        updater.paths, "UPDATES_STATUS_FILE", target
+    )
+    updater.record_check({"ok": False, "error": "сеть"})
+    # Каталог создаётся по требованию.
+    assert target.exists()
+
+
+def test_last_check_handles_missing_and_broken_file(monkeypatch, tmp_path):
+    target = _status_file(monkeypatch, tmp_path)
+    assert updater.last_check() == {}
+    target.parent.mkdir(parents=True)
+    target.write_text("{не json", encoding="utf-8")
+    assert updater.last_check() == {}
+
+
+def test_check_is_stale_uses_timestamp(monkeypatch, tmp_path):
+    _status_file(monkeypatch, tmp_path)
+    import time
+
+    now = time.time()
+    assert updater.check_is_stale({}) is True
+    assert updater.check_is_stale({"checked_ts": now}) is False
+    assert updater.check_is_stale(
+        {"checked_ts": now - updater.CHECK_TTL_SEC - 1}
+    ) is True
+
+
+def test_snapshot_without_live_does_not_touch_network(monkeypatch, tmp_path):
+    _status_file(monkeypatch, tmp_path)
+
+    def boom(*a, **k):
+        raise AssertionError("сеть в отчёте не нужна")
+
+    monkeypatch.setattr(updater, "check_for_updates", boom)
+    snap = updater.updates_snapshot(live=False, download={"state": "idle"})
+    assert snap["current"] == version.APP_VERSION
+    assert snap["last_check"] is None
+    assert snap["checked_now"] is False
+    assert snap["download"] == {"state": "idle"}
+
+
+def test_snapshot_checks_live_when_record_is_stale(monkeypatch, tmp_path):
+    target = _status_file(monkeypatch, tmp_path)
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({"checked_ts": 0, "latest": "35.0.0"}),
+                      encoding="utf-8")
+    monkeypatch.setattr(
+        updater, "check_for_updates",
+        lambda timeout=None: {"ok": True, "current": version.APP_VERSION,
+                              "latest": "99.0.0", "update_available": True,
+                              "notes": "новое"},
+    )
+    snap = updater.updates_snapshot()
+    assert snap["checked_now"] is True
+    assert snap["last_check"]["latest"] == "99.0.0"
+
+
+def test_snapshot_survives_network_error(monkeypatch, tmp_path):
+    _status_file(monkeypatch, tmp_path)
+
+    def boom(timeout=None):
+        raise OSError("сеть недоступна")
+
+    monkeypatch.setattr(updater, "check_for_updates", boom)
+    snap = updater.updates_snapshot()
+    assert snap["checked_now"] is True
+    assert snap["last_check"]["ok"] is False
+    assert "сеть недоступна" in snap["last_check"]["error"]

@@ -508,6 +508,49 @@ LOST_PREFIX = "yandex_lost"
 SERVER_COOLDOWN_SEC = 600
 SERVER_FAIL_LIMIT = 3
 
+# Сгоревший файл ждёт полчаса, прежде чем автоматический возврат снова
+# поставит его в очередь; за один запуск возвращаем не больше 200.
+LOST_RETRY_SEC = 30 * 60
+LOST_RETURN_LIMIT = 200
+
+
+def return_lost_files(
+    db_path: Path,
+    limit: int = LOST_RETURN_LIMIT,
+    cluster_ranges: list[list[str]] | None = None,
+) -> int:
+    """Возвращает в очередь сгоревшие файлы, прождавшие свою паузу.
+
+    Вызывается в начале каждого запуска (кроме режима «только новые дни»,
+    где возвращаются лишь файлы внутри выбранных дней). Счётчик 5xx не
+    обнуляется: если сервер опять ответит 500, файл сразу снова сгоревший,
+    а не тратит ещё три попытки.
+    """
+    con = get_db(db_path)
+    date_filter, date_params = "", []
+    if cluster_ranges:
+        clause, date_params = unlim_dates.range_clause(cluster_ranges)
+        date_filter = f"AND {clause}"
+    with con:
+        cur = con.execute(
+            f"""UPDATE unlim_files
+                   SET status='pending', error=NULL, retry_after=NULL,
+                       assigned_at=NULL
+                 WHERE file_id IN (
+                       SELECT file_id FROM unlim_files
+                        WHERE status='lost'
+                          AND (retry_after IS NULL OR retry_after <= ?)
+                          {date_filter}
+                        ORDER BY COALESCE(retry_after, 0), rowid
+                        LIMIT ?)""",
+            (int(time.time()), *date_params, max(1, int(limit))),
+        )
+        count = cur.rowcount
+    con.close()
+    return count
+
+
+
 
 def take_batch(
     db_path: Path,
@@ -621,13 +664,14 @@ def mark_deferred(db_path: Path, file_id: str, host: str | None, server_failed: 
     with con:
         if server_failed:
             until = int(time.time()) + SERVER_COOLDOWN_SEC
+            lost_until = int(time.time()) + LOST_RETRY_SEC
             con.execute(
                 """UPDATE unlim_files
                    SET server_fails = COALESCE(server_fails, 0) + 1,
                        status = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
                                      THEN 'lost' ELSE 'pending' END,
                        retry_after = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
-                                          THEN NULL ELSE ? END,
+                                          THEN ? ELSE ? END,
                        error = CASE WHEN COALESCE(server_fails, 0) + 1 >= ?
                                     THEN ? ELSE ? END,
                        storage_host=?,
@@ -636,7 +680,8 @@ def mark_deferred(db_path: Path, file_id: str, host: str | None, server_failed: 
                        assigned_at=NULL
                    WHERE file_id=?""",
                 (
-                    SERVER_FAIL_LIMIT, SERVER_FAIL_LIMIT, until, SERVER_FAIL_LIMIT,
+                    SERVER_FAIL_LIMIT, SERVER_FAIL_LIMIT, lost_until, until,
+                    SERVER_FAIL_LIMIT,
                     lost_error(host)[:300], deferred_error(host)[:300],
                     host, file_id,
                 ),
@@ -905,6 +950,7 @@ def run_backup(
     sort_after: bool = False,
     make_previews: bool = True,
     cluster_ranges: list[list[str]] | None = None,
+    return_lost: bool = True,
 ):
     out_dir = Path(out_dir_path)
     problem = check_target_dir(out_dir)
@@ -966,6 +1012,16 @@ def run_backup(
             print(f"[+] База данных {db_path.name} уже присутствует на диске ({cnt:,} файлов). Используем её.")
 
     recover_stuck(db_path)
+    # Сгоревшие файлы получают второй шанс в начале каждого запуска. В режиме
+    # «только выбранные дни» — лишь те, что попали в выбранные дни.
+    returned = 0
+    if return_lost:
+        try:
+            returned = return_lost_files(db_path, cluster_ranges=cluster_ranges)
+        except sqlite3.Error as exc:  # noqa: BLE001 — база могла быть занята
+            print(f"[!] Не удалось вернуть сгоревшие файлы: {exc}", flush=True)
+    if returned:
+        print(f"Сгоревших возвращено в очередь: {returned}", flush=True)
     AUTH_EXPIRED.clear()
     DISK_FULL.clear()
 
@@ -1245,6 +1301,7 @@ def main():
     parser.add_argument("--sort-after", action="store_true", help="После скачивания сразу разложить файлы по датам (organize.py, быстрый режим без MD5)")
     parser.add_argument("--no-previews", action="store_true", help="Не сохранять превью фото, которые сейчас ждут Яндекса")
     parser.add_argument("--selection", action="store_true", help="Скачать только дни, отмеченные в календаре (selection.json); статусы остальной очереди не меняются")
+    parser.add_argument("--no-return-lost", action="store_true", help="Не возвращать сгоревшие файлы в очередь (повторные проходы полного цикла)")
     parser.add_argument("--web", action="store_true", help="Запустить веб-интерфейс дашборда (http://127.0.0.1:8000)")
     parser.add_argument("--cli", action="store_true", help="Принудительный запуск в консольном режиме без аргументов")
 
@@ -1321,6 +1378,7 @@ def main():
         sort_after=args.sort_after,
         make_previews=not args.no_previews,
         cluster_ranges=cluster_ranges,
+        return_lost=not args.no_return_lost,
     )
 
 

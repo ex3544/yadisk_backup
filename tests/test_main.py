@@ -21,6 +21,10 @@ class _FakeState:
         self.resets += 1
         return self.failed_to_reset
 
+    def return_lost(self) -> int:
+        # Авто-возврат сгоревших в тестах не нужен: база fake.
+        return 0
+
     def close(self) -> None:
         self.closed = True
 

@@ -86,6 +86,8 @@ datas = [
     ('webui_assets', 'webui_assets'),
     ('assets', 'assets'),
     ('.env.example', '.'),
+    # История изменений: раздел текущей версии кладётся в ZIP диагностики.
+    ('CHANGELOG.md', '.'),
 ]
 
 # DLL WebView2 и Python.Runtime.dll должны лежать внутри пакетов, иначе

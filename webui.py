@@ -834,9 +834,13 @@ class FullCycle:
                 # видно в журнале, а не только по косвенным цифрам.
                 self._log(f"   Диск: сброшено в очередь: {before['errors']} сбойных файлов")
             reset_session_counters("disk")
-            self._own_start("disk", "main.py",
-                            ["download", "--workers", str(disk_workers),
-                             "--no-scan", "--retry"])
+            disk_args = ["download", "--workers", str(disk_workers),
+                         "--no-scan", "--retry"]
+            if p > 1:
+                # Сгоревшие возвращаются один раз за запуск, а не в каждом
+                # проходе полного цикла.
+                disk_args.append("--no-return-lost")
+            self._own_start("disk", "main.py", disk_args)
             code = self._wait_task("disk")
             if self._stop:
                 lane["state"] = "остановлено"
@@ -903,6 +907,10 @@ class FullCycle:
             ]
             if not cfg.get("previews", True):
                 unlim_args.append("--no-previews")
+            if p > 1:
+                # Сгоревшие возвращаются один раз за запуск, а не в каждом
+                # проходе полного цикла.
+                unlim_args.append("--no-return-lost")
             self._own_start("unlim", "unlim_backup.py", unlim_args)
             code = self._wait_task("unlim")
             if self._stop:
@@ -1174,6 +1182,7 @@ class UpdateManager:
     def _run(self):
         try:
             release = updater.check_for_updates()
+            updater.record_check(release)
             if not release.get("ok"):
                 raise RuntimeError(release.get("error") or "не удалось проверить обновления")
             if not release.get("update_available"):
@@ -1826,6 +1835,14 @@ def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
             out[kind] = None
             continue
         session["failed"] = int(db.get(failed_key) or 0)
+        # «Ждут Яндекса» и «сгоревшие» — по базе, как и сбойные: каждый файл
+        # считается один раз, цифра уменьшается, когда файл докачался.
+        session["waiting"] = int(db.get("waiting") or 0)
+        session["lost"] = int(db.get("lost") or 0)
+        # Режим прохода нужен панели: «Выбрано N, скачано X из N» — только для
+        # выгрузки по выбору, у неё total_files равен числу отмеченных файлов.
+        session["mode"] = str(st.get("mode") or "all")
+        session["total"] = int(st.get("total_files") or 0)
         retry_failed = session.pop("retry_failed")
         session["remaining"] = int(db.get("pending") or 0) + (
             session["failed"] if retry_failed else 0)
@@ -3754,7 +3771,12 @@ def api_diagnostics():
     """Собрать отчёт и сохранить ZIP. Ничего никуда не отправляет."""
     log_action("diagnostics/build")
     try:
-        report = diagnostics.build_report(tm.status(), full_cycle.status())
+        report = diagnostics.build_report(
+            tm.status(), full_cycle.status(),
+            # Проверка обновлений: свежая (не старше 6 часов) берётся из
+            # logs/updates_status.json, иначе — короткий запрос на GitHub.
+            updates=updater.updates_snapshot(update_manager.status()),
+        )
         path = diagnostics.write_report(report)
     except Exception as e:
         return JSONResponse(
@@ -3776,7 +3798,12 @@ def api_diagnostics_send():
     """Собрать отчёт и отправить через Cloudflare Worker в Telegram."""
     log_action("diagnostics/send")
     try:
-        report = diagnostics.build_report(tm.status(), full_cycle.status())
+        report = diagnostics.build_report(
+            tm.status(), full_cycle.status(),
+            # Проверка обновлений: свежая (не старше 6 часов) берётся из
+            # logs/updates_status.json, иначе — короткий запрос на GitHub.
+            updates=updater.updates_snapshot(update_manager.status()),
+        )
         path = diagnostics.write_report(report)
         result = diagnostics.send_report(path, report)
     except Exception as e:
@@ -3982,7 +4009,11 @@ class UpdateOpenPayload(BaseModel):
 def api_updates_check():
     """Сравнивает версию с последним GitHub Release. Сеть может быть недоступна."""
     log_action("updates/check")
-    return updater.check_for_updates()
+    result = updater.check_for_updates()
+    # Последняя проверка нужна отчёту диагностики: он не должен ждать сеть,
+    # если окно уже проверяло обновления.
+    updater.record_check(result)
+    return result
 
 
 @app.post("/api/updates/open")

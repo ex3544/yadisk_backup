@@ -231,3 +231,64 @@ def test_success_clears_cooldown_and_counter(st):
     stats = st.get_stats()
     assert stats["downloaded"] == 1
     assert stats["waiting"] == 0
+
+
+# ── 35.7.4: авто-возврат сгоревших в начале запуска ────────────────────────
+
+
+def _make_lost(st, path: str = "disk:/bad.jpg") -> None:
+    st.mark_pending(path, 10, None)
+    for _ in range(3):
+        st.mark_deferred(path, "server_50x", "h", cooldown=0)
+
+
+def _server_fails(st, path: str) -> int:
+    row = st._conn().execute(
+        "SELECT server_fails FROM files WHERE remote_path=?", (path,)
+    ).fetchone()
+    return int(row["server_fails"] or 0)
+
+
+def test_lost_file_waits_half_an_hour_before_return(st):
+    """Сразу после приговора файл не трогаем: пауза 30 минут."""
+    _make_lost(st)
+    assert st.get_stats()["lost"] == 1
+    assert st.return_lost() == 0
+    assert st.get_stats()["lost"] == 1
+
+
+def test_return_lost_takes_only_expired_files(st):
+    _make_lost(st, "disk:/old.jpg")
+    _make_lost(st, "disk:/new.jpg")
+    st._conn().execute(
+        "UPDATE files SET retry_after=1 WHERE remote_path='disk:/old.jpg'"
+    )
+    st._conn().commit()
+    assert st.return_lost() == 1
+    assert [r["remote_path"] for r in st.get_pending()] == ["disk:/old.jpg"]
+    assert st.get_stats()["lost"] == 1
+
+
+def test_return_lost_does_not_reset_server_fails(st):
+    """Вернувшийся файл при новом 500 сразу снова сгорает, не тратя три попытки."""
+    _make_lost(st)
+    st._conn().execute("UPDATE files SET retry_after=1")
+    st._conn().commit()
+    assert st.return_lost() == 1
+    assert _server_fails(st, "disk:/bad.jpg") == 3
+    assert st.mark_deferred(
+        "disk:/bad.jpg", "server_50x", "h", cooldown=0
+    ) == "lost"
+
+
+def test_return_lost_respects_limit_and_order(st):
+    """За один запуск возвращаем не больше потолка и сначала самых старых."""
+    for i in range(3):
+        _make_lost(st, f"disk:/f{i}.jpg")
+    st._conn().execute("UPDATE files SET retry_after=100 + rowid")
+    st._conn().commit()
+    assert st.return_lost(limit=2) == 2
+    assert [r["remote_path"] for r in st.get_pending()] == [
+        "disk:/f0.jpg", "disk:/f1.jpg",
+    ]
+    assert st.get_stats()["lost"] == 1

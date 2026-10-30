@@ -11,10 +11,13 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
+import paths
 import version
 
 API_URL = f"https://api.github.com/repos/{version.APP_REPO}/releases/latest"
@@ -22,6 +25,12 @@ MAX_RESPONSE_BYTES = 1_000_000
 MAX_ASSET_BYTES = 400 * 1024 * 1024
 DOWNLOAD_CHUNK = 256 * 1024
 TIMEOUT = 8
+
+# Сколько храним последнюю проверку без повтора: в отчёте диагностики старые
+# данные допустимы, но не старше шести часов — иначе проверяем заново.
+CHECK_TTL_SEC = 6 * 60 * 60
+# Быстрая проверка для отчёта: ждать 8 секунд на вкладке «Диагностика» долго.
+LIVE_TIMEOUT = 5
 
 ASSET_URL_PREFIX = f"https://github.com/{version.APP_REPO}/releases/download/"
 
@@ -48,7 +57,7 @@ def is_newer(latest: tuple[int, ...], current: tuple[int, ...]) -> bool:
     return latest > current
 
 
-def _fetch_release() -> dict:
+def _fetch_release(timeout: float | None = None) -> dict:
     request = urllib.request.Request(
         API_URL,
         headers={
@@ -57,7 +66,7 @@ def _fetch_release() -> dict:
             "User-Agent": f"{version.APP_NAME}/{version.APP_VERSION}",
         },
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+    with urllib.request.urlopen(request, timeout=TIMEOUT if timeout is None else timeout) as response:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     if len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("ответ GitHub слишком большой")
@@ -174,7 +183,7 @@ def download_asset(url: str, dest, expected_sha256: str = "",
         raise
 
 
-def check_for_updates() -> dict:
+def check_for_updates(timeout: float | None = None) -> dict:
     """Возвращает статус проверки. Сетевые ошибки не считаются сбоем программы."""
     current_raw = version.APP_VERSION
     result = {
@@ -200,7 +209,7 @@ def check_for_updates() -> dict:
         return result
 
     try:
-        data = _fetch_release()
+        data = _fetch_release(timeout)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             result["error"] = "Релизы ещё не опубликованы."
@@ -242,3 +251,82 @@ def check_for_updates() -> dict:
         notes=notes[:2000],
     )
     return result
+
+
+# ── Последняя проверка: для окна и отчёта диагностики ────────────────────────
+
+
+def record_check(result: dict) -> None:
+    """Сохраняет результат проверки, чтобы отчёт не ждал сеть.
+
+    В файл попадает всё, что видит пользователь: версия, дата релиза и текст
+    «что нового». Секретов здесь нет — это публичные данные GitHub.
+    """
+    data = {
+        "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "checked_ts": time.time(),
+        "ok": bool(result.get("ok")),
+        "current": str(result.get("current") or version.APP_VERSION),
+        "latest": str(result.get("latest") or ""),
+        "update_available": bool(result.get("update_available")),
+        "url": str(result.get("url") or ""),
+        "name": str(result.get("name") or ""),
+        "published_at": str(result.get("published_at") or ""),
+        # Описание релиза бывает длинным: в отчёте нужен текст, а не весь JSON.
+        "notes": str(result.get("notes") or "")[:4000],
+        "error": str(result.get("error") or ""),
+    }
+    try:
+        paths.UPDATES_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = paths.UPDATES_STATUS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, paths.UPDATES_STATUS_FILE)
+    except Exception:  # noqa: BLE001 — проверка не должна падать из-за записи
+        pass
+
+
+def last_check() -> dict:
+    """Последняя сохранённая проверка. Пустой словарь — проверок ещё не было."""
+    try:
+        data = json.loads(paths.UPDATES_STATUS_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — файла может не быть или он битый
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def check_is_stale(last: dict, max_age: float = CHECK_TTL_SEC) -> bool:
+    if not last:
+        return True
+    try:
+        return time.time() - float(last.get("checked_ts") or 0) > max_age
+    except (TypeError, ValueError):
+        return True
+
+
+def updates_snapshot(download: dict | None = None, live: bool = True,
+                     max_age: float = CHECK_TTL_SEC) -> dict:
+    """Блок «обновления» для отчёта диагностики.
+
+    `live=True` — если сохранённой проверки нет или она старая, сходить на
+    GitHub с коротким таймаутом. Ошибка сети не мешает отчёту: в блоке просто
+    останется последняя известная проверка и текст ошибки.
+    """
+    last = last_check()
+    checked_now = False
+    if live and check_is_stale(last, max_age):
+        try:
+            result = check_for_updates(timeout=LIVE_TIMEOUT)
+        except Exception as e:  # noqa: BLE001 — отчёт собирается в любом случае
+            result = {"ok": False, "current": version.APP_VERSION,
+                      "error": f"{type(e).__name__}: {e}"}
+        record_check(result)
+        last = last_check()
+        checked_now = True
+    return {
+        "current": version.APP_VERSION,
+        "last_check": last or None,
+        "checked_now": checked_now,
+        # Состояние загрузки обновления (idle/checking/downloading/ready/…).
+        "download": dict(download or {}),
+    }

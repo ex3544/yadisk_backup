@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import platform
@@ -33,6 +34,8 @@ from pathlib import Path
 from typing import Any
 
 import paths
+import profiles
+import updater
 import utils
 import version
 
@@ -217,6 +220,61 @@ def system_info() -> dict:
     except Exception:
         info["is_admin"] = None
     return info
+
+
+def user_info() -> dict:
+    """Кто и на каком компьютере сделал отчёт.
+
+    Имя профиля программы — то, что видит Сергей в списке профилей; имя
+    учётной записи Windows нужно, чтобы отличить два профиля на одном
+    компьютере (и оно и так неявно есть в путях `C:\\Users\\…`).
+    """
+    profile = ""
+    try:
+        profile = str(profiles.current_profile().get("name") or "")
+    except Exception:  # noqa: BLE001 — реестр профилей может быть недоступен
+        profile = ""
+    try:
+        windows_user = getpass.getuser()
+    except Exception:  # noqa: BLE001 — учётки может не быть
+        windows_user = ""
+    return {
+        "profile": profile,
+        "windows_user": windows_user,
+        "hostname": socket.gethostname(),
+    }
+
+
+def _changelog_path() -> Path | None:
+    for candidate in (paths.BUNDLE_DIR / "CHANGELOG.md",
+                      paths.APP_DIR / "CHANGELOG.md",
+                      Path(__file__).resolve().parent / "CHANGELOG.md"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def changelog_section(version_text: str | None = None) -> str:
+    """Раздел CHANGELOG.md про текущую версию — для ZIP-отчёта.
+
+    В сборке CHANGELOG.md лежит рядом, а не внутри exe, поэтому ищем его в
+    каталоге ресурсов, рядом с программой и рядом с этим файлом.
+    """
+    wanted = str(version_text or version.APP_VERSION).strip()
+    path = _changelog_path()
+    if path is None or not wanted:
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    start = re.search(rf"^##\s*\[?{re.escape(wanted)}\]?", text, re.MULTILINE)
+    if not start:
+        return ""
+    rest = text[start.start():]
+    nxt = re.search(r"^##\s", rest[3:], re.MULTILINE)
+    section = rest if nxt is None else rest[: nxt.start() + 3]
+    return section.strip() + "\n"
 
 
 def _env_values() -> dict:
@@ -748,11 +806,17 @@ def task_info(task_status: dict | None = None,
 
 
 def build_report(task_status: dict | None = None,
-                 auto_status: dict | None = None) -> dict:
+                 auto_status: dict | None = None,
+                 updates: dict | None = None) -> dict:
     created = datetime.now().astimezone()
     report = {
         "report_id": f"R-{created:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}",
         "created_at": created.isoformat(timespec="seconds"),
+        # Кто и на каком компьютере: номер отчёта, время и пользователь — по
+        # ним отчёт ищется в переписке. Windows-имя в отправляемом на сервер
+        # отчёте не участвует (см. send_report), оно нужно локальному файлу.
+        "user": user_info(),
+        "updates": updates if updates is not None else updater.updates_snapshot(live=False),
         "app": version.version_info(),
         "install_id": install_id(),
         "system": system_info(),
@@ -788,6 +852,73 @@ def build_report(task_status: dict | None = None,
     return _redact_obj(report)
 
 
+def _human_moment(value: object) -> str:
+    """'2026-10-30T21:30:45+03:00' → '30.10.2026 21:30:45 (+03:00)'."""
+    text = str(value or "").strip()
+    if not text:
+        return "?"
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    offset = moment.strftime("%z")
+    offset = f"{offset[:3]}:{offset[3:]}" if offset else "?"
+    return f"{moment:%d.%m.%Y %H:%M:%S} ({offset})"
+
+
+def _user_text(report: dict) -> str:
+    user = report.get("user") or {}
+    profile = str(user.get("profile") or "").strip()
+    windows_user = str(user.get("windows_user") or "").strip()
+    if profile and windows_user and profile != windows_user:
+        return f"{profile} (Windows: {windows_user})"
+    return profile or windows_user or "?"
+
+
+def _updates_lines(report: dict) -> list[str]:
+    """Раздел «ОБНОВЛЕНИЯ» для report.txt: версии, проверка, «что нового»."""
+    upd = report.get("updates") or {}
+    last = upd.get("last_check") or {}
+    download = upd.get("download") or {}
+    lines = ["ОБНОВЛЕНИЯ", f"  Текущая версия: {version.APP_VERSION}"]
+    if not last:
+        lines.append("  Последняя проверка: ещё не выполнялась")
+    else:
+        when = _human_moment(last.get("checked_at"))
+        if last.get("error"):
+            verdict = f"ошибка — {last.get('error')}"
+        elif last.get("update_available"):
+            verdict = f"доступна версия {last.get('latest') or '?'}"
+        else:
+            verdict = "обновлений нет"
+        lines.append(f"  Последняя проверка: {when} — {verdict}")
+        if last.get("latest"):
+            published = str(last.get("published_at") or "")
+            lines.append(
+                f"  Последний релиз: {last.get('latest')}"
+                + (f" (опубликован {published[:10]})" if published else "")
+            )
+    state_names = {
+        "idle": "не начиналась", "checking": "идёт проверка",
+        "downloading": "скачивается", "ready": "скачано и ждёт установки",
+        "installing": "устанавливается", "error": "ошибка загрузки",
+    }
+    state = str(download.get("state") or "idle")
+    download_text = state_names.get(state, state)
+    if download.get("version"):
+        download_text += f" ({download['version']})"
+    if download.get("error"):
+        download_text += f": {download['error']}"
+    lines.append(f"  Загрузка обновления: {download_text}")
+    notes = str(last.get("notes") or "").strip()
+    if notes:
+        lines.append("  Что нового:")
+        for row in notes.splitlines()[:40]:
+            lines.append(f"    {row}" if row.strip() else "")
+    lines.append("")
+    return lines
+
+
 def render_summary(report: dict) -> str:
     """Короткая читаемая сводка для экрана и report.txt."""
     sysinfo = report.get("system") or {}
@@ -795,10 +926,12 @@ def render_summary(report: dict) -> str:
     ram = sysinfo.get("ram") or {}
     lines: list[str] = [
         f"ОТЧЁТ {version.APP_NAME} {version.APP_VERSION}",
-        f"ID отчёта: {report.get('report_id', '?')}",
+        f"Номер отчёта: {report.get('report_id', '?')}",
         f"Установка: {report.get('install_id', '?')}",
-        f"Дата: {report.get('created_at', '?')}",
+        f"Пользователь: {_user_text(report)} · компьютер {sysinfo.get('hostname', '?')}",
+        f"Дата и время: {_human_moment(report.get('created_at'))}",
         "",
+        *_updates_lines(report),
         "СИСТЕМА",
         f"  ОС: {sysinfo.get('platform', '?')}",
         f"  Компьютер: {sysinfo.get('hostname', '?')} · {sysinfo.get('machine', '?')}",
@@ -986,9 +1119,22 @@ def write_report(report: dict | None = None) -> Path:
     if report is None:
         report = build_report()
     paths.REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_id = re.sub(r"[^0-9A-Za-z_-]+", "", str(report.get("install_id", "")))[:16]
-    name = f"diagnostics_{stamp}_{safe_id or 'report'}.zip"
+    # Имя файла — номер отчёта и профиль: по одному имени видно, чей это отчёт
+    # и когда сделан, без распаковки архива.
+    safe_id = re.sub(r"[^0-9A-Za-z_-]+", "",
+                     str(report.get("report_id") or ""))[:40]
+    # Кириллическое имя профиля («Своя папка») в ASCII-имени файла оставило бы
+    # одни подчёркивания — тогда честнее написать main.
+    profile = re.sub(r"[^0-9A-Za-z_-]+", "_",
+                     str((report.get("user") or {}).get("profile") or "")
+                     ).strip("_")[:24]
+    if safe_id:
+        name = f"diagnostics_{safe_id}_{profile or 'main'}.zip"
+    else:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        install_id = re.sub(r"[^0-9A-Za-z_-]+", "",
+                            str(report.get("install_id", "")))[:16]
+        name = f"diagnostics_{stamp}_{install_id or 'report'}.zip"
     target = paths.REPORT_DIR / name
     summary = render_summary(report)
     payload = json.dumps(report, ensure_ascii=False, indent=2)
@@ -999,9 +1145,13 @@ def write_report(report: dict | None = None) -> Path:
             "README.txt",
             "Диагностический отчёт Yad.backup.\n"
             "report.txt — краткая сводка, report.json — полные данные.\n"
+            "changelog.md — что изменилось в этой версии.\n"
             "logs/ — последние 2 МБ каждого журнала (полные логи не входят).\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )
+        changelog = changelog_section()
+        if changelog:
+            zf.writestr("changelog.md", changelog)
         for name, path in _log_paths():
             sample = read_tail(path, max_bytes=LOG_FILE_BYTES, max_lines=20000)
             if sample["exists"] and sample["lines"]:
@@ -1175,6 +1325,8 @@ def send_report(path: Path | None = None,
                     "app_version": version.APP_VERSION,
                     "report_id": str(report.get("report_id", "")),
                     "machine_id": str(report.get("install_id", "")),
+                    # Профиль нужен, чтобы разбирать отчёты по клиентам.
+                    "profile": str((report.get("user") or {}).get("profile") or ""),
                 },
                 files={"file": (path.name, fh, "application/zip")},
                 timeout=(15, 180),

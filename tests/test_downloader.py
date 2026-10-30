@@ -503,3 +503,57 @@ def test_waiting_counter_is_not_doubled(tmp_path, monkeypatch):
 
     data = json.loads(status.read_text(encoding="utf-8"))
     assert data["waiting"] == 2
+
+
+# ── 35.7.4: режим «выбрано N» в файле статуса ──────────────────────────────
+
+
+def test_start_status_records_selection_mode(tmp_path, monkeypatch):
+    """Окно отличает выгрузку по выбору от «скачать всё» по полю mode."""
+    import json
+
+    import downloader
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+
+    downloader.write_status_start(mode="selection")
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["mode"] == "selection"
+    assert data["total_files"] == 0
+    assert data["active"] is True
+
+
+def test_final_status_closes_empty_selection(tmp_path, monkeypatch):
+    """Пустой выбор не оставляет плашку навсегда в «Выгрузка запущена»."""
+    import json
+
+    import downloader
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+
+    downloader.write_status_final(mode="selection", state="empty")
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["active"] is False
+    assert data["state"] == "empty"
+    assert data["mode"] == "selection"
+    assert data["downloaded"] == 0
+
+
+def test_download_all_keeps_mode_in_status(tmp_path, monkeypatch):
+    import json
+
+    import downloader
+
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(downloader, "DISK_STATUS_FILE", status)
+
+    downloader.download_all("token", state=None, download_dir=str(tmp_path),
+                            jobs=iter([]), mode="selection")
+
+    data = json.loads(status.read_text(encoding="utf-8"))
+    assert data["mode"] == "selection"
+    assert data["total_files"] == 0
