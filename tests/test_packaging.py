@@ -1128,3 +1128,60 @@ def test_database_snapshots_can_be_made_and_restored():
     snap = (PROJECT_DIR / "dbsnapshots.py").read_text(encoding="utf-8")
     assert "src.backup(dst)" in snap       # согласованная копия, а не copy файла
     assert "before-restore" in py          # откат тоже обратим
+
+
+def test_unlim_calendar_card_is_in_the_window():
+    """35.7.3: календарь дат Безлимита — клетки дней, сводка и кнопки."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="unlim-dates-card"', 'id="udates-grid"',
+                   'id="udates-month"', 'id="udates-summary"', 'id="udates-status"',
+                   'id="udates-prev"', 'id="udates-next"'):
+        assert marker in html
+    assert "function loadUnlimCalendar(" in html
+    assert "function udatesDownload(" in html
+    assert "function udatesSave(" in html
+    assert "async function udatesClear(" in html
+    # Пустые дни и дни, где всё скачано, отметить нельзя.
+    assert "btn.disabled = !info || (done && !selected);" in html
+    assert "'✓ всё'" in html
+    # Календарь подгружается при открытии окна.
+    assert "loadUnlimCalendar();" in html
+
+
+def test_unlim_selection_routes_exist():
+    """35.7.3: роуты календаря, выбора дат и запуска по выбору."""
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.get("/api/unlim/calendar")' in py
+    assert '@app.get("/api/selection/unlim")' in py
+    assert '@app.post("/api/selection/unlim")' in py
+    assert '@app.post("/api/selection/unlim/clear")' in py
+    assert '@app.post("/api/unlim/download_selection")' in py
+
+
+def test_all_three_unlim_loaders_accept_selection():
+    """35.7.3: каждый загрузчик умеет «только выбранные дни»."""
+    for name in ("unlim_backup.py", "unlim_worker.py", "unlim_direct.py"):
+        src = (PROJECT_DIR / name).read_text(encoding="utf-8")
+        assert "cluster_ranges" in src, name
+        assert '"--selection"' in src, name
+        assert "unlim_dates.range_clause(" in src, name
+
+
+def test_unlim_dates_filter_is_a_whitelist_not_a_status_switch():
+    """35.7.3: пустой выбор ничего не качает, статусы базы не меняются."""
+    src = (PROJECT_DIR / "unlim_dates.py").read_text(encoding="utf-8")
+    assert '"1 = 0"' in src
+    assert "@app" not in src
+    assert "UPDATE " not in src.upper()
+    # Основной загрузчик только сбрасывает skipped внутри выбранных дней.
+    backup = (PROJECT_DIR / "unlim_backup.py").read_text(encoding="utf-8")
+    start = backup.index("def reset_skipped_files(")
+    chunk = backup[start:start + 1600]
+    assert "cluster_ranges" in chunk
+
+
+def test_unlim_schema_has_cluster_index():
+    """35.7.3: индекс по cluster_id делает фильтр по дням быстрым."""
+    schema = (PROJECT_DIR / "unlim_schema.py").read_text(encoding="utf-8")
+    assert "idx_unlim_cluster" in schema
+    assert "(6, _migration_6)" in schema

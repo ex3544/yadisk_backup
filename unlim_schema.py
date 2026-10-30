@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS unlim_files (
     downloaded_at TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_unlim_status ON unlim_files(status);
+CREATE INDEX IF NOT EXISTS idx_unlim_cluster ON unlim_files(cluster_id);
 CREATE TABLE IF NOT EXISTS unlim_clusters (
     cluster_id TEXT PRIMARY KEY,
     size INTEGER,
@@ -85,6 +86,18 @@ def _migration_5(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migration_6(conn: sqlite3.Connection) -> None:
+    """Индекс по cluster_id — по нему фильтр «только выбранные дни».
+
+    Отдельной миграцией, а не только в DB_SCHEMA: у существующих баз схема
+    первой миграции уже применена, и CREATE INDEX из неё не выполнится.
+    Создание индекса идемпотентно; перед миграцией db_migrations делает копию.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_unlim_cluster ON unlim_files(cluster_id)"
+    )
+
+
 # История схемы. Добавлять только в конец, не переименовывать версии.
 MIGRATIONS: list[db_migrations.Migration] = [
     (1, _migration_1),
@@ -92,6 +105,7 @@ MIGRATIONS: list[db_migrations.Migration] = [
     (3, _migration_3),
     (4, _migration_4),
     (5, _migration_5),
+    (6, _migration_6),
 ]
 
 

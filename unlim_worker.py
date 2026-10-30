@@ -28,6 +28,8 @@ import requests
 from dotenv import load_dotenv
 
 import paths
+import selection
+import unlim_dates
 import unlim_schema
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -64,7 +66,11 @@ def ensure_attempts_column() -> None:
         c.close()
 
 
-def take_batch(worker_id: int, size: int) -> list[dict]:
+def take_batch(
+    worker_id: int,
+    size: int,
+    cluster_ranges: list[list[str]] | None = None,
+) -> list[dict]:
     """Атомарно забирает пачку pending под себя (status='in_progress').
 
     Возвращает список словарей {file_id, name, size} — имя и размер нужны,
@@ -73,11 +79,17 @@ def take_batch(worker_id: int, size: int) -> list[dict]:
     c = sqlite3.connect(DB_FILE, timeout=60)
     c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
+    # «Только выбранные дни»: сужаем выборку, статусы остальной очереди не меняем.
+    date_filter, date_params = "", []
+    if cluster_ranges:
+        clause, date_params = unlim_dates.range_clause(cluster_ranges)
+        date_filter = f"AND {clause}"
     try:
         c.execute("BEGIN IMMEDIATE")
         rows = list(c.execute(
-            "SELECT file_id, name, size, md5 FROM unlim_files WHERE status='pending' LIMIT ?",
-            (size,),
+            "SELECT file_id, name, size, md5 FROM unlim_files "
+            f"WHERE status='pending' {date_filter} LIMIT ?",
+            (*date_params, size),
         ))
         if not rows:
             c.execute("COMMIT")
@@ -384,7 +396,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--id", type=int, required=True, help="ID воркера (1, 2, ...)")
     ap.add_argument("--batch", type=int, default=BATCH_SIZE)
+    ap.add_argument("--selection", action="store_true",
+                    help="Скачивать только дни из календаря Безлимита (selection.json)")
     args = ap.parse_args()
+
+    cluster_ranges = None
+    if args.selection:
+        cluster_ranges = selection.unlim_ranges()
+        if not cluster_ranges:
+            sys.exit("[-] В календаре Безлимита не отмечено ни одного дня.")
 
     worker_id = args.id
     print(f"[w{worker_id}] старт. batch={args.batch}")
@@ -405,7 +425,7 @@ def main():
     empty_streak = 0
 
     while True:
-        batch = take_batch(worker_id, args.batch)
+        batch = take_batch(worker_id, args.batch, cluster_ranges)
         if not batch:
             empty_streak += 1
             if empty_streak >= 3:

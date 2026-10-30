@@ -1350,3 +1350,112 @@ def test_snapshot_restore_refuses_while_downloading(snap_env, monkeypatch):
     result = webui.api_snapshot_restore(webui.SnapshotPayload(name=name))
     assert result["ok"] is False
     assert "остановите" in result["msg"].lower()
+
+
+# ── календарь дат Безлимита (35.7.3) ───────────────────────────────────────
+
+def _cluster(year, month, day, hour=10):
+    import datetime as _dt
+    start = _dt.datetime(year, month, day, hour)
+    end = start + _dt.timedelta(hours=1)
+    return f"{int(start.timestamp() * 1000):019d}_{int(end.timestamp() * 1000):019d}"
+
+
+@pytest.fixture()
+def unlim_selection_env(tmp_path, monkeypatch):
+    import unlim_schema
+
+    root = tmp_path / "data"
+    root.mkdir()
+    db = tmp_path / "unlim_state.db"
+    con = sqlite3.connect(db)
+    unlim_schema.migrate(con)
+    con.executemany(
+        "INSERT INTO unlim_files (file_id, cluster_id, name, size, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [
+            ("1", _cluster(2024, 5, 1), "a.jpg", 10, "downloaded"),
+            ("2", _cluster(2024, 5, 1, 11), "b.jpg", 20, "pending"),
+            ("3", _cluster(2024, 6, 1), "c.jpg", 30, "pending"),
+        ],
+    )
+    con.commit()
+    con.close()
+    monkeypatch.setattr(webui.paths, "DATA_DIR", root)
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", db)
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    return db
+
+
+def test_unlim_calendar_endpoint_counts_days(unlim_selection_env):
+    data = webui.api_unlim_calendar("2024-05")
+    assert data["ok"] is True
+    assert data["month"] == "2024-05"
+    by_day = {item["date"]: item for item in data["days"]}
+    assert by_day["2024-05-01"]["files"] == 2
+    assert by_day["2024-05-01"]["left"] == 1
+    assert data["selection"]["days"] == []
+    # Июньские файлы в майский календарь не попадают.
+    assert "2024-06-01" not in by_day
+
+
+def test_unlim_selection_endpoints_save_and_clear(unlim_selection_env):
+    saved = webui.api_unlim_selection_save(webui.UnlimSelectionPayload(
+        dates=["2024-05-01", "2024-05-02"]))
+    assert saved["ok"] is True
+    assert saved["ranges"] == [["2024-05-01", "2024-05-02"]]
+    assert saved["days"] == ["2024-05-01", "2024-05-02"]
+    assert saved["stats"]["files"] == 2
+    assert saved["stats"]["left"] == 1
+
+    loaded = webui.api_unlim_selection_get()
+    assert loaded["days"] == ["2024-05-01", "2024-05-02"]
+
+    # Выбор дней не трогает выбор папок Диска и наоборот.
+    webui.api_selection_save(webui.SelectionDiskPayload(folders=["/Фото"]))
+    assert webui.api_unlim_selection_get()["days"] == ["2024-05-01", "2024-05-02"]
+
+    cleared = webui.api_unlim_selection_clear()
+    assert cleared["days"] == []
+    assert cleared["msg"] == "Даты сняты"
+    assert webui.api_selection_get()["folders"] == ["disk:/Фото"]
+
+
+def test_unlim_download_selection_refuses_empty_choice(unlim_selection_env):
+    webui.api_unlim_selection_clear()
+    result = webui.api_unlim_download_selection()
+    assert result["ok"] is False
+    assert "отметьте дни" in result["msg"]
+
+
+def test_unlim_download_selection_refuses_fully_downloaded_days(unlim_selection_env):
+    # 2024-05-01 скачан не весь, поэтому берём 2024-05-02: там пусто — left = 0.
+    webui.api_unlim_selection_save(webui.UnlimSelectionPayload(dates=["2024-05-02"]))
+    result = webui.api_unlim_download_selection()
+    assert result["ok"] is False
+    assert "всё уже скачано" in result["msg"].lower()
+
+
+def test_unlim_download_selection_starts_backup(unlim_selection_env, monkeypatch, tmp_path):
+    webui.api_unlim_selection_save(webui.UnlimSelectionPayload(dates=["2024-05-01"]))
+    monkeypatch.setattr(webui, "get_config",
+                        lambda: {"unlim_dir": str(tmp_path), "previews": True})
+    monkeypatch.setattr(webui, "check_target_dir", lambda _p: "")
+    monkeypatch.setattr(webui, "reset_session_counters", lambda _k: None)
+    calls = {}
+
+    def fake_start(slot, script, args):
+        calls.update(slot=slot, script=script, args=args)
+        return True, "запущено"
+
+    monkeypatch.setattr(webui.tm, "start", fake_start)
+    result = webui.api_unlim_download_selection()
+    assert result["ok"] is True
+    assert calls["slot"] == "unlim"
+    assert calls["script"] == "unlim_backup.py"
+    assert "--selection" in calls["args"]
+    assert "--target" in calls["args"]
+    assert calls["args"][calls["args"].index("--target") + 1] == "all"
+    assert calls["args"][calls["args"].index("--media") + 1] == "all"
+    assert str(tmp_path) in calls["args"]
+    assert webui._session_retry["unlim"] is True

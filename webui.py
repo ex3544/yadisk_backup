@@ -45,6 +45,7 @@ import paths
 import previews
 import profiles
 import selection
+import unlim_dates
 import updater
 import verify as verify_mod
 import version
@@ -2650,6 +2651,73 @@ def api_download_selection():
     reset_session_counters("disk")
     ok, msg = tm.start("disk", "main.py", args)
     return {"ok": ok, "msg": msg, "mode": "disk"}
+
+
+# ── выбор дней Безлимита ───────────────────────────────────────────────────
+
+class UnlimSelectionPayload(BaseModel):
+    dates: list = Field(default_factory=list)
+
+
+def _unlim_selection_payload() -> dict:
+    sel = selection.unlim_selection()
+    stats = unlim_dates.selection_stats(UNLIM_DB_FILE, sel["ranges"])
+    return {"ok": True, **sel, "stats": stats}
+
+
+@app.get("/api/unlim/calendar")
+def api_unlim_calendar(month: str = ""):
+    """Календарь Безлимита: по дням сколько файлов, сколько скачано и осталось."""
+    data = unlim_dates.calendar(UNLIM_DB_FILE, month)
+    return {"ok": True, **data, "selection": selection.unlim_selection()}
+
+
+@app.get("/api/selection/unlim")
+def api_unlim_selection_get():
+    return _unlim_selection_payload()
+
+
+@app.post("/api/selection/unlim")
+def api_unlim_selection_save(payload: UnlimSelectionPayload):
+    selection.save_unlim_dates(payload.dates)
+    log_action("/api/selection/unlim", {"days": len(payload.dates or [])})
+    return _unlim_selection_payload()
+
+
+@app.post("/api/selection/unlim/clear")
+def api_unlim_selection_clear():
+    selection.clear_unlim()
+    log_action("/api/selection/unlim/clear")
+    return {**_unlim_selection_payload(), "msg": "Даты сняты"}
+
+
+@app.post("/api/unlim/download_selection")
+def api_unlim_download_selection():
+    """Качает только отмеченные дни. Статусы остальной очереди не меняются."""
+    ranges = selection.unlim_ranges()
+    if not ranges:
+        return {"ok": False, "msg": "Сначала отметьте дни в календаре"}
+    stats = unlim_dates.selection_stats(UNLIM_DB_FILE, ranges)
+    if stats["left"] <= 0:
+        return {"ok": False, "msg": "В выбранных днях всё уже скачано"}
+    cfg = get_config()
+    out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+    problem = check_target_dir(out_dir)
+    if problem:
+        return {"ok": False, "msg": problem}
+    args = [
+        "--selection",
+        "--target", "all",
+        "--media", "all",
+        "--out-dir", out_dir,
+        "--workers", str(auto_workers()),
+    ]
+    if not cfg.get("previews", True):
+        args.append("--no-previews")
+    _session_retry["unlim"] = True
+    reset_session_counters("unlim")
+    ok, msg = tm.start("unlim", "unlim_backup.py", args)
+    return {"ok": ok, "msg": msg, "mode": "unlim"}
 
 
 # ── снимки баз ─────────────────────────────────────────────────────────────

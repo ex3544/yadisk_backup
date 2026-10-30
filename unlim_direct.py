@@ -29,6 +29,8 @@ import urllib3.util.connection as urllib3_cn
 from dotenv import load_dotenv
 
 import paths
+import selection
+import unlim_dates
 
 # Принудительно отключаем IPv6, чтобы избежать таймаутов на неработающем IPv6 VirtualBox
 urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
@@ -215,7 +217,12 @@ def recover_stuck():
     con.close()
 
 
-def take_batch(batch_size: int, photos_only: bool = True, from_end: bool = False) -> list[dict]:
+def take_batch(
+    batch_size: int,
+    photos_only: bool = True,
+    from_end: bool = False,
+    cluster_ranges: list[list[str]] | None = None,
+) -> list[dict]:
     con = get_db()
     with con:
         cur = con.cursor()
@@ -224,16 +231,23 @@ def take_batch(batch_size: int, photos_only: bool = True, from_end: bool = False
             conds = [f"name LIKE '%{ext}'" for ext in PHOTO_EXTS]
             ext_filter = f"AND ({' OR '.join(conds)})"
 
+        # «Только выбранные дни»: по cluster_id, статусы не трогаем.
+        date_filter, date_params = "", []
+        if cluster_ranges:
+            clause, date_params = unlim_dates.range_clause(cluster_ranges)
+            date_filter = f"AND {clause}"
+
         # Берём строго pending файлы
         order_clause = "attempts ASC, rowid DESC" if from_end else "attempts ASC, cluster_id ASC, file_id ASC"
         query = f"""
             SELECT file_id, name, size
             FROM unlim_files
             WHERE status = 'pending' {ext_filter}
+              {date_filter}
             ORDER BY {order_clause}
             LIMIT ?
         """
-        rows = list(cur.execute(query, (batch_size,)))
+        rows = list(cur.execute(query, (*date_params, batch_size)))
         if not rows:
             return []
 
@@ -395,6 +409,7 @@ def run(
     use_proxy: bool = False,
     from_end: bool = False,
     timeout: float = 7.0,
+    cluster_ranges: list[list[str]] | None = None,
 ):
     out_dir = Path(out_dir_path)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -411,6 +426,8 @@ def run(
     print("  Режим ошибок  : БЕЗ ПОВТОРОВ (мгновенный пропуск в skipped)")
     print(f"  Прокси        : {'Через 127.0.0.1:10808' if use_proxy else 'Прямой доступ (мимо прокси)'}")
     print(f"  Фильтр        : {'Только фото' if photos_only else 'Все медиа (фото + видео)'}")
+    if cluster_ranges:
+        print(f"  Выбранные дни : {len(unlim_dates.expand_ranges(cluster_ranges))}")
     print("=" * 68)
 
     cookies = load_cookies()
@@ -524,7 +541,15 @@ def main():
     parser.add_argument("--all-media", action="store_true", help="Качать все медиа (по умолчанию только фото)")
     parser.add_argument("--use-proxy", action="store_true", help="Скачивать через локальный прокси 127.0.0.1:10808")
     parser.add_argument("--from-end", action="store_true", help="Скачивать с конца списка (старые файлы / photounlim)")
+    parser.add_argument("--selection", action="store_true",
+                        help="Скачивать только дни из календаря Безлимита (selection.json)")
     args = parser.parse_args()
+
+    cluster_ranges = None
+    if args.selection:
+        cluster_ranges = selection.unlim_ranges()
+        if not cluster_ranges:
+            sys.exit("[-] В календаре Безлимита не отмечено ни одного дня.")
 
     run(
         batch_size=args.batch_size,
@@ -535,6 +560,7 @@ def main():
         use_proxy=args.use_proxy,
         from_end=args.from_end,
         timeout=args.timeout,
+        cluster_ranges=cluster_ranges,
     )
 
 

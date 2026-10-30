@@ -770,6 +770,25 @@
   .picker-row.done .picker-name{cursor:default}
   .picker-meta{font-size:11.5px;color:var(--text-tertiary);white-space:nowrap}
   .picker-summary{font-size:12.5px;color:var(--text-tertiary);margin-top:8px}
+  /* Календарь дат Безлимита (35.7.3): день = клетка с числом и остатком. */
+  .udates-nav{display:flex;align-items:center;gap:8px;margin:4px 0 8px;flex-wrap:wrap}
+  .udates-month{flex:1;text-align:center;font-weight:600;font-size:14px;min-width:110px}
+  .udates-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .udates-dow{font-size:11px;color:var(--text-tertiary);text-align:center;padding:2px 0}
+  .uday{min-height:52px;border:0.5px solid var(--hairline-strong);border-radius:8px;
+    background:var(--surface2);color:var(--text);padding:4px 5px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+    font:inherit;text-align:left;transition:border-color .12s,background .12s}
+  .uday:hover{border-color:var(--accent)}
+  .uday-num{font-size:12.5px;font-weight:600;line-height:1.1}
+  .uday-meta{font-size:10.5px;color:var(--text-tertiary);line-height:1.15}
+  .uday.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .uday.on .uday-meta{color:rgba(255,255,255,.85)}
+  .uday.done{opacity:.5}
+  .uday.done:not(.on){cursor:default}
+  .uday.empty{opacity:.3;cursor:default;border-style:dashed}
+  .uday.today .uday-num{text-decoration:underline}
+  .udates-summary{font-size:12.5px;color:var(--text-tertiary);margin-top:8px;line-height:1.45}
   /* Снимки баз: строки с датой, размером и кнопками. */
   .snapshot-list{display:flex;flex-direction:column;gap:6px}
   .snapshot-row{display:flex;align-items:center;gap:10px;padding:8px 10px;
@@ -1575,6 +1594,32 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <button class="ghost" onclick="pickerClear()">Снять всё</button>
     </div>
     <div id="picker-status" class="setup-hint" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- Календарь дат Безлимита: что именно качать (35.7.3) -->
+  <div class="card" id="unlim-dates-card">
+    <div class="card-title">Даты Безлимита</div>
+    <div class="card-sub">
+      Отметьте дни в календаре — скачаются только файлы этих дней (фото и видео).
+      Уже скачанное повторно не берётся, а остальная очередь остаётся как была.
+      День считается по времени начала съёмки: снимок, снятый около полуночи,
+      попадает в тот день, когда начался.
+    </div>
+    <div class="udates-nav">
+      <button class="ghost" id="udates-prev" onclick="udatesMonth(-1)">‹</button>
+      <span class="udates-month" id="udates-month">—</span>
+      <button class="ghost" id="udates-next" onclick="udatesMonth(1)">›</button>
+      <button class="ghost" onclick="udatesToday()">Сегодня</button>
+    </div>
+    <div class="udates-grid" id="udates-grid"></div>
+    <div class="udates-summary" id="udates-summary">Ничего не выбрано</div>
+    <div class="actions" style="margin-top:8px">
+      <button class="primary" onclick="udatesDownload()">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранные даты
+      </button>
+      <button class="ghost" onclick="udatesClear()">Снять всё</button>
+    </div>
+    <div id="udates-status" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
   <!-- Уведомления о завершении (C3) -->
@@ -6214,6 +6259,238 @@ async function pickerDownload(){
   }
 }
 
+// ── календарь дат Безлимита ────────────────────────────────────────────────
+
+const UDATES_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+  'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const UDATES_DOW = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+window._udates = {month: null, days: {}, sel: new Set(), ranges: [], stats: null};
+let _udatesTimer = null;
+
+function _udatesMonthText(month){
+  const [y, m] = String(month || '').split('-');
+  const idx = (+m || 1) - 1;
+  return (UDATES_MONTHS[idx] || m) + ' ' + y;
+}
+
+function _udatesShift(month, delta){
+  const [y, m] = String(month).split('-').map(Number);
+  const total = y * 12 + (m - 1) + delta;
+  const ny = Math.floor(total / 12), nm = total % 12 + 1;
+  return ny + '-' + String(nm).padStart(2, '0');
+}
+
+function _udatesIsSelected(date){
+  return (window._udates.ranges || []).some(([a, b]) => date >= a && date <= b);
+}
+
+function _udatesRangesFromDates(){
+  const days = Array.from(window._udates.sel).sort();
+  const out = [];
+  days.forEach(d => {
+    if(out.length){
+      const last = out[out.length - 1];
+      const next = new Date(last[1] + 'T00:00:00');
+      next.setDate(next.getDate() + 1);
+      const iso = next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0')
+                + '-' + String(next.getDate()).padStart(2, '0');
+      if(iso === d){ last[1] = d; return; }
+    }
+    out.push([d, d]);
+  });
+  window._udates.ranges = out;
+}
+
+function _udatesApply(d){
+  window._udates.ranges = d.ranges || [];
+  window._udates.sel = new Set(d.days || []);
+  if(d.stats) window._udates.stats = d.stats;
+  _udatesRenderSummary();
+  renderUnlimCalendar();
+}
+
+function _udatesRenderSummary(){
+  const el = document.getElementById('udates-summary');
+  if(!el) return;
+  const st = window._udates.stats;
+  if(!st || !st.days){
+    el.textContent = 'Ничего не выбрано — качать будут только отмеченные дни.';
+    return;
+  }
+  let text = `Отмечено дней: ${st.days} · файлов ${st.files}`
+           + ` · уже скачано ${st.downloaded} · осталось ${st.left}`;
+  if(st.bytes) text += ' · ≈ ' + human(st.bytes);
+  el.textContent = text;
+}
+
+function renderUnlimCalendar(){
+  const grid = document.getElementById('udates-grid');
+  const label = document.getElementById('udates-month');
+  if(!grid) return;
+  const month = window._udates.month;
+  if(label) label.textContent = month ? _udatesMonthText(month) : '—';
+  grid.innerHTML = '';
+  if(!month) return;
+  UDATES_DOW.forEach(name => {
+    const head = document.createElement('div');
+    head.className = 'udates-dow';
+    head.textContent = name;
+    grid.appendChild(head);
+  });
+  const [y, m] = month.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const offset = (first.getDay() + 6) % 7;   // понедельник — первый столбец
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const today = new Date();
+  const todayIso = today.getFullYear() + '-'
+    + String(today.getMonth() + 1).padStart(2, '0') + '-'
+    + String(today.getDate()).padStart(2, '0');
+  for(let i = 0; i < offset; i++){
+    grid.appendChild(document.createElement('span'));
+  }
+  for(let day = 1; day <= daysInMonth; day++){
+    const date = month + '-' + String(day).padStart(2, '0');
+    const info = window._udates.days[date];
+    const selected = _udatesIsSelected(date);
+    const left = info ? info.left : 0;
+    const done = !!info && info.files > 0 && left <= 0;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'uday'
+      + (selected ? ' on' : '')
+      + (done && !selected ? ' done' : '')
+      + (!info ? ' empty' : '')
+      + (date === todayIso ? ' today' : '');
+    // Пустые дни и дни, где всё уже скачано, не отмечаются: повторно качать нечего.
+    btn.disabled = !info || (done && !selected);
+    const num = document.createElement('span');
+    num.className = 'uday-num';
+    num.textContent = String(day);
+    btn.appendChild(num);
+    const meta = document.createElement('span');
+    meta.className = 'uday-meta';
+    if(!info) meta.textContent = '';
+    else if(done) meta.textContent = '✓ всё';
+    else meta.textContent = left + ' осталось';
+    btn.appendChild(meta);
+    btn.onclick = () => udatesToggle(date);
+    grid.appendChild(btn);
+  }
+}
+
+async function udatesLoadSelection(){
+  try{
+    const r = await fetch('/api/selection/unlim');
+    const d = await r.json();
+    if(d.ok) _udatesApply(d);
+  }catch(e){ /* без связи с программой календарь просто пуст */ }
+}
+
+async function loadUnlimCalendar(month){
+  const grid = document.getElementById('udates-grid');
+  if(grid) grid.textContent = 'Загружаю календарь…';
+  try{
+    const q = month ? '?month=' + encodeURIComponent(month) : '';
+    const r = await fetch('/api/unlim/calendar' + q);
+    const d = await r.json();
+    if(!d.ok){ if(grid) grid.textContent = d.msg || 'Не удалось получить календарь'; return; }
+    window._udates.month = d.month;
+    window._udates.days = {};
+    (d.days || []).forEach(item => { window._udates.days[item.date] = item; });
+    if(d.selection){
+      window._udates.ranges = d.selection.ranges || [];
+      window._udates.sel = new Set(d.selection.days || []);
+    }
+    renderUnlimCalendar();
+  }catch(e){
+    if(grid) grid.textContent = 'Нет связи с программой: ' + e.message;
+  }
+}
+
+function udatesMonth(delta){
+  const base = window._udates.month
+    || (new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'));
+  loadUnlimCalendar(_udatesShift(base, delta));
+}
+
+function udatesToday(){
+  const now = new Date();
+  loadUnlimCalendar(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+}
+
+function udatesToggle(date){
+  if(window._udates.sel.has(date)) window._udates.sel.delete(date);
+  else window._udates.sel.add(date);
+  _udatesRangesFromDates();
+  renderUnlimCalendar();
+  clearTimeout(_udatesTimer);
+  _udatesTimer = setTimeout(udatesSave, 250);
+}
+
+async function udatesSave(){
+  const dates = Array.from(window._udates.sel).sort();
+  try{
+    const r = await fetch('/api/selection/unlim', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dates})
+    });
+    const d = await r.json();
+    if(d.ok) _udatesApply(d);
+    else toast(d.msg || 'Не удалось сохранить выбор дат', 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function udatesClear(){
+  const ok = await askConfirm({
+    title: 'Снять выбранные даты?',
+    text: 'Даты перестанут участвовать в «Скачать выбранные даты». В очереди и в базе ничего не изменится.'
+  });
+  if(!ok) return;
+  try{
+    const r = await fetch('/api/selection/unlim/clear', {method: 'POST'});
+    const d = await r.json();
+    _udatesApply(d);
+    toast(d.msg || 'Даты сняты', 'ok');
+  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
+}
+
+async function udatesDownload(){
+  const st = document.getElementById('udates-status');
+  const setStatus = (text, cls) => {
+    if(!st) return;
+    st.className = 'setup-hint' + (cls ? ' ' + cls : '');
+    st.textContent = text;
+  };
+  if(!window._udates.sel.size){
+    setStatus('Сначала отметьте дни в календаре', 'err');
+    return;
+  }
+  if(window._udates.stats && window._udates.stats.left <= 0){
+    setStatus('В выбранных днях всё уже скачано', 'err');
+    return;
+  }
+  const ok = await askConfirm({
+    title: 'Скачать выбранные дни?',
+    text: 'В работу попадут только файлы отмеченных дней. Уже скачанное будет пропущено, остальная очередь останется как была.'
+  });
+  if(!ok) return;
+  try{
+    const r = await fetch('/api/unlim/download_selection', {method: 'POST'});
+    const d = await r.json();
+    setStatus(d.msg || '', d.ok ? 'ok' : 'err');
+    toast(d.ok ? (d.msg || 'Выгрузка запущена') : (d.msg || 'Не удалось запустить'),
+          d.ok ? 'ok' : 'err');
+    refresh();
+  }catch(e){
+    setStatus('Нет связи с программой: ' + e.message, 'err');
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
 // ── снимки баз ─────────────────────────────────────────────────────────────
 
 function _snapLabel(name){
@@ -6332,6 +6609,8 @@ initSetup();
 initDiagnostics();
 loadProfiles();
 pickerLoadSelection();
+loadUnlimCalendar();
+udatesLoadSelection();
 loadSnapshots();
 refresh();
 setInterval(refresh, 1500);

@@ -43,6 +43,8 @@ import urllib3.util.connection as urllib3_cn
 import db_migrations
 import paths
 import previews as preview_mod
+import selection
+import unlim_dates
 import unlim_schema
 from fetch import DeadHosts
 from utils import check_target_dir
@@ -452,7 +454,11 @@ def recover_stuck(db_path: Path):
     con.close()
 
 
-def reset_skipped_files(db_path: Path, media_type: str = "all") -> int:
+def reset_skipped_files(
+    db_path: Path,
+    media_type: str = "all",
+    cluster_ranges: list[list[str]] | None = None,
+) -> int:
     con = get_db(db_path)
     ext_cond = ""
     if media_type == "photos":
@@ -462,9 +468,20 @@ def reset_skipped_files(db_path: Path, media_type: str = "all") -> int:
         conds = [f"name LIKE '%{ext}'" for ext in VIDEO_EXTS]
         ext_cond = f"AND ({' OR '.join(conds)})"
 
+    # При скачивании выбранных дней сбойные возвращаются в очередь только
+    # внутри этих дней: остальная очередь остаётся как была.
+    date_filter, date_params = "", []
+    if cluster_ranges:
+        clause, date_params = unlim_dates.range_clause(cluster_ranges)
+        date_filter = f"AND {clause}"
+
     with con:
         cur = con.cursor()
-        cur.execute(f"UPDATE unlim_files SET status='pending', attempts=0, error=NULL WHERE status='skipped' {ext_cond}")
+        cur.execute(
+            f"UPDATE unlim_files SET status='pending', attempts=0, error=NULL "
+            f"WHERE status='skipped' {ext_cond} {date_filter}",
+            date_params,
+        )
         count = cur.rowcount
     con.close()
     return count
@@ -498,6 +515,7 @@ def take_batch(
     media_type: str = "all",
     target_status: str = "pending",
     from_end: bool = False,
+    cluster_ranges: list[list[str]] | None = None,
 ) -> list[dict]:
     con = get_db(db_path)
     with con:
@@ -509,6 +527,12 @@ def take_batch(
         elif media_type == "videos":
             conds = [f"name LIKE '%{ext}'" for ext in VIDEO_EXTS]
             ext_filter = f"AND ({' OR '.join(conds)})"
+
+        # «Только выбранные дни»: фильтр по cluster_id, статусы не трогаем.
+        date_filter, date_params = "", []
+        if cluster_ranges:
+            clause, date_params = unlim_dates.range_clause(cluster_ranges)
+            date_filter = f"AND {clause}"
 
         # Отложенные («сервер Яндекса молчит») файлы — в конце очереди. У них
         # attempts откатан при mark_deferred, поэтому без этой строки они снова
@@ -527,10 +551,12 @@ def take_batch(
             FROM unlim_files
             WHERE status = ? {ext_filter}
               AND (retry_after IS NULL OR retry_after <= ?)
+              {date_filter}
             ORDER BY {order_clause}
             LIMIT ?
         """
-        rows = list(cur.execute(query, (target_status, int(time.time()), batch_size)))
+        rows = list(cur.execute(
+            query, (target_status, int(time.time()), *date_params, batch_size)))
         if not rows:
             return []
 
@@ -878,6 +904,7 @@ def run_backup(
     status_file: Path | None = None,
     sort_after: bool = False,
     make_previews: bool = True,
+    cluster_ranges: list[list[str]] | None = None,
 ):
     out_dir = Path(out_dir_path)
     problem = check_target_dir(out_dir)
@@ -910,6 +937,10 @@ def run_backup(
     print(f"  Размер батча : {batch_size} файлов")
     print(f"  Кол-во батчей: {'Все до конца' if batches_count <= 0 else batches_count}")
     print(f"  Прокси       : {proxy_url if use_proxy else 'Прямое соединение (без прокси)'}")
+    if cluster_ranges:
+        days = unlim_dates.expand_ranges(cluster_ranges)
+        shown = ", ".join(days[:6]) + (" …" if len(days) > 6 else "")
+        print(f"  Выбранные дни: {len(days)} ({shown})")
     print("=" * 70)
 
     # 1. Авторизация
@@ -972,10 +1003,11 @@ def run_backup(
                 media_type=media_type,
                 target_status=phase,
                 from_end=from_end,
+                cluster_ranges=cluster_ranges,
             )
             if not items:
                 if not retry_phase_done:
-                    n = reset_skipped_files(db_path, media_type)
+                    n = reset_skipped_files(db_path, media_type, cluster_ranges)
                     retry_phase_done = True
                     if n > 0:
                         print(f"\n=== Фаза 2: повтор пропущенных ({n} файлов → pending) ===", flush=True)
@@ -1095,7 +1127,7 @@ def run_backup(
             # вечно (35.6.4 так и висел на «проходе 1 из 10»). Завершаем проход.
             if batch_success == 0 and batch_skipped == 0 and batch_deferred > 0:
                 if not retry_phase_done:
-                    n = reset_skipped_files(db_path, media_type)
+                    n = reset_skipped_files(db_path, media_type, cluster_ranges)
                     retry_phase_done = True
                     if n > 0:
                         print(
@@ -1212,6 +1244,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Принудительно пересоздать базу данных с нуля, даже если unlim_state.db уже существует на диске")
     parser.add_argument("--sort-after", action="store_true", help="После скачивания сразу разложить файлы по датам (organize.py, быстрый режим без MD5)")
     parser.add_argument("--no-previews", action="store_true", help="Не сохранять превью фото, которые сейчас ждут Яндекса")
+    parser.add_argument("--selection", action="store_true", help="Скачать только дни, отмеченные в календаре (selection.json); статусы остальной очереди не меняются")
     parser.add_argument("--web", action="store_true", help="Запустить веб-интерфейс дашборда (http://127.0.0.1:8000)")
     parser.add_argument("--cli", action="store_true", help="Принудительный запуск в консольном режиме без аргументов")
 
@@ -1262,6 +1295,12 @@ def main():
         print(f"[✓] Успешно сброшено {cnt} файлов из 'skipped' в 'pending' (фильтр: {args.media}).")
         return
 
+    cluster_ranges = None
+    if args.selection:
+        cluster_ranges = selection.unlim_ranges()
+        if not cluster_ranges:
+            sys.exit("[-] В календаре Безлимита не отмечено ни одного дня — скачивать нечего.")
+
     status_file = paths.UNLIM_STATUS_FILE
     status_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1281,6 +1320,7 @@ def main():
         status_file=status_file,
         sort_after=args.sort_after,
         make_previews=not args.no_previews,
+        cluster_ranges=cluster_ranges,
     )
 
 

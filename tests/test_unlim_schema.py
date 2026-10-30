@@ -87,3 +87,31 @@ def test_force_reset_zeroes_schema_version():
     db_migrations.set_user_version(con, 0)
     assert db_migrations.get_user_version(con) == 0
     con.close()
+
+
+def test_migration_6_adds_cluster_index_to_an_old_database(tmp_path):
+    """Старая база (версия 5) получает индекс по cluster_id при обновлении."""
+    path = tmp_path / "unlim_state.db"
+    con = sqlite3.connect(str(path))
+    con.execute(
+        "CREATE TABLE unlim_files (file_id TEXT PRIMARY KEY, cluster_id TEXT, "
+        "name TEXT, size INTEGER, status TEXT)"
+    )
+    db_migrations.set_user_version(con, 5)
+
+    unlim_schema.migrate(con)
+
+    indexes = {row[0] for row in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "idx_unlim_cluster" in indexes
+    assert db_migrations.get_user_version(con) == len(unlim_schema.MIGRATIONS)
+    con.close()
+
+
+def test_fresh_database_gets_the_index_too(tmp_path):
+    con = sqlite3.connect(str(tmp_path / "unlim_state.db"))
+    unlim_schema.migrate(con)
+    indexes = {row[0] for row in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "idx_unlim_cluster" in indexes
+    con.close()

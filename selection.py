@@ -1,9 +1,10 @@
-"""Что качать: выбранные пользователем папки и файлы.
+"""Что качать: выбранные папки и файлы Диска, дни Безлимита.
 
 Зачем
 -----
 Раньше «качать» значило «всё, что лежит в базе в очереди». Сергей просил
-открыть облако и отметить нужное мышкой — папки целиком или отдельные файлы.
+открыть облако и отметить нужное мышкой — папки целиком или отдельные файлы,
+а у Безлимита — нужные дни в календаре.
 
 Главное правило
 ---------------
@@ -15,7 +16,8 @@
 (`download_all(jobs=...)`), а не массовая пометка чего-либо в базе.
 
 Файл выбора лежит в каталоге данных (`paths.DATA_DIR`), то есть у каждого
-профиля свой.
+профиля свой. У Безлимита выбор хранится диапазонами дней (`unlim_dates`),
+потому что сравнивать cluster_id с границами диапазона умеет индекс.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import paths
+import unlim_dates
 
 VERSION = 1
 # Больше 50 тысяч путей в файле выбора — это уже не выбор, а копия базы.
@@ -37,7 +40,11 @@ def selection_file() -> Path:
 
 
 def _empty() -> dict:
-    return {"version": VERSION, "disk": {"folders": [], "files": []}}
+    return {
+        "version": VERSION,
+        "disk": {"folders": [], "files": []},
+        "unlim": {"ranges": []},
+    }
 
 
 def normalize_remote(path: str) -> str:
@@ -117,7 +124,16 @@ def load() -> dict:
         files = _clean_files(disk.get("files"))
     except ValueError:
         folders, files = [], []
-    return {"version": VERSION, "disk": {"folders": folders, "files": files}}
+    unlim = data.get("unlim") if isinstance(data.get("unlim"), dict) else {}
+    try:
+        ranges = unlim_dates.clean_ranges(unlim.get("ranges"))
+    except (TypeError, ValueError):
+        ranges = []
+    return {
+        "version": VERSION,
+        "disk": {"folders": folders, "files": files},
+        "unlim": {"ranges": ranges},
+    }
 
 
 def save(data: dict) -> None:
@@ -130,25 +146,68 @@ def save(data: dict) -> None:
 
 
 def save_disk(folders: Iterable, files: Iterable) -> dict:
-    data = {
-        "version": VERSION,
-        "disk": {
-            "folders": _clean_folders(folders),
-            "files": _clean_files(files),
-        },
+    """Сохраняет выбор Диска, не трогая выбор дней Безлимита."""
+    data = load()
+    data["disk"] = {
+        "folders": _clean_folders(folders),
+        "files": _clean_files(files),
     }
     save(data)
     return data
 
 
 def clear_disk() -> dict:
-    data = _empty()
+    data = load()
+    data["disk"] = {"folders": [], "files": []}
     save(data)
     return data
 
 
 def disk_selection() -> dict:
     return load()["disk"]
+
+
+# ── Безлимит: выбранные дни ─────────────────────────────────────────────────
+
+
+def save_unlim_dates(dates: Iterable) -> dict:
+    """Сохраняет дни, выбранные в календаре Безлимита, не трогая выбор Диска."""
+    data = load()
+    data["unlim"] = {"ranges": unlim_dates.merge_dates(dates)}
+    save(data)
+    return data
+
+
+def save_unlim_ranges(ranges: Iterable) -> dict:
+    data = load()
+    data["unlim"] = {"ranges": unlim_dates.clean_ranges(ranges)}
+    save(data)
+    return data
+
+
+def clear_unlim() -> dict:
+    data = load()
+    data["unlim"] = {"ranges": []}
+    save(data)
+    return data
+
+
+def unlim_ranges() -> list[list[str]]:
+    return list(load()["unlim"].get("ranges") or [])
+
+
+def unlim_days() -> list[str]:
+    return unlim_dates.expand_ranges(unlim_ranges())
+
+
+def unlim_selection() -> dict:
+    ranges = unlim_ranges()
+    return {"ranges": ranges, "days": unlim_dates.expand_ranges(ranges)}
+
+
+def is_unlim_empty(ranges: Optional[Iterable] = None) -> bool:
+    value = unlim_ranges() if ranges is None else unlim_dates.clean_ranges(ranges)
+    return not value
 
 
 def is_empty(selection: Optional[dict] = None) -> bool:
