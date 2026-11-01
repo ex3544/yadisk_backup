@@ -1944,6 +1944,8 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <span>➖ Пропало</span><span class="reset-count" id="audit-gone">0</span>
       </button>
     </div>
+    <div id="audit-bases" class="card-sub" role="status" aria-live="polite"
+         style="display:none;margin-top:8px;white-space:pre-line"></div>
     <pre id="audit-list" class="diag-pre" style="display:none"></pre>
 
     <div class="actions" id="audit-actions" style="margin-top:10px;display:none">
@@ -6028,6 +6030,34 @@ function renderCloudAudit(a){
   setCount('audit-new', nw);
   setCount('audit-changed', changed);
   setCount('audit-gone', gone);
+
+  // Разбивка по базам: «сгорело» и «ждут Яндекса» — это статусы базы,
+  // а не итог сверки. Без неё цифры в карточке не сходились с «Главной».
+  const bases = document.getElementById('audit-bases');
+  if(bases){
+    const pb = (a && a.per_base) || {};
+    const lines = [];
+    if(a && a.finished_at){
+      for(const key of ['disk', 'unlim']){
+        const b = pb[key];
+        if(!b) continue;
+        const label = key === 'disk' ? 'Диск' : 'Безлимит';
+        const fmt = n => (+n || 0).toLocaleString('ru');
+        const bits = [`скачано ${fmt(b.downloaded)}`];
+        if(+b.lost) bits.push(`сгорело ${fmt(b.lost)}`);
+        if(+b.waiting) bits.push(`ждут Яндекса ${fmt(b.waiting)}`);
+        const queued = (+b.pending || 0) - (+b.waiting || 0);
+        if(queued > 0) bits.push(`в очереди ${fmt(queued)}`);
+        lines.push(`${label}: ${bits.join(' · ')}`);
+        if(+b.cloud_size_unknown){
+          lines.push(`${label}: размер в облаке не отдаётся — сверено по наличию `
+            + `(${fmt(b.cloud_size_unknown)})`);
+        }
+      }
+    }
+    bases.textContent = lines.join('\n');
+    bases.style.display = lines.length ? 'block' : 'none';
+  }
   const counters = document.getElementById('audit-counters');
   if(counters) counters.style.display = (a && a.finished_at) ? 'grid' : 'none';
 

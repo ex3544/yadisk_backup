@@ -148,6 +148,63 @@ def test_compare_detects_md5_change_with_same_size():
     assert "MD5" in item["detail"]
 
 
+def test_compare_unlim_unknown_size_is_same_not_changed():
+    """35.7.8: Яндекс не отдаёт размер — это не повод звать файл изменившимся."""
+    cloud = {"fid-1": {"name": "IMG_1.jpg", "size": None, "md5": None}}
+    db = {"fid-1": {"name": "IMG_1.jpg", "size": 17_887_116, "md5": None,
+                    "status": "downloaded", "local": "C:/u/IMG_1.jpg",
+                    "error": None}}
+    item = cloud_audit.compare("unlim", cloud, db)[0]
+    assert item["kind"] == "same"
+    assert "размер в облаке не отдаётся" in item["detail"]
+    assert cloud_audit._counts([item])["changed"] == 0
+
+
+def test_compare_same_explains_lost_and_waiting_files():
+    cloud = {
+        "fid-1": {"name": "lost.jpg", "size": None, "md5": None},
+        "fid-2": {"name": "wait.jpg", "size": None, "md5": None},
+    }
+    db = {
+        "fid-1": {"name": "lost.jpg", "size": 0, "md5": None,
+                  "status": "lost", "local": None,
+                  "error": "yandex_lost|storage.yandex.net"},
+        "fid-2": {"name": "wait.jpg", "size": 0, "md5": None,
+                  "status": "pending", "local": None,
+                  "error": "storage_down|storage.yandex.net"},
+    }
+    items = {item["key"]: item for item in cloud_audit.compare("unlim", cloud, db)}
+    assert items["fid-1"]["kind"] == "same"
+    assert "сгорел у Яндекса" in items["fid-1"]["detail"]
+    assert items["fid-2"]["kind"] == "same"
+    assert "ждёт Яндекса" in items["fid-2"]["detail"]
+
+
+def test_scan_unlim_cloud_keeps_missing_size_as_unknown(tmp_path, monkeypatch):
+    import unlim_backup
+
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(unlim_backup, "load_cookies", lambda _p: {})
+    monkeypatch.setattr(unlim_backup, "make_session", lambda _c: object())
+    monkeypatch.setattr(unlim_backup, "get_sk_uid", lambda _s: ("sk", "uid"))
+
+    def fake_api(_session, _sk, _uid, method, _params=None):
+        if method.endswith("photo-init-snapshot"):
+            return {"photoslice_id": "ps"}
+        if method.endswith("photo-get-snapshot"):
+            return {"items": [{"id": "c1", "size": 2}]}
+        return {"clusters": {"fetched": [{"id": "c1", "items": [
+            {"id": "/photounlim/no-size.jpg"},
+            {"id": "/photounlim/with-size.jpg", "size": 5},
+        ]}]}}
+
+    monkeypatch.setattr(unlim_backup, "api_call", fake_api)
+    files = cloud_audit.scan_unlim_cloud(cookies)
+    assert files["/photounlim/no-size.jpg"]["size"] is None
+    assert files["/photounlim/with-size.jpg"]["size"] == 5
+
+
 # ── полный проход ───────────────────────────────────────────────────────────
 
 
@@ -174,8 +231,12 @@ def test_run_writes_status_report_csv_and_plan(env, monkeypatch):
     assert data["new"] == 3
     assert data["changed"] == 0
     assert data["gone"] == 1
-    assert data["per_base"]["disk"] == {"cloud": 3, "db": 2}
-    assert data["per_base"]["unlim"] == {"cloud": 2, "db": 1}
+    assert data["per_base"]["disk"]["cloud"] == 3
+    assert data["per_base"]["disk"]["db"] == 2
+    assert data["per_base"]["disk"]["downloaded"] == 2
+    assert data["per_base"]["unlim"]["cloud"] == 2
+    assert data["per_base"]["unlim"]["db"] == 1
+    assert data["per_base"]["unlim"]["downloaded"] == 1
 
     status = cloud_audit.read_status()
     assert status["active"] is False
@@ -197,6 +258,48 @@ def test_run_writes_status_report_csv_and_plan(env, monkeypatch):
 
     plan = json.loads(paths.CLOUD_AUDIT_PLAN_FILE.read_text(encoding="utf-8"))
     assert len(plan["items"]) == 6
+
+
+def test_run_reports_base_statuses_and_unknown_cloud_size(env, monkeypatch):
+    """Цифры «сгорело / ждут Яндекса» — из базы, а не из итога сверки."""
+    make_unlim_db(paths.UNLIM_DB_FILE, [
+        ("fid-1", "a.jpg", 10, None, "downloaded", "C:/u/a.jpg"),
+        ("fid-2", "b.jpg", 0, None, "lost", None),
+        ("fid-3", "c.jpg", 0, None, "pending", None),
+    ])
+    con = sqlite3.connect(paths.UNLIM_DB_FILE)
+    con.execute("UPDATE unlim_files SET error='yandex_lost|storage.yandex.net' "
+                "WHERE file_id='fid-2'")
+    con.execute("UPDATE unlim_files SET error='storage_down|storage.yandex.net' "
+                "WHERE file_id='fid-3'")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(cloud_audit, "scan_unlim_cloud", lambda *a, **k: {
+        "fid-1": {"name": "a.jpg", "size": None, "md5": None},
+        "fid-2": {"name": "b.jpg", "size": None, "md5": None},
+        "fid-3": {"name": "c.jpg", "size": None, "md5": None},
+    })
+
+    data = cloud_audit.run("unlim")
+    base = data["per_base"]["unlim"]
+    assert base["cloud"] == 3 and base["db"] == 3
+    assert base["downloaded"] == 1
+    assert base["lost"] == 1
+    assert base["waiting"] == 1
+    assert base["pending"] == 1
+    assert base["cloud_size_unknown"] == 3
+    # Ни один файл не объявлен изменившимся из-за неизвестного размера.
+    assert data["changed"] == 0
+    assert data["same"] == 3
+
+    report = paths.CLOUD_AUDIT_REPORT_FILE.read_text(encoding="utf-8")
+    assert "сгорело 1" in report
+    assert "ждут Яндекса 1" in report
+    assert "размер в облаке не отдаётся" in report
+    assert "сверены по наличию" in report
+
+    status = cloud_audit.read_status()
+    assert status["per_base"]["unlim"]["lost"] == 1
 
 
 def test_run_marks_failure_with_readable_reason(env, monkeypatch):

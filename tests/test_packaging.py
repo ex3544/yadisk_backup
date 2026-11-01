@@ -1287,10 +1287,13 @@ def test_cloud_audit_card_sits_between_verify_and_relocate():
                "toggleAuditList('gone')", "toggleAuditReport()"):
         assert fn in diag
 
-    # Цифры четырёх состояний и отчёт на месте.
+    # Цифры четырёх состояний, разбивка по базам и отчёт на месте.
     for ident in ("audit-same", "audit-new", "audit-changed", "audit-gone",
-                  "audit-list", "audit-report", "audit-actions"):
+                  "audit-bases", "audit-list", "audit-report", "audit-actions"):
         assert f'id="{ident}"' in diag
+    assert 'id="audit-bases"' in html
+    assert "cloud_size_unknown" in html
+    assert "сверено по наличию" in html
 
     # Подсказки: у карточки и у каждой кнопки — что делает и для чего нужно.
     assert 'data-tip="Проверяет, что сейчас реально лежит в облаке' in diag

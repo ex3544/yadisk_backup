@@ -231,9 +231,16 @@ def scan_unlim_cloud(
                 fid = item.get("id") or item.get("resource_id")
                 if not fid:
                     continue
+                # Яндекс для Безлимита больше не отдаёт размер: в ответе
+                # только id, itemId, width и height. Раньше отсутствие
+                # превращалось в 0, и сверка объявляла все скачанные файлы
+                # «изменившимися» (в базе настоящий размер, в облаке 0).
+                # None = «размер неизвестен», сравниваем только наличие.
+                raw_size = item.get("size")
+                size = int(raw_size) if raw_size not in (None, 0, "0", "") else None
                 files[str(fid)] = {
                     "name": item.get("name") or str(fid).rsplit("/", 1)[-1],
-                    "size": int(item.get("size") or 0),
+                    "size": size,
                     "md5": item.get("md5") or item.get("etag"),
                 }
         for cid, _size in batch:
@@ -274,7 +281,7 @@ def load_db_rows(scope: str) -> dict[str, dict]:
         rows = list(
             con.execute(
                 f"SELECT {key_col} AS key, {name_sql} AS name, size, md5, "
-                f"status, local_path FROM {table}"
+                f"status, local_path, error FROM {table}"
             )
         )
     except sqlite3.Error:
@@ -282,7 +289,7 @@ def load_db_rows(scope: str) -> dict[str, dict]:
         rows = list(
             con.execute(
                 f"SELECT {key_col} AS key, {name_sql} AS name, size, md5, "
-                f"status, NULL AS local_path FROM {table}"
+                f"status, NULL AS local_path, error FROM {table}"
             )
         )
     finally:
@@ -298,12 +305,17 @@ def load_db_rows(scope: str) -> dict[str, dict]:
             "md5": row["md5"],
             "status": row["status"] or "pending",
             "local": row["local_path"],
+            "error": row["error"],
         }
     return out
 
 
 def _differs(cloud: dict, row: dict) -> bool:
-    """Отличается ли файл в облаке от того, что записано в базе."""
+    """Отличается ли файл в облаке от того, что записано в базе.
+
+    Если облако размер не сообщило (None), размер не сравниваем вовсе:
+    иначе отсутствие данных выдавалось бы за изменение файла.
+    """
     csize = cloud.get("size")
     dsize = row.get("size")
     if csize is not None and dsize is not None and int(csize) != int(dsize):
@@ -313,6 +325,21 @@ def _differs(cloud: dict, row: dict) -> bool:
     if cmd5 and dmd5 and cmd5 != dmd5:
         return True
     return False
+
+
+def _same_detail(info: dict, row: dict) -> str:
+    """Пояснение для «совпадает»: чего сравнить не смогли и как дела у файла."""
+    parts: list[str] = []
+    if info.get("size") is None and row.get("size") not in (None, 0):
+        parts.append("размер в облаке не отдаётся — сверено по наличию")
+    status = row.get("status")
+    if status == "lost":
+        parts.append("сгорел у Яндекса")
+    elif status in ("pending", "in_progress") and str(
+        row.get("error") or ""
+    ).startswith("storage_down"):
+        parts.append("ждёт Яндекса")
+    return "; ".join(parts)
 
 
 def compare(
@@ -341,7 +368,7 @@ def compare(
             detail = "; ".join(parts)
         else:
             kind = "same"
-            detail = ""
+            detail = _same_detail(info, row)
         items.append({
             "scope": scope,
             "key": key,
@@ -415,6 +442,42 @@ def _counts(items: list[dict]) -> dict:
         if kind in out:
             out[kind] += 1
     return out
+
+
+def _db_status_counts(rows: dict[str, dict]) -> dict[str, int]:
+    """Сколько файлов базы в каждом статусе: downloaded, lost, pending…"""
+    out: dict[str, int] = {}
+    for row in rows.values():
+        status = row.get("status") or "pending"
+        out[status] = out.get(status, 0) + 1
+    return out
+
+
+def _waiting_count(rows: dict[str, dict]) -> int:
+    """Файлы, которые ждут ответа сервера хранения (не сбойные)."""
+    return sum(
+        1 for row in rows.values()
+        if row.get("status") in ("pending", "in_progress")
+        and str(row.get("error") or "").startswith("storage_down")
+    )
+
+
+def _base_stats(files: dict[str, dict], rows: dict[str, dict]) -> dict:
+    """Итоги одной базы: облако, база и разбивка по статусам."""
+    statuses = _db_status_counts(rows)
+    waiting = _waiting_count(rows)
+    return {
+        "cloud": len(files),
+        "db": len(rows),
+        "downloaded": statuses.get("downloaded", 0),
+        "lost": statuses.get("lost", 0),
+        "waiting": waiting,
+        "pending": statuses.get("pending", 0) + statuses.get("in_progress", 0),
+        "statuses": statuses,
+        "cloud_size_unknown": sum(
+            1 for info in files.values() if info.get("size") is None
+        ),
+    }
 
 
 def _public_items(items: list[dict], kind: str) -> list[dict]:
@@ -521,10 +584,7 @@ def run(
                 files = scan_unlim_cloud(paths.COOKIES_FILE, on_progress=progress,
                                          on_error=report_error)
             rows = load_db_rows(base)
-            per_base[base] = {
-                "cloud": len(files),
-                "db": len(rows),
-            }
+            per_base[base] = _base_stats(files, rows)
             for key, info in files.items():
                 cloud[f"{base}:{key}"] = info
             for key, row in rows.items():
@@ -633,6 +693,24 @@ def render_report(data: dict, actions: list[dict] | None = None) -> str:
                 f"  {SCOPE_NAMES.get(base, base)}: в облаке "
                 f"{int(info.get('cloud') or 0):,} · в базе {int(info.get('db') or 0):,}"
             )
+            # Старые статусы (до 35.7.8) этих полей не знают — не показываем
+            # нули, пока сверка не выполнена заново.
+            if "downloaded" in info:
+                bits = [f"скачано {int(info.get('downloaded') or 0):,}"]
+                if info.get("lost"):
+                    bits.append(f"сгорело {int(info.get('lost') or 0):,}")
+                if info.get("waiting"):
+                    bits.append(f"ждут Яндекса {int(info.get('waiting') or 0):,}")
+                queued = int(info.get("pending") or 0) - int(info.get("waiting") or 0)
+                if queued > 0:
+                    bits.append(f"в очереди {queued:,}")
+                lines.append(f"    {', '.join(bits)}")
+            if info.get("cloud_size_unknown"):
+                lines.append(
+                    f"    размер в облаке не отдаётся: "
+                    f"{int(info.get('cloud_size_unknown') or 0):,} файлов — "
+                    f"сверены по наличию"
+                )
     started = data.get("started_at") or 0
     finished = data.get("finished_at")
     if started and finished:
@@ -648,6 +726,15 @@ def render_report(data: dict, actions: list[dict] | None = None) -> str:
         f"  🔁 Изменилось: {int(data.get('changed') or 0):,}",
         f"  ➖ Пропало из облака: {int(data.get('gone') or 0):,}",
     ]
+    unknown_total = sum(
+        int((per_base.get(base) or {}).get("cloud_size_unknown") or 0)
+        for base in _scope_list(scope)
+    )
+    if unknown_total:
+        lines.append(
+            f"  ℹ️ У {unknown_total:,} файлов облако не сообщает размер — "
+            f"они сверены по наличию (id и имя), а не по размеру."
+        )
 
     for kind, title in (
         ("new", "НОВОЕ В ОБЛАКЕ"),
