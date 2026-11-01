@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+import guide
+import paths
 import webui
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -1742,3 +1744,26 @@ def test_db_stats_keeps_deleted_out_of_total(tmp_path):
     assert out["deleted"] == 1
     assert out["total"] == 2
     assert out["bytes_total"] == 40
+
+
+# ── 35.7.7: окно «Инструкция» ──────────────────────────────────────────────
+
+
+def test_guide_endpoints_return_text_and_remember_first_show(monkeypatch, tmp_path):
+    text_file = tmp_path / "INSTRUCTION.md"
+    text_file.write_text("# Инструкция\n\n## Быстрый старт\n", encoding="utf-8")
+    monkeypatch.setattr(guide, "GUIDE_FILE", text_file)
+    monkeypatch.setattr(paths, "GUIDE_SEEN_FILE", tmp_path / ".guide_seen")
+    monkeypatch.setattr(paths, "SETUP_DONE_FILE", tmp_path / ".setup_done")
+
+    out = webui.api_guide()
+    assert out["ok"] is True
+    assert out["seen"] is False
+    assert "Быстрый старт" in out["text"]
+    assert out["setup_done"] is False
+
+    paths.SETUP_DONE_FILE.write_text("done", encoding="utf-8")
+    assert webui.api_guide()["setup_done"] is True
+
+    assert webui.api_guide_seen() == {"ok": True}
+    assert webui.api_guide()["seen"] is True

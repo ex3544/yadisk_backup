@@ -82,6 +82,7 @@ hidden_imports = [
     'verify_local',
     'cloud_audit',
     'cloud_audit_worker',
+    'guide',
 ]
 
 datas = [
@@ -90,6 +91,8 @@ datas = [
     ('.env.example', '.'),
     # История изменений: раздел текущей версии кладётся в ZIP диагностики.
     ('CHANGELOG.md', '.'),
+    # Инструкция «Быстрый старт и все функции» — окно «Инструкция» в программе.
+    ('INSTRUCTION.md', '.'),
 ]
 
 # DLL WebView2 и Python.Runtime.dll должны лежать внутри пакетов, иначе

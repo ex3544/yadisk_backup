@@ -1308,3 +1308,73 @@ def test_cloud_audit_worker_is_in_frozen_build():
 
     import webui
     assert webui.WORKER_SCRIPTS["cloud_audit_worker.py"] == "cloud_audit_worker"
+
+
+def test_update_window_lists_all_skipped_versions_with_clickable_links():
+    """35.7.7: пропустил три обновления — видишь описание каждого."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert "function renderUpdateNotes(" in html
+    assert "function renderUpdateNotes(d)" in html
+    assert "d.history" in html
+    assert 'class="notes-version"' in html or "className = 'notes-version'" in html
+    assert "function openUpdateLink(" in html
+    assert "/api/updates/open" in html
+    assert "Пропущено обновлений:" in html
+    # Подсветка ссылок и прокрутка списка версий.
+    assert ".update-notes a{" in html
+    assert "max-height:42vh" in html
+
+    updater_src = (PROJECT_DIR / "updater.py").read_text(encoding="utf-8")
+    assert "def release_history(" in updater_src
+    assert "RELEASES_API" in updater_src
+    assert '"history": []' in updater_src
+
+
+def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
+    """35.7.7: ручка раздвижения есть у всех карточек, подсветка — тонкая."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    cards = [
+        "home-unlim-card", "home-disk-card", "launch-all-card",
+        "launch-manual-card", "pipeline-card", "organize-card", "backups-card",
+        "profiles-card", "unlim-dir-card", "watchdog-card", "token-card",
+        "disk-dir-card", "previews-card", "cloud-card", "picker-card",
+        "unlim-dates-card", "notify-card", "cookies-card", "diag-report-card",
+        "diag-key-card", "verify-card", "cloud-audit-card", "reports-card",
+        "reset-queue-card", "db-card", "find-files-card", "snapshots-card",
+        "update-card",
+    ]
+    start = html.index("['home-unlim-card'")
+    resize_list = html[start:html.index("].forEach", start)]
+    for card in cards:
+        assert f'id="{card}"' in html, card
+        assert f"'{card}'" in resize_list, card
+
+    # Видимая линия при наведении в пять раз тоньше прежней полосы 13 px;
+    # сама зона захвата осталась 13 px, поэтому тянуть по-прежнему удобно.
+    assert "height:2.5px" in html
+    assert ".resize-grip:hover::before{background:rgba(10,132,255,.55)}" in html
+    assert ".resize-grip:hover{color:var(--accent);background:" not in html
+
+
+def test_instruction_opens_once_after_install_and_has_a_header_button():
+    """35.7.7: инструкция сама при первом запуске, потом — кнопка в шапке."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="guide-modal"', 'id="guide-content"', 'id="guide-btn"',
+                   'onclick="openGuide()"'):
+        assert marker in html
+    for fn in ("function openGuide(", "function closeGuideModal(",
+               "function maybeOpenGuide(", "function _renderGuide("):
+        assert fn in html
+    assert "setTimeout(maybeOpenGuide, 1500)" in html
+    assert "/api/guide/seen" in html
+    assert "📖 Инструкция" in html
+
+    assert (PROJECT_DIR / "INSTRUCTION.md").exists()
+    spec = (PROJECT_DIR / "yadisk_backup.spec").read_text(encoding="utf-8")
+    assert "'guide'" in spec
+    assert "('INSTRUCTION.md', '.')" in spec
+
+    webui_src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    assert '@app.get("/api/guide")' in webui_src
+    assert '@app.post("/api/guide/seen")' in webui_src

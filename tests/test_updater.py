@@ -114,6 +114,64 @@ def test_parse_error_is_reported(monkeypatch):
     assert result["ok"] is False
 
 
+# ── 35.7.7: все пропущенные версии в окне «Что нового» ─────────────────────
+
+
+def _releases(*tags: str) -> FakeResponse:
+    payload = [{
+        "tag_name": tag,
+        "name": f"Release {tag}",
+        "html_url": f"https://github.com/{version.APP_REPO}/releases/tag/{tag}",
+        "published_at": "2026-11-01T10:00:00Z",
+        "body": f"Что нового {tag}",
+    } for tag in tags]
+    return FakeResponse(json.dumps(payload).encode("utf-8"))
+
+
+def test_check_lists_every_skipped_release_newest_first(monkeypatch):
+    def fake(request, *args, **kwargs):
+        url = getattr(request, "full_url", "")
+        if "releases?" in url:
+            return _releases("v99.0.0", "v98.0.0", "v97.0.0", "v1.0.0")
+        return _release("v99.0.0")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    result = updater.check_for_updates()
+
+    assert result["ok"] is True
+    assert result["update_available"] is True
+    assert [rel["version"] for rel in result["history"]] == [
+        "99.0.0", "98.0.0", "97.0.0",
+    ]
+    assert result["skipped"] == 3
+    assert result["history"][0]["notes"] == "Что нового v99.0.0"
+
+
+def test_history_falls_back_to_latest_release_when_list_fails(monkeypatch):
+    def fake(request, *args, **kwargs):
+        if "releases?" in getattr(request, "full_url", ""):
+            raise urllib.error.URLError("offline")
+        return _release("v99.0.0")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    result = updater.check_for_updates()
+
+    assert result["ok"] is True
+    assert [rel["version"] for rel in result["history"]] == ["99.0.0"]
+    assert result["skipped"] == 1
+
+
+def test_history_is_empty_when_program_is_up_to_date(monkeypatch):
+    monkeypatch.setattr(
+        updater.urllib.request, "urlopen",
+        lambda *a, **k: _release(f"v{version.APP_VERSION}"),
+    )
+    result = updater.check_for_updates()
+    assert result["update_available"] is False
+    assert result["history"] == []
+    assert result["skipped"] == 0
+
+
 # ── загрузка установщика ────────────────────────────────────────────────────
 
 ASSET_URL = (

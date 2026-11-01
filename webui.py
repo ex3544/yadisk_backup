@@ -41,6 +41,7 @@ import backups
 import cloud_audit as cloud_audit_mod
 import dbsnapshots
 import diagnostics
+import guide
 import monitor
 import paths
 import previews
@@ -4255,6 +4256,20 @@ def _cloud_audit_status(tasks: dict) -> dict:
 
 class UpdateOpenPayload(BaseModel):
     url: str = ""
+
+
+@app.get("/api/guide")
+def api_guide():
+    """Текст инструкции и флаг «уже показывали после установки»."""
+    log_action("guide/open")
+    return guide.status()
+
+
+@app.post("/api/guide/seen")
+def api_guide_seen():
+    """Отмечает, что инструкция открыта сама: больше не мешаем окном."""
+    guide.mark_seen()
+    return {"ok": True}
 
 
 @app.get("/api/updates/check")

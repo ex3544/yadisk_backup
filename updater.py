@@ -33,6 +33,14 @@ CHECK_TTL_SEC = 6 * 60 * 60
 LIVE_TIMEOUT = 5
 
 ASSET_URL_PREFIX = f"https://github.com/{version.APP_REPO}/releases/download/"
+# Список релизов: нужен, когда пользователь пропустил несколько обновлений и
+# окно «Что нового» должно показать описание каждого, а не только последнего.
+RELEASES_API = (
+    f"https://api.github.com/repos/{version.APP_REPO}/releases?per_page=30"
+)
+MAX_HISTORY_RELEASES = 30
+MAX_HISTORY_NOTES = 40_000
+MAX_RELEASE_NOTES = 6_000
 
 _INSTALLER_RE = re.compile(r"^YandexDiskBackup-(\d+(?:\.\d+)*)-setup\.exe$")
 _PORTABLE_RE = re.compile(r"^YandexDiskBackup-(\d+(?:\.\d+)*)-portable\.zip$")
@@ -57,9 +65,9 @@ def is_newer(latest: tuple[int, ...], current: tuple[int, ...]) -> bool:
     return latest > current
 
 
-def _fetch_release(timeout: float | None = None) -> dict:
+def _fetch_json(url: str, timeout: float | None = None):
     request = urllib.request.Request(
-        API_URL,
+        url,
         headers={
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -71,6 +79,15 @@ def _fetch_release(timeout: float | None = None) -> dict:
     if len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("ответ GitHub слишком большой")
     return json.loads(raw.decode("utf-8"))
+
+
+def _fetch_release(timeout: float | None = None) -> dict:
+    return _fetch_json(API_URL, timeout)
+
+
+def _fetch_releases(timeout: float | None = None) -> list:
+    data = _fetch_json(RELEASES_API, timeout)
+    return data if isinstance(data, list) else []
 
 
 def release_url_allowed(url: str) -> bool:
@@ -183,6 +200,70 @@ def download_asset(url: str, dest, expected_sha256: str = "",
         raise
 
 
+def _history_entry(data: dict, current: tuple[int, ...],
+                   latest: tuple[int, ...]) -> dict | None:
+    """Один релиз для окна «Что нового», если он новее текущей и не новее latest."""
+    tag = str(data.get("tag_name") or "")
+    parsed = parse_version(tag)
+    if parsed is None:
+        return None
+    if not is_newer(parsed, current) or is_newer(parsed, latest):
+        return None
+    url = str(data.get("html_url") or "")
+    if not release_url_allowed(url):
+        url = f"{version.APP_REPO_URL}/releases/tag/{tag}"
+    return {
+        "version": ".".join(str(part) for part in parsed),
+        "title": str(data.get("name") or ""),
+        "published_at": str(data.get("published_at") or ""),
+        "notes": str(data.get("body") or "")[:MAX_RELEASE_NOTES],
+        "url": url,
+    }
+
+
+def release_history(current: tuple[int, ...], latest: tuple[int, ...],
+                    latest_data: dict, timeout: float | None = None) -> list[dict]:
+    """Все релизы, которые пользователь пропустил, новые сверху.
+
+    Если список релизов получить не удалось (сеть, лимит GitHub, старый
+    сервер), возвращаем хотя бы последний релиз — окно всё равно покажет
+    «что нового», просто без прошлых версий.
+    """
+    fallback = _history_entry(latest_data, current, latest)
+    try:
+        data = _fetch_releases(timeout)
+    except Exception:  # noqa: BLE001 — история не должна ломать проверку
+        return [fallback] if fallback else []
+
+    entries: list[dict] = []
+    seen: set[str] = set()
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        entry = _history_entry(item, current, latest)
+        if entry is None or entry["version"] in seen:
+            continue
+        seen.add(entry["version"])
+        entries.append(entry)
+
+    entries.sort(key=lambda item: parse_version(item["version"]) or (), reverse=True)
+    entries = entries[:MAX_HISTORY_RELEASES]
+    if not entries and fallback:
+        entries = [fallback]
+
+    # Ограничиваем общий объём: несколько очень длинных описаний не должны
+    # раздувать ответ и окно.
+    total = 0
+    limited: list[dict] = []
+    for entry in entries:
+        size = len(entry["notes"])
+        if limited and total + size > MAX_HISTORY_NOTES:
+            break
+        total += size
+        limited.append(entry)
+    return limited
+
+
 def check_for_updates(timeout: float | None = None) -> dict:
     """Возвращает статус проверки. Сетевые ошибки не считаются сбоем программы."""
     current_raw = version.APP_VERSION
@@ -195,6 +276,9 @@ def check_for_updates(timeout: float | None = None) -> dict:
         "name": "",
         "published_at": "",
         "notes": "",
+        # Список «что нового» по всем пропущенным версиям, новые сверху.
+        "history": [],
+        "skipped": 0,
         "error": "",
         "installer": None,
         "portable": None,
@@ -250,6 +334,9 @@ def check_for_updates(timeout: float | None = None) -> dict:
         published_at=str(data.get("published_at") or ""),
         notes=notes[:2000],
     )
+    if result["update_available"]:
+        result["history"] = release_history(current, latest, data, timeout)
+        result["skipped"] = len(result["history"])
     return result
 
 

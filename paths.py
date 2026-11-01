@@ -92,6 +92,10 @@ REPORT_KEY_FILE = DATA_DIR / ".report_key.txt"
 BUNDLED_REPORT_KEY_FILE = APP_DIR / ".report_key.txt"
 SETUP_DONE_FILE = DATA_DIR / ".setup_done"
 INSTALL_ID_FILE = DATA_DIR / ".install_id"
+# Инструкция показывается сама один раз за установку. Отметка лежит в общей
+# папке данных, а не в папке профиля: новый профиль клиента не должен заново
+# открывать инструкцию на том же компьютере.
+GUIDE_SEEN_FILE = BASE_DATA_DIR / ".guide_seen"
 
 # ── Логи и статусы задач ────────────────────────────────────────────────────
 

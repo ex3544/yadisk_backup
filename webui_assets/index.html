@@ -554,10 +554,20 @@
     cursor:ns-resize;user-select:none;touch-action:none;
     color:var(--text-tertiary);font-size:11px;letter-spacing:3px;line-height:1;
     border-radius:0 0 9px 9px;
-    background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.05));
+    background:transparent;
   }
-  .resize-grip:hover{color:var(--accent);background:rgba(10,132,255,.12)}
-  .resize-grip.dragging{color:var(--accent);background:rgba(10,132,255,.20)}
+  /* Подсветка при наведении — тонкая линия внизу, а не широкая голубая полоса
+     на всю ширину карточки. Сама ручка остаётся 13 px: по ней удобно попадать
+     мышкой, а невидимая зона не уменьшилась. */
+  .resize-grip::before{
+    content:'';position:absolute;left:0;right:0;bottom:0;height:2.5px;
+    border-radius:0 0 9px 9px;background:transparent;
+    transition:background .15s;pointer-events:none;
+  }
+  .resize-grip:hover{color:var(--accent)}
+  .resize-grip:hover::before{background:rgba(10,132,255,.55)}
+  .resize-grip.dragging{color:var(--accent)}
+  .resize-grip.dragging::before{background:rgba(10,132,255,.8)}
   .resize-corner{
     position:absolute;right:1px;bottom:1px;width:15px;height:15px;z-index:4;
     cursor:nwse-resize;touch-action:none;border-radius:0 0 9px 0;
@@ -837,6 +847,42 @@
   /* Справка о новой версии в окне обновления: свой размер, прокрутка внутри. */
   .update-box .diag-pre{max-height:38vh;margin-top:0;font-size:12.5px}
   .update-box .modal-actions{justify-content:flex-end}
+  /* Все пропущенные версии: блок на каждую, ссылки в описании кликабельны. */
+  .update-notes{
+    max-height:42vh;overflow:auto;margin-top:0;
+    padding:12px 14px;border-radius:10px;
+    background:var(--surface2);border:0.5px solid var(--hairline);
+    font-size:12.5px;line-height:1.5;color:var(--text-secondary);
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .update-notes .notes-version{
+    font-size:13px;font-weight:700;color:var(--text);margin:0 0 6px;
+  }
+  .update-notes .notes-version:not(:first-child){
+    margin-top:16px;padding-top:12px;border-top:0.5px solid var(--hairline);
+  }
+  .update-notes a{color:var(--accent);text-decoration:underline;cursor:pointer}
+  /* Окно «Инструкция»: заголовки, списки и прокрутка внутри окна. */
+  .guide-box{max-width:820px;display:flex;flex-direction:column;overflow:hidden}
+  .guide-content{
+    flex:1;min-height:0;overflow:auto;padding-right:6px;
+    font-size:13.5px;line-height:1.55;color:var(--text-secondary);
+  }
+  .guide-content h2{font-size:20px;color:var(--text);margin:18px 0 8px;letter-spacing:-.02em}
+  .guide-content h2:first-child{margin-top:0}
+  .guide-content h3{font-size:17px;color:var(--text);margin:18px 0 8px;letter-spacing:-.02em}
+  .guide-content h3:first-child{margin-top:0}
+  .guide-content h4{font-size:15px;color:var(--text);margin:16px 0 6px}
+  .guide-content p{margin:0 0 9px}
+  .guide-content ul,.guide-content ol{margin:0 0 11px 20px;padding:0}
+  .guide-content li{margin-bottom:5px}
+  .guide-content strong{color:var(--text);font-weight:600}
+  .guide-content code{
+    background:var(--surface2);padding:1px 6px;border-radius:5px;
+    font-family:'SF Mono','Menlo','Consolas',monospace;font-size:12.5px;
+    color:var(--purple);
+  }
+  .guide-content a{color:var(--accent);text-decoration:underline}
 
   /* ── Подтверждение действия ──
      Компактное окно в цветах приложения, чуть ниже центра экрана.
@@ -996,7 +1042,11 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="brand-logo"><svg class="ico" style="color:#fff"><use href="#i-cloud"/></svg></div>
     <div>
       <div class="brand-name">Yad.backup</div>
-      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.6</span></div>
+      <div class="brand-sub">Локальный бэкап · <span class="author">Sergey Pukhir (ex3544, vovapuh's son)</span> · <span id="app-version">35.6.6</span>
+        <button id="guide-btn" class="ghost tipnode" onclick="openGuide()"
+          data-tip="Инструкция: быстрый старт и что делает каждая кнопка. Открывается сама один раз после установки."
+          style="padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:99px;margin-left:6px;vertical-align:baseline">📖 Инструкция</button>
+      </div>
     </div>
   </div>
   <!-- Постоянные плашки: тема, задачи, профиль, токен, куки, сторож. -->
@@ -1261,7 +1311,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
        Обёртка .home-right держит плашки и журнал вплотную друг к другу. -->
   <div class="home-right">
   <div class="grid-2 home-stats compact">
-    <div class="card">
+    <div class="card" id="home-unlim-card">
       <div class="card-title">Безлимит</div>
       <div class="stat-value num" id="home-unlim-done">—</div>
       <div class="stat-sub" id="home-unlim-info">—</div>
@@ -1270,7 +1320,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <div class="progress-track"><div class="progress-fill purple" id="home-unlim-bar" style="width:0%"></div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="home-disk-card">
       <div class="card-title">Обычный диск</div>
       <div class="stat-value num" id="home-disk-done">—</div>
       <div class="stat-sub" id="home-disk-info">—</div>
@@ -1303,7 +1353,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 <!-- ============= ОРГАНИЗАЦИЯ ============= -->
 <div class="panel" data-panel="organize">
 
-  <div class="card">
+  <div class="card" id="organize-card">
     <div class="card-title">Организация файлов по датам</div>
     <div class="card-sub">Раскладывает уже скачанные файлы (например, из Безлимита) по папкам годов и месяцев. Дату берёт из EXIF фото, метаданных видео, имени файла или даты изменения.</div>
 
@@ -1693,7 +1743,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="cookies-card">
     <div class="card-title">Cookies браузера</div>
     <div class="card-sub">Опционально — для скачивания безлимитного фото-хранилища.</div>
 
@@ -1756,7 +1806,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 <!-- ============= ДИАГНОСТИКА ============= -->
 <div class="panel" data-panel="diagnostics">
 
-  <div class="card">
+  <div class="card" id="diag-report-card">
     <div class="card-title">Диагностический отчёт</div>
     <div class="card-sub">Один ZIP со сводкой о компьютере, настройках, базах и последних ошибках.</div>
 
@@ -1787,7 +1837,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="diag-key-card">
     <div class="card-title">Ключ отправки</div>
     <div class="card-sub">Нужен только для кнопки «Отправить отчёт».</div>
     <div id="diag-key-state" class="badge" style="margin-bottom:10px">проверяю…</div>
@@ -1919,7 +1969,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="setup-hint">Сверка и обе кнопки ничего не удаляют. Свежий список файлов строится при каждом запуске — это и есть проверка «что сейчас в облаке».</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="reports-card">
     <div class="card-title">Последние отчёты</div>
     <div class="card-sub">Файлы лежат в папке данных приложения.</div>
     <div class="list-toggle" id="reports-toggle" onclick="toggleReportsList()">
@@ -2133,7 +2183,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="modal-kicker">Обновление · Yad.backup</div>
     <div class="modal-title" id="update-modal-title">Что нового</div>
     <div class="modal-sub" id="update-modal-sub">—</div>
-    <pre id="update-notes" class="diag-pre" style="display:none"></pre>
+    <div id="update-notes" class="update-notes" style="display:none"></div>
     <div id="update-modal-progress" style="display:none;margin-top:12px;height:6px;border-radius:3px;background:var(--surface2);overflow:hidden">
       <div id="update-modal-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
     </div>
@@ -2141,6 +2191,20 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="modal-actions">
       <button class="ghost" id="update-modal-close" onclick="closeUpdateModal()">Закрыть</button>
       <button class="primary" id="update-modal-action" onclick="updateModalAction()">Закрыть и обновить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============= ИНСТРУКЦИЯ / «О ПРОГРАММЕ» ============= -->
+<div class="modal-backdrop" id="guide-modal" onclick="if(event.target===this) closeGuideModal()">
+  <div class="modal-box guide-box" role="dialog" aria-modal="true" aria-labelledby="guide-modal-title">
+    <div class="modal-kicker">Yad.backup · справка</div>
+    <div class="modal-title" id="guide-modal-title">Инструкция</div>
+    <div class="modal-sub">Быстрый старт и что делает каждая кнопка. Окно открывается
+      само один раз — после первой установки.</div>
+    <div id="guide-content" class="guide-content">загружаю…</div>
+    <div class="modal-actions">
+      <button class="primary" onclick="closeGuideModal()">Понятно</button>
     </div>
   </div>
 </div>
@@ -5216,6 +5280,64 @@ async function startupUpdateCheck(){
   }catch(e){ /* нет сети — молча */ }
 }
 
+// ── Общий вывод текста со ссылками ────────────────────────────────────────
+// GitHub присылает описание релиза как markdown. Показываем его простым
+// текстом, но ссылки делаем настоящими кнопками: браузер откроет только те,
+// что ведут на наш репозиторий (проверка на сервере).
+function _appendStyled(parent, text){
+  const parts = String(text || '').split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  for(const part of parts){
+    if(!part) continue;
+    if(part.startsWith('**') && part.endsWith('**')){
+      const b = document.createElement('strong');
+      b.textContent = part.slice(2, -2);
+      parent.appendChild(b);
+    }else if(part.startsWith('`') && part.endsWith('`')){
+      const c = document.createElement('code');
+      c.textContent = part.slice(1, -1);
+      parent.appendChild(c);
+    }else{
+      parent.appendChild(document.createTextNode(part));
+    }
+  }
+}
+
+function _appendRich(parent, text, onLink){
+  const parts = String(text || '').split(/(https?:\/\/[^\s<>"']+)/g);
+  parts.forEach((part, i) => {
+    if(i % 2 === 1){
+      // Знаки препинания в конце адреса — часть текста, а не ссылки.
+      let url = part;
+      let tail = '';
+      const m = url.match(/^(.*?)([.,;:!?)\]»]+)$/);
+      if(m){ url = m[1]; tail = m[2]; }
+      const a = document.createElement('a');
+      a.href = url;
+      a.textContent = url;
+      a.rel = 'noopener';
+      if(!onLink) a.target = '_blank';
+      a.addEventListener('click', ev => {
+        ev.preventDefault();
+        if(onLink) onLink(url);
+        else window.open(url, '_blank', 'noopener');
+      });
+      parent.appendChild(a);
+      if(tail) parent.appendChild(document.createTextNode(tail));
+    }else if(part){
+      _appendStyled(parent, part);
+    }
+  });
+}
+
+async function openUpdateLink(url){
+  try{
+    await fetch('/api/updates/open', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+  }catch(e){ /* браузер не открылся — текст описания остаётся на экране */ }
+}
+
 // ── Окно «Что нового в версии X» ───────────────────────────────────────────
 // Открывается по «Проверить обновления» и при автопроверке на старте. Во время
 // скачивания остаётся на экране и показывает прогресс; закрыть можно кнопкой
@@ -5235,27 +5357,59 @@ function _notesText(raw){
     .trim();
 }
 
+// Описание каждой пропущенной версии отдельным блоком. Если сервер вернул
+// только последний релиз — показываем его, как раньше.
+function renderUpdateNotes(d){
+  const notes = document.getElementById('update-notes');
+  if(!notes) return;
+  notes.textContent = '';
+  const history = (d && Array.isArray(d.history))
+    ? d.history.filter(rel => rel && rel.version) : [];
+  if(!history.length && d && d.notes){
+    history.push({version: d.latest || '', notes: d.notes});
+  }
+  const withText = history.filter(rel => String(rel.notes || '').trim());
+  const list = withText.length ? withText : history;
+  if(!list.length){
+    notes.style.display = 'none';
+    return;
+  }
+  for(const rel of list){
+    const head = document.createElement('div');
+    head.className = 'notes-version';
+    head.textContent = rel.version ? `Версия ${rel.version}` : 'Что нового';
+    notes.appendChild(head);
+    const body = document.createElement('div');
+    body.className = 'notes-body';
+    const text = _notesText(rel.notes);
+    if(text) _appendRich(body, text, openUpdateLink);
+    else body.textContent = 'Описание не приложено.';
+    notes.appendChild(body);
+  }
+  notes.style.display = 'block';
+}
+
 function showUpdateModal(d){
   const modal = document.getElementById('update-modal');
   if(!modal || !d) return;
   _updateModalInfo = d;
   const title = document.getElementById('update-modal-title');
   const sub = document.getElementById('update-modal-sub');
-  const notes = document.getElementById('update-notes');
+  const skipped = (d && Array.isArray(d.history)) ? d.history.length : 0;
+  const oldest = skipped > 1 ? (d.history[d.history.length - 1] || {}).version : '';
   if(title){
-    title.textContent = d.latest ? `Что нового в версии ${d.latest}` : 'Что нового';
+    title.textContent = skipped > 1 && oldest
+      ? `Что нового: ${oldest} → ${d.latest}`
+      : (d.latest ? `Что нового в версии ${d.latest}` : 'Что нового');
   }
   if(sub){
+    const missed = skipped > 1 ? `Пропущено обновлений: ${skipped}. ` : '';
     sub.textContent = d.current
-      ? `Сейчас установлена ${d.current}. Программа скачает установщик, проверит его `
+      ? `Сейчас установлена ${d.current}. ${missed}Программа скачает установщик, проверит его `
         + 'по SHA-256 и предложит перезапуститься. Настройки и скачанные файлы не затрагиваются.'
       : 'Программа скачает установщик и предложит перезапуститься.';
   }
-  const text = _notesText(d.notes);
-  if(notes){
-    if(text){ notes.textContent = text; notes.style.display = 'block'; }
-    else { notes.textContent = ''; notes.style.display = 'none'; }
-  }
+  renderUpdateNotes(d);
   setUpdateModalState('offer');
   modal.classList.add('show');
 }
@@ -5263,6 +5417,111 @@ function showUpdateModal(d){
 function closeUpdateModal(){
   const modal = document.getElementById('update-modal');
   if(modal) modal.classList.remove('show');
+}
+
+// ── Окно «Инструкция» ──────────────────────────────────────────────────────
+// Текст лежит в INSTRUCTION.md рядом с программой. После первой установки окно
+// открывается само один раз; дальше — маленькая кнопка «📖 Инструкция» в шапке.
+let _guideRetry = null;
+
+function _renderGuide(text){
+  const box = document.getElementById('guide-content');
+  if(!box) return;
+  box.textContent = '';
+  // Строки в файле переносятся по ширине: склеиваем продолжение с пунктом или
+  // абзацем, иначе каждая перенесённая строка стала бы отдельным абзацем.
+  const merged = [];
+  for(const raw of String(text || '').replace(/\r/g, '').split('\n')){
+    const line = raw.trim();
+    if(!line){ merged.push(''); continue; }
+    const isBlock = /^#{1,3}\s+/.test(line) || /^[-*]\s+/.test(line)
+      || /^\d+[.)]\s+/.test(line);
+    const last = merged.length ? merged[merged.length - 1] : '';
+    if(!isBlock && last && !/^#{1,3}\s+/.test(last)){
+      merged[merged.length - 1] = last + ' ' + line;
+    }else{
+      merged.push(line);
+    }
+  }
+  let list = null;
+  const flush = () => { if(list){ box.appendChild(list); list = null; } };
+  for(const line of merged){
+    if(!line){ flush(); continue; }
+    let m;
+    if((m = line.match(/^(#{1,3})\s+(.*)$/))){
+      flush();
+      const tag = m[1].length === 1 ? 'h2' : (m[1].length === 2 ? 'h3' : 'h4');
+      const el = document.createElement(tag);
+      el.textContent = m[2];
+      box.appendChild(el);
+    }else if((m = line.match(/^[-*]\s+(.*)$/))){
+      if(!list || list.tagName !== 'UL'){ flush(); list = document.createElement('ul'); }
+      const li = document.createElement('li');
+      _appendRich(li, m[1]);
+      list.appendChild(li);
+    }else if((m = line.match(/^\d+[.)]\s+(.*)$/))){
+      if(!list || list.tagName !== 'OL'){ flush(); list = document.createElement('ol'); }
+      const li = document.createElement('li');
+      _appendRich(li, m[1]);
+      list.appendChild(li);
+    }else{
+      flush();
+      const p = document.createElement('p');
+      _appendRich(p, line);
+      box.appendChild(p);
+    }
+  }
+  flush();
+  if(!box.childNodes.length) box.textContent = 'Инструкция пуста.';
+}
+
+async function openGuide(){
+  const modal = document.getElementById('guide-modal');
+  if(!modal) return;
+  modal.classList.add('show');
+  const box = document.getElementById('guide-content');
+  if(box && box.dataset.loaded !== '1'){
+    box.textContent = 'загружаю…';
+    try{
+      const r = await fetch('/api/guide', {cache:'no-store'});
+      const d = await r.json();
+      _renderGuide(d && d.text);
+      box.dataset.loaded = '1';
+    }catch(e){
+      box.textContent = 'Не удалось открыть инструкцию: ' + e.message;
+    }
+  }
+}
+
+function closeGuideModal(){
+  const modal = document.getElementById('guide-modal');
+  if(modal) modal.classList.remove('show');
+}
+
+// Автооткрытие после первой установки. Пока открыт мастер первичной настройки,
+// ждём — два окна друг на друге не нужны.
+async function maybeOpenGuide(){
+  if(_guideRetry){ clearTimeout(_guideRetry); _guideRetry = null; }
+  const setup = document.getElementById('setup-modal');
+  if(setup && setup.classList.contains('show')){
+    _guideRetry = setTimeout(maybeOpenGuide, 3000);
+    return;
+  }
+  try{
+    const r = await fetch('/api/guide', {cache:'no-store'});
+    const d = await r.json();
+    if(!d || !d.ok || d.seen) return;
+    if(!d.setup_done){
+      _guideRetry = setTimeout(maybeOpenGuide, 5000);
+      return;
+    }
+    _renderGuide(d.text);
+    const box = document.getElementById('guide-content');
+    if(box) box.dataset.loaded = '1';
+    const modal = document.getElementById('guide-modal');
+    if(modal) modal.classList.add('show');
+    await fetch('/api/guide/seen', {method:'POST'});
+  }catch(e){ /* нет связи — молча */ }
 }
 
 function setUpdateModalState(mode, u){
@@ -6976,9 +7235,15 @@ makeResizable(document.getElementById('pipeline-console'), {axis: 'both'});
 makeResizable(document.getElementById('diag-output'), {axis: 'y'});
 
 // Карточки: тянутся только по высоте и без обёртки — они лежат в сетках и
-// flex-колонках, лишний <div> сломал бы раскладку.
-['unlim-dir-card', 'token-card', 'disk-dir-card', 'previews-card', 'cloud-card',
- 'launch-all-card', 'launch-manual-card'].forEach(id => {
+// flex-колонках, лишний <div> сломал бы раскладку. Ручка есть у каждой карточки
+// на всех вкладках; размер запоминается отдельно по id.
+['home-unlim-card', 'home-disk-card', 'launch-all-card', 'launch-manual-card',
+ 'pipeline-card', 'organize-card', 'backups-card', 'profiles-card',
+ 'unlim-dir-card', 'watchdog-card', 'token-card', 'disk-dir-card',
+ 'previews-card', 'cloud-card', 'picker-card', 'unlim-dates-card',
+ 'notify-card', 'cookies-card', 'diag-report-card', 'diag-key-card',
+ 'verify-card', 'cloud-audit-card', 'reports-card', 'reset-queue-card',
+ 'db-card', 'find-files-card', 'snapshots-card', 'update-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
 });
 
@@ -7557,6 +7822,8 @@ setInterval(refresh, 1500);
 // Автопроверка обновлений при запуске: окно по центру появится, только если
 // действительно есть новая версия.
 setTimeout(startupUpdateCheck, 2500);
+// Инструкция открывается сама один раз после установки; дальше — кнопка в шапке.
+setTimeout(maybeOpenGuide, 1500);
 </script>
 </body>
 </html>
