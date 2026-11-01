@@ -142,6 +142,9 @@ def test_relocate_reports_missing_file(data):
     old = data / "old"
     new = data / "new"
     new.mkdir()
+    # Старая папка на месте (диск подключён), а файла в ней нет — это и есть
+    # «не найдено». На Linux иначе volume_ready счёл бы диск отключённым.
+    old.mkdir()
     _make_db(data / "state.db", [
         ("disk:/gone.jpg", 3, None, "downloaded", str(old / "gone.jpg")),
     ])
