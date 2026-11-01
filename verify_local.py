@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as e:
         print(f"[!] Не удалось записать отчёт: {e}", flush=True)
 
+    offline = data.get("offline", 0)
     problems = (data.get("missing", 0) + data.get("size", 0)
                 + data.get("md5", 0) + data.get("errors", 0))
     print(
@@ -85,7 +86,10 @@ def main(argv: list[str] | None = None) -> int:
         f"в порядке {data.get('ok', 0)} · проблем {problems}",
         flush=True,
     )
-    if problems:
+    if offline:
+        print(f"На отключённом диске: {offline} — это не потеря, подключите диск и проверьте снова.",
+              flush=True)
+    if problems or offline:
         print(f"Подробности: {paths.VERIFY_REPORT_FILE}", flush=True)
     return 0 if problems == 0 else 1
 

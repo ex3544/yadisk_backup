@@ -58,6 +58,25 @@ def ensure_dir(path: str | os.PathLike) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+def volume_ready(path: str | os.PathLike) -> bool:
+    """Доступен ли диск, на котором лежит путь.
+
+    Для `G:\\...` проверяем сам корень `G:\\`: отключённый внешний диск не
+    должен превращать тысячи файлов в «пропавшие».
+    """
+    if not path:
+        return False
+    try:
+        drive, _ = os.path.splitdrive(os.path.abspath(str(path)))
+    except (OSError, ValueError):
+        return False
+    if os.name == "nt" and len(drive) == 2 and drive[1] == ":":
+        return os.path.isdir(drive + os.sep)
+    if drive:  # UNC: \\server\share
+        return os.path.isdir(drive + os.sep)
+    return os.path.isdir(os.path.dirname(os.path.abspath(str(path))))
+
+
 def check_target_dir(path: str | os.PathLike) -> str | None:
     """Проверяет, что в папку можно писать, и возвращает причину, если нельзя.
 

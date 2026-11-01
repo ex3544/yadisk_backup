@@ -22,10 +22,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import time
 from collections import Counter, defaultdict
@@ -251,7 +253,150 @@ def find_dup_paths(files: list[dict]) -> set[str]:
     return out
 
 
-def main():
+
+def _target_dirs(plan: list[tuple[str, str, bool]]) -> tuple[Counter, Counter]:
+    """Сколько файлов и байт ляжет в каждую папку."""
+    count: Counter = Counter()
+    size: Counter = Counter()
+    for src, dst, _is_dup in plan:
+        count[os.path.dirname(dst)] += 1
+        # После перемещения src уже нет — размер берём у новой копии.
+        path = dst if os.path.exists(dst) else src
+        try:
+            size[os.path.dirname(dst)] += os.path.getsize(path)
+        except OSError:
+            pass
+    return count, size
+
+
+def _write_reports(
+    *,
+    root: str,
+    action: str,
+    scheme: str,
+    quick: bool,
+    plan: list[tuple[str, str, bool]],
+    moved_map: dict[str, str],
+    moved: int,
+    errors: int,
+    error_samples: list[str],
+    report_file: str,
+    plan_file: str,
+) -> None:
+    """Пишет понятный отчёт «куда что ляжет» и полный список в CSV."""
+    final_plan = [
+        (src, moved_map.get(src, dst), is_dup)
+        for src, dst, is_dup in plan
+    ]
+    counts, sizes = _target_dirs(final_plan)
+    total = len(final_plan)
+    total_b = sum(sizes.values())
+    moved_total = sum(
+        os.path.getsize(dst) for dst in moved_map.values() if os.path.exists(dst)
+    ) if moved_map else 0
+
+    lines = [
+        "ОТЧЁТ О СОРТИРОВКЕ",
+        f"Папка: {root}",
+        f"Схема: {scheme}",
+        f"Действие: {'только отчёт, файлы не трогались' if action == 'report-only' else 'перемещение'}",
+        f"Всего файлов: {total} ({human(total_b)})",
+        "",
+        "КУДА ЛЯГУТ ФАЙЛЫ",
+    ]
+    if not counts:
+        lines.append("  файлов для сортировки нет")
+    for folder, number in counts.most_common():
+        rel = os.path.relpath(folder, root)
+        shown = root if rel == os.curdir else rel
+        lines.append(f"  {shown}: {number} файлов ({human(sizes[folder])})")
+    if quick:
+        lines += ["", "Дубликаты не проверялись: включён быстрый режим (без MD5)."]
+    else:
+        dups = sum(1 for _s, _d, is_dup in final_plan if is_dup)
+        lines += ["", f"Дубликаты (по размеру и MD5): {dups} — уедут в {DIR_DUP}/."]
+
+    lines += ["", "ПРИМЕРЫ: ОТКУДА → КУДА (первые 100)"]
+    for src, dst, is_dup in final_plan[:100]:
+        mark = " [дубликат]" if is_dup else ""
+        lines.append(f"  {src} → {dst}{mark}")
+    if total > 100:
+        lines.append(f"  … и ещё {total - 100} файлов — полный список в CSV.")
+
+    if action == "move":
+        lines += [
+            "",
+            f"ПЕРЕМЕЩЕНО: {moved} файлов ({human(moved_total)}), ошибок: {errors}.",
+        ]
+        if error_samples:
+            lines.append("Первые ошибки:")
+            lines.extend(f"  {text}" for text in error_samples[:5])
+    else:
+        lines += ["", "Файлы НЕ перемещались. Это предпросмотр."]
+
+    if plan_file:
+        lines += ["", f"Полный список: {plan_file}"]
+    report_text = "\n".join(lines) + "\n"
+    if report_file:
+        try:
+            os.makedirs(os.path.dirname(report_file), exist_ok=True)
+            with open(report_file, "w", encoding="utf-8") as fh:
+                fh.write(report_text)
+        except OSError as exc:
+            print(f"  [!] Не удалось записать отчёт: {exc}", flush=True)
+    if plan_file:
+        try:
+            os.makedirs(os.path.dirname(plan_file), exist_ok=True)
+            with open(plan_file, "w", encoding="utf-8-sig", newline="") as fh:
+                writer = csv.writer(fh, delimiter=";")
+                writer.writerow(["действие", "откуда", "куда"])
+                for src, dst, is_dup in final_plan:
+                    writer.writerow(["дубликат" if is_dup else "файл", src, dst])
+        except OSError as exc:
+            print(f"  [!] Не удалось записать список: {exc}", flush=True)
+
+    print("\n" + report_text, flush=True)
+
+
+def _update_db_paths(db_path: str, table: str, moves: list[tuple[str, str]]) -> int:
+    """Обновляет local_path после перемещения. Молча пропускает чужие строки."""
+    if not db_path or not moves:
+        return 0
+    if table not in ("files", "unlim_files"):
+        print(f"  [!] Неизвестная таблица: {table}", flush=True)
+        return 0
+    if not os.path.exists(db_path):
+        print(f"  [!] База не найдена: {db_path}", flush=True)
+        return 0
+    try:
+        con = sqlite3.connect(db_path, timeout=30)
+        try:
+            index = {}
+            for rowid, local in con.execute(
+                f"SELECT rowid, local_path FROM {table} "
+                f"WHERE local_path IS NOT NULL AND local_path <> ''"
+            ):
+                index[os.path.normcase(os.path.normpath(str(local)))] = rowid
+            updates = []
+            for src, dst in moves:
+                rowid = index.get(os.path.normcase(os.path.normpath(src)))
+                if rowid is not None:
+                    updates.append((dst, rowid))
+            if updates:
+                with con:
+                    con.executemany(
+                        f"UPDATE {table} SET local_path = ? WHERE rowid = ?",
+                        updates,
+                    )
+            return len(updates)
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        print(f"  [!] Не удалось обновить пути в базе: {exc}", flush=True)
+        return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
     ap.add_argument("--action", default="report-only",
@@ -261,7 +406,16 @@ def main():
                     help="Схема раскладки: по типам+дате, по годам+месяцам или только по годам")
     ap.add_argument("--quick", action="store_true",
                     help="Быстрый отчёт: пропустить поиск дубликатов (MD5)")
-    args = ap.parse_args()
+    ap.add_argument("--report-file", default="",
+                    help="Куда записать понятный отчёт «куда что ляжет»")
+    ap.add_argument("--plan-file", default="",
+                    help="Куда записать полный список «откуда → куда» (CSV)")
+    ap.add_argument("--db", default="",
+                    help="База, в которой обновить пути после перемещения")
+    ap.add_argument("--table", default="",
+                    choices=["", "files", "unlim_files"],
+                    help="Таблица базы: files или unlim_files")
+    args = ap.parse_args(argv)
 
     root = os.path.abspath(args.input)
     if not os.path.isdir(root):
@@ -322,20 +476,32 @@ def main():
     print(f"\n  Скан: {time.time() - t0:.0f} сек")
 
     if args.action == "report-only":
-        print("\n[INFO] Отчёт. Запусти --action move чтобы реально сделать.")
+        _write_reports(
+            root=root, action=args.action, scheme=args.scheme, quick=args.quick,
+            plan=plan, moved_map={}, moved=0, errors=0, error_samples=[],
+            report_file=args.report_file, plan_file=args.plan_file,
+        )
+        print("\n[INFO] Файлы не перемещались. Для сортировки нажмите "
+              "«Применить сортировку».", flush=True)
         return 0
 
     print(f"\nПеремещаю {len(plan)}...")
     moved = 0
     err = 0
+    moves: list[tuple[str, str]] = []
+    error_samples: list[str] = []
     last = time.time()
     for src, dst, is_dup in plan:
+        final = unique_path(dst)
         try:
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.move(src, unique_path(dst))
+            os.makedirs(os.path.dirname(final), exist_ok=True)
+            shutil.move(src, final)
+            moves.append((src, final))
             moved += 1
         except Exception as e:
             err += 1
+            if len(error_samples) < 5:
+                error_samples.append(f"{src}: {e}")
             if err <= 5:
                 print(f"  err: {src}: {e}")
         if time.time() - last > 5:
@@ -355,10 +521,21 @@ def main():
         except OSError:
             pass
 
+    updated = 0
+    if args.db:
+        updated = _update_db_paths(args.db, args.table, moves)
+    _write_reports(
+        root=root, action=args.action, scheme=args.scheme, quick=args.quick,
+        plan=plan, moved_map=dict(moves), moved=moved, errors=err,
+        error_samples=error_samples,
+        report_file=args.report_file, plan_file=args.plan_file,
+    )
     print("\n✅ ГОТОВО:")
     print(f"  Перемещено: {moved}")
     print(f"  Ошибок:     {err}")
     print(f"  Удалено пустых папок: {cleaned}")
+    if args.db:
+        print(f"  Путей в базе обновлено: {updated}")
     return 0
 
 

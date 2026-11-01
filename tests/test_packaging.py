@@ -150,12 +150,19 @@ def test_db_cards_live_in_diagnostics_with_warning_and_backup():
     assert "/api/db/rebuild" in html
     assert "updateRebuildBtn();" in html
 
-    # Переезд на другой диск: перепривязка без скачивания и повторная загрузка.
+    # Переезд на другой диск: поиск файлов с предпросмотром и повторная загрузка.
     assert 'id="db-new-dir"' in diag_html
-    assert "onclick=\"relocateDb()\"" in diag_html
     assert "onclick=\"redownloadDb()\"" in diag_html
     assert "/api/db/relocate" in html
     assert "/api/db/redownload" in html
+    assert "/api/db/restore_cloud" in html
+
+    # Карточка «Файлы переехали?»: предпросмотр → применить, без скачивания.
+    assert 'id="find-files-card"' in diag_html
+    assert "onclick=\"previewFindFiles()\"" in diag_html
+    assert "onclick=\"previewRestoreCloud()\"" in diag_html
+    assert "preview: true" in html and "preview: false" in html
+    assert "missing_keys" in html  # вернуть отсутствующие в очередь
 
     # Счётчики в предупреждении берутся из живого статуса.
     assert "function renderRebuildCounts(s)" in html
@@ -1228,3 +1235,34 @@ def test_tabs_are_buttons_with_icons():
     assert ".tab.active{" in html
     assert ".tab.active{" in html
     assert "background:linear-gradient(135deg,rgba(10,132,255,.22)" in html
+
+
+def test_relocate_sorting_and_lost_queue_are_visible_in_ui():
+    """35.7.5: «Файлы переехали?», отчёт сортировки и кнопка «Ждут Яндекса»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    diag = _panel_html(html, "diagnostics")
+    organize = _panel_html(html, "organize")
+
+    # Сброс очереди: главная кнопка — «сгоревшие», они и копятся с 35.6.3.
+    assert "onclick=\"resetStatus('lost')\"" in diag
+    assert 'id="reset-lost"' in diag
+    assert "lost > 0" in html
+
+    # Файлы переехали: предпросмотр, применение, возврат структуры облака.
+    for fn in ("previewFindFiles()", "applyFindFiles()", "previewRestoreCloud()",
+               "applyRestoreCloud()", "requeueMissingFromPlan()", "findScopeChanged()"):
+        assert fn in html or fn in diag
+
+    # Проверка файлов: отключённый диск отдельно и возврат отсутствующих.
+    assert 'id="verify-requeue-btn"' in diag
+    assert "requeueVerifyMissing()" in html
+    assert "v.offline" in html
+
+    # Сортировка: предупреждение, обновление базы и панель отчёта.
+    assert 'id="organize-warn"' in organize
+    assert 'id="organize-update-db"' in organize
+    assert "update_db:updateDb" in html
+    assert "confirmed:!isUnlim" in html
+    assert 'id="organize-report-panel"' in organize
+    assert "/api/organize/report" in html
+    assert "renderOrganizeDefaults" in html

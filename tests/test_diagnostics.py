@@ -50,6 +50,8 @@ def temp_paths(tmp_path, monkeypatch):
         "LAUNCHER_OUTPUT_LOG": logs / "launcher_output.log",
         "DOWNLOAD_REPORT": logs / "download_report.md",
         "UPDATES_STATUS_FILE": logs / "updates_status.json",
+        "VERIFY_STATUS_FILE": logs / "verify_status.json",
+        "VERIFY_REPORT_FILE": logs / "verify_report.md",
     }
     for name, value in mapping.items():
         monkeypatch.setattr(paths, name, value)
@@ -126,12 +128,36 @@ def test_zip_contains_only_safe_files(temp_paths):
         names = set(zf.namelist())
         payload = "".join(zf.read(n).decode("utf-8") for n in names)
     # С 35.6.0 в архив кладутся хвосты логов: report.json/… плюс logs/<файл>.log.
-    # С 35.7.4 — ещё changelog.md, чтобы в отчёте была история изменений.
-    assert {"report.json", "report.txt", "README.txt", "changelog.md"} <= names
-    extra = names - {"report.json", "report.txt", "README.txt", "changelog.md"}
-    assert all(n.startswith("logs/") and n.endswith(".log") for n in extra)
+    # С 35.7.4 — ещё changelog.md, с 35.7.5 — отчёт проверки файлов.
+    expected = {"report.json", "report.txt", "README.txt", "changelog.md"}
+    assert expected <= names
+    extra = names - expected
+    assert all(
+        n.startswith("logs/") and (n.endswith(".log")
+                                   or n.endswith("verify_report.md")
+                                   or n.endswith("verify_status.json"))
+        for n in extra
+    )
     assert TOKEN not in payload
     assert COOKIE_VALUE not in payload
+
+
+def test_zip_includes_last_verify_report(temp_paths):
+    paths.VERIFY_STATUS_FILE.write_text(
+        json.dumps({"scope": "disk", "checked": 2, "missing": 1}),
+        encoding="utf-8",
+    )
+    paths.VERIFY_REPORT_FILE.write_text("# Проверка файлов\n", encoding="utf-8")
+    report = diagnostics.build_report()
+    target = diagnostics.write_report(report)
+    with zipfile.ZipFile(target) as zf:
+        names = set(zf.namelist())
+        status = json.loads(zf.read("logs/verify_status.json"))
+    assert "logs/verify_report.md" in names
+    assert "logs/verify_status.json" in names
+    assert status["missing"] == 1
+    assert report["verify"]["exists"] is True
+    assert report["verify"]["missing"] == 1
 
 
 def test_zip_name_has_report_id_and_profile(temp_paths):

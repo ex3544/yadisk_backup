@@ -1493,3 +1493,141 @@ def test_session_defaults_to_full_mode_without_status_fields():
     assert unlim["total"] == 0
     assert unlim["waiting"] == 0
     assert unlim["lost"] == 0
+
+
+# ── «Файлы переехали?»: предпросмотр, применение, возврат структуры ─────────
+
+
+def _relocate_env(tmp_path, monkeypatch):
+    """Обе базы в tmp и без записи в .env — роуты работают как в жизни."""
+    import paths as paths_mod
+
+    disk_db = tmp_path / "state.db"
+    udb = tmp_path / "unlim_state.db"
+    for mod in (paths_mod, webui):
+        monkeypatch.setattr(mod, "DB_FILE", disk_db)
+        monkeypatch.setattr(mod, "UNLIM_DB_FILE", udb)
+    monkeypatch.setattr(webui, "_scope_dir_setting", lambda scope: "")
+    monkeypatch.setattr(webui, "_write_dir_setting", lambda scope, new_dir: None)
+    monkeypatch.setattr(webui, "_db_running", lambda scope: False)
+    return disk_db, udb
+
+
+def _disk_db_with_path(db, remote, local, size=3):
+    con = sqlite3.connect(db)
+    try:
+        with con:
+            con.execute(
+                "CREATE TABLE files (remote_path TEXT PRIMARY KEY, size INTEGER, "
+                "md5 TEXT, status TEXT, local_path TEXT, error TEXT, "
+                "downloaded_at TEXT, attempts INTEGER DEFAULT 0, "
+                "retry_after INTEGER, server_fails INTEGER DEFAULT 0)"
+            )
+            con.execute(
+                "INSERT INTO files (remote_path, size, status, local_path) "
+                "VALUES (?, ?, 'downloaded', ?)",
+                (remote, size, str(local)),
+            )
+    finally:
+        con.close()
+
+
+def _local_path(db, remote):
+    con = sqlite3.connect(db)
+    try:
+        return con.execute(
+            "SELECT local_path FROM files WHERE remote_path=?", (remote,)
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_db_relocate_preview_then_apply(tmp_path, monkeypatch):
+    disk_db, _ = _relocate_env(tmp_path, monkeypatch)
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    found = new / "Photos" / "a.jpg"
+    found.parent.mkdir(parents=True)
+    found.write_bytes(b"abc")
+    _disk_db_with_path(disk_db, "disk:/Photos/a.jpg", old / "Photos" / "a.jpg")
+    monkeypatch.setattr(webui, "_scope_dir_setting", lambda scope: str(old))
+
+    preview = webui.db_relocate(webui.DbRelocatePayload(
+        scope="disk", new_dir=str(new), preview=True
+    ))
+    assert preview["ok"] is True and preview["preview"] is True
+    assert preview["plans"]["disk"]["by_path"] == 1
+    # Предпросмотр ничего не меняет.
+    assert _local_path(disk_db, "disk:/Photos/a.jpg") == str(old / "Photos" / "a.jpg")
+
+    applied = webui.db_relocate(webui.DbRelocatePayload(
+        scope="disk", new_dir=str(new), preview=False
+    ))
+    assert applied["ok"] is True and applied["moved"] == 1
+    assert applied["backup"]["disk"].endswith(".db")
+    assert _local_path(disk_db, "disk:/Photos/a.jpg") == str(found)
+
+
+def test_db_relocate_rejects_missing_folder(tmp_path, monkeypatch):
+    _relocate_env(tmp_path, monkeypatch)
+    out = webui.db_relocate(webui.DbRelocatePayload(
+        scope="disk", new_dir=str(tmp_path / "нет"), preview=True
+    ))
+    assert out["ok"] is False
+    assert "не найдена" in out["msg"]
+
+
+def test_db_restore_cloud_moves_file_back_to_cloud_folders(tmp_path, monkeypatch):
+    disk_db, _ = _relocate_env(tmp_path, monkeypatch)
+    root = tmp_path / "disk"
+    root.mkdir()
+    sorted_file = root / "Фото" / "2020" / "a.jpg"
+    sorted_file.parent.mkdir(parents=True)
+    sorted_file.write_bytes(b"abc")
+    _disk_db_with_path(disk_db, "disk:/Photos/a.jpg", sorted_file)
+    monkeypatch.setattr(webui, "_scope_dir_setting", lambda scope: str(root))
+
+    preview = webui.db_restore_cloud(webui.DbRestorePayload(preview=True))
+    assert preview["ok"] is True
+    assert preview["plan"]["moves"] == 1
+    assert sorted_file.exists()
+
+    done = webui.db_restore_cloud(webui.DbRestorePayload(preview=False))
+    assert done["ok"] is True and done["moved"] == 1
+    target = root / "Photos" / "a.jpg"
+    assert target.exists() and not sorted_file.exists()
+    assert _local_path(disk_db, "disk:/Photos/a.jpg") == str(target)
+
+
+def test_requeue_missing_returns_explicit_keys(tmp_path, monkeypatch):
+    disk_db, _ = _relocate_env(tmp_path, monkeypatch)
+    _disk_db_with_path(disk_db, "disk:/a.jpg", tmp_path / "a.jpg")
+    monkeypatch.setattr(webui, "reset_session_counters", lambda kind: None)
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+
+    out = webui.api_verify_requeue_missing(
+        webui.RequeueMissingPayload(scope="disk", keys=["disk:/a.jpg"])
+    )
+    assert out == {"ok": True, "updated": 1,
+                   "msg": "Возвращено в очередь: 1"}
+    con = sqlite3.connect(disk_db)
+    try:
+        assert con.execute("SELECT status FROM files").fetchone()[0] == "pending"
+    finally:
+        con.close()
+
+
+def test_organize_asks_confirmation_outside_unlim_folder(tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setattr(webui, "get_config", lambda: {
+        "unlim_dir": str(tmp_path / "unlim"),
+        "disk_dir": str(tmp_path / "disk"),
+    })
+
+    out = webui.organize(webui.OrganizePayload(
+        input=str(other), action="report-only"
+    ))
+
+    assert out["ok"] is False
+    assert "не папка Безлимита" in out["msg"]

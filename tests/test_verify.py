@@ -147,6 +147,29 @@ def test_run_disk_counts_and_status_file(temp_paths):
     assert verify.read_status()["checked"] == 3
 
 
+def test_run_counts_offline_drive_separately(temp_paths, monkeypatch):
+    """Отключённый диск — не «файл пропал», а отдельный статус."""
+    disk_db, _, root = temp_paths
+    good = _write(root, "files/good.txt", b"12345")
+    _make_disk_db(disk_db, [
+        ("disk:/good.txt", 5, None, "downloaded", str(good)),
+        ("disk:/usb.txt", 5, None, "downloaded", "Q:/backup/usb.txt"),
+    ])
+    monkeypatch.setattr(
+        verify, "volume_ready",
+        lambda path: "Q:" not in str(path),
+    )
+
+    data = verify.run("disk")
+    assert data["ok"] == 1
+    assert data["offline"] == 1
+    assert data["missing"] == 0
+    assert data["problems"][0]["status"] == "offline"
+    report = verify.render_report(data)
+    assert "Диск не подключён: 1" in report
+    assert "не потеряны" in report
+
+
 def test_run_does_not_touch_database(temp_paths):
     disk_db, _, root = temp_paths
     good = _write(root, "files/good.txt", b"12345")

@@ -109,6 +109,10 @@ UPDATES_STATUS_FILE = LOG_DIR / "updates_status.json"
 # Проверка скачанных файлов (C1): прогресс для окна и читаемый отчёт.
 VERIFY_STATUS_FILE = LOG_DIR / "verify_status.json"
 VERIFY_REPORT_FILE = LOG_DIR / "verify_report.md"
+# Предпросмотр сортировки: куда какой файл ляжет. TXT читает окно, CSV —
+# полный список для Excel/блокнота.
+ORGANIZE_REPORT_FILE = LOG_DIR / "organize_report.txt"
+ORGANIZE_PLAN_FILE = LOG_DIR / "organize_plan.csv"
 ACTION_LOG = LOG_DIR / "webui_actions.log"
 MIGRATIONS_LOG = LOG_DIR / "migrations.log"
 LAUNCHER_LOG = LOG_DIR / "launcher.log"

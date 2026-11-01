@@ -44,6 +44,7 @@ import monitor
 import paths
 import previews
 import profiles
+import relocate as relocate_mod
 import selection
 import unlim_dates
 import updater
@@ -952,6 +953,10 @@ class FullCycle:
             "--action", "move",
             "--scheme", "type-year-month",
             "--quick",
+            "--report-file", str(paths.ORGANIZE_REPORT_FILE),
+            "--plan-file", str(paths.ORGANIZE_PLAN_FILE),
+            "--db", str(UNLIM_DB_FILE),
+            "--table", "unlim_files",
         ])
         if not ok:
             self._log(f"⚠ сортировка не запущена: {msg}")
@@ -3186,6 +3191,12 @@ class DbRebuildPayload(BaseModel):
 class DbRelocatePayload(BaseModel):
     scope: str = ""
     new_dir: str = ""
+    preview: bool = False
+
+
+class DbRestorePayload(BaseModel):
+    scope: str = "disk"
+    preview: bool = True
 
 
 class DbRedownloadPayload(BaseModel):
@@ -3326,59 +3337,107 @@ def unlim_rebuild(payload: RebuildPayload):
 
 @app.post("/api/db/relocate")
 def db_relocate(payload: DbRelocatePayload):
-    """Перепривязывает базу к новой папке, ничего не скачивая.
+    """Ищет файлы в новой папке и перепривязывает базу, ничего не скачивая.
 
-    Меняет префикс пути у скачанных файлов и записывает новую папку в .env.
-    Нужно, когда файлы уже перенесены (например, на новый диск): программа
-    продолжит видеть их скачанными.
+    `preview=true` — только показать, что найдено, и ничего не менять.
+    Ищет не только по старому хвосту пути, но и по имени/размеру в подпапках:
+    так находятся файлы после сортировки или ручного переноса.
     """
-    resolved = _db_scope(payload.scope)
-    if not resolved:
-        return {"ok": False, "msg": "Неизвестная база: ожидается disk или unlim"}
-    db_file, table, scope = resolved
+    scope = (payload.scope or "").strip().lower()
+    scopes = ["disk", "unlim"] if scope == "both" else [scope]
+    if any(s not in ("disk", "unlim") for s in scopes):
+        return {"ok": False, "msg": "Неизвестная база: ожидается disk, unlim или both"}
     new_dir = (payload.new_dir or "").strip()
     if not new_dir:
-        return {"ok": False, "msg": "Укажите новую папку выгрузки"}
-    if _db_running(scope):
+        return {"ok": False, "msg": "Укажите новую папку с файлами"}
+    if any(_db_running(s) for s in scopes):
         return {"ok": False, "msg": "Сначала остановите выгрузку этой базы"}
-    if not db_file.exists():
-        return {"ok": False, "msg": "Базы ещё нет"}
-    old_dir = _scope_dir_setting(scope)
-    if not old_dir:
-        return {"ok": False, "msg": "В настройках не задана текущая папка выгрузки"}
-    moved = 0
-    outside = 0
-    try:
-        con = sqlite3.connect(db_file, timeout=30)
+    if not os.path.isdir(new_dir):
+        return {"ok": False, "msg": f"Папка не найдена или диск не подключён: {new_dir}"}
+
+    plans = []
+    for one in scopes:
         try:
-            rows = con.execute(
-                f"SELECT rowid, local_path FROM {table} WHERE local_path IS NOT NULL"
-            ).fetchall()
-            updates = []
-            for rowid, local_path in rows:
-                rel = _relative_under(local_path, old_dir)
-                if rel is None:
-                    outside += 1
-                    continue
-                updates.append(
-                    (os.path.join(new_dir, rel) if rel else new_dir, rowid)
+            plans.append(relocate_mod.plan_relocate(
+                one, new_dir, _scope_dir_setting(one)
+            ))
+        except relocate_mod.RelocateError as exc:
+            return {"ok": False, "msg": str(exc)}
+        except sqlite3.Error as exc:
+            return {"ok": False, "msg": f"Ошибка базы {one}: {exc}"}
+
+    result = {p.scope: p.as_dict() for p in plans}
+    if payload.preview:
+        log_action(f"db/relocate/preview/{scope}")
+        return {"ok": True, "preview": True, "plans": result,
+                "msg": "Предпросмотр готов — файлы не менялись"}
+
+    backups = {}
+    try:
+        for plan in plans:
+            if plan.updates:
+                backup = _copy_db(
+                    DB_FILE if plan.scope == "disk" else UNLIM_DB_FILE
                 )
-            with con:
-                con.executemany(
-                    f"UPDATE {table} SET local_path = ? WHERE rowid = ?", updates
-                )
-            moved = len(updates)
-        finally:
-            con.close()
-    except sqlite3.Error as e:
-        return {"ok": False, "msg": f"Ошибка базы: {e}"}
-    _write_dir_setting(scope, new_dir)
+                backups[plan.scope] = str(backup)
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {exc}"}
+
+    moved = 0
+    for plan in plans:
+        try:
+            moved += relocate_mod.apply_relocate(plan)
+        except sqlite3.Error as exc:
+            return {"ok": False, "msg": f"Ошибка базы {plan.scope}: {exc}",
+                    "backup": backups}
+        # Папку в настройках меняем только когда выбрана одна база: при «обеих»
+        # одна общая папка затёрла бы отдельные папки Диска и Безлимита.
+        if scope != "both":
+            _write_dir_setting(plan.scope, new_dir)
     log_action(f"db/relocate/{scope}")
     return {
         "ok": True,
+        "preview": False,
+        "plans": result,
         "moved": moved,
-        "outside": outside,
-        "msg": f"Перепривязано {moved} файлов; вне прежней папки — {outside}",
+        "backup": backups,
+        "msg": f"Перепривязано {moved} файлов",
+    }
+
+
+@app.post("/api/db/restore_cloud")
+def db_restore_cloud(payload: DbRestorePayload):
+    """Возвращает файлы Диска в папки, как они называются в облаке."""
+    scope = (payload.scope or "disk").strip().lower()
+    if scope != "disk":
+        return {"ok": False, "msg": "Вернуть структуру облака можно только для Диска"}
+    if _db_running("disk"):
+        return {"ok": False, "msg": "Сначала остановите выгрузку Диска"}
+    try:
+        plan = relocate_mod.plan_restore_cloud(
+            "disk", _scope_dir_setting("disk")
+        )
+    except relocate_mod.RelocateError as exc:
+        return {"ok": False, "msg": str(exc)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Ошибка базы: {exc}"}
+    if payload.preview:
+        log_action("db/restore_cloud/preview")
+        return {"ok": True, "preview": True, "plan": plan.as_dict(),
+                "msg": "Предпросмотр готов — файлы не менялись"}
+    try:
+        backup = _copy_db(DB_FILE)
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {exc}"}
+    done, errors = relocate_mod.apply_restore_cloud(plan)
+    log_action("db/restore_cloud")
+    return {
+        "ok": True,
+        "preview": False,
+        "moved": done,
+        "errors": errors[:20],
+        "backup": str(backup),
+        "msg": f"Возвращено в структуру облака: {done}",
     }
 
 
@@ -3568,6 +3627,8 @@ class OrganizePayload(BaseModel):
     action: str = "report-only"  # report-only | move
     scheme: str = "type-year-month"  # type-year-month | year-month | year
     quick: bool = False  # быстрый отчёт: без поиска дубликатов (MD5)
+    update_db: bool = True  # обновить пути в базе после перемещения
+    confirmed: bool = False  # человек согласился сортировать не папку Безлимита
 
 
 # Запрещённые пути для organize (нельзя бесконтрольно сортировать систему)
@@ -3608,12 +3669,55 @@ def organize(payload: OrganizePayload):
         return {"ok": False, "msg": "Неизвестное действие"}
     if payload.scheme not in ("type-year-month", "year-month", "year"):
         return {"ok": False, "msg": "Неизвестная схема раскладки"}
+
+    cfg = get_config()
+    unlim_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+    disk_dir = cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR)
+    root = os.path.normcase(os.path.abspath(payload.input))
+    is_unlim = root == os.path.normcase(os.path.abspath(unlim_dir))
+    is_disk = root == os.path.normcase(os.path.abspath(disk_dir))
+    if not is_unlim and not payload.confirmed:
+        where = "папка Диска" if is_disk else "не папка Безлимита"
+        return {
+            "ok": False,
+            "msg": f"Это {where}. Сортировка перемешает файлы и сломает "
+                   f"структуру облака. Подтвердите действие в окне.",
+        }
+
+    for old in (paths.ORGANIZE_REPORT_FILE, paths.ORGANIZE_PLAN_FILE):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
     args = ["--input", payload.input,
             "--action", payload.action,
-            "--scheme", payload.scheme]
+            "--scheme", payload.scheme,
+            "--report-file", str(paths.ORGANIZE_REPORT_FILE),
+            "--plan-file", str(paths.ORGANIZE_PLAN_FILE)]
     if payload.quick:
         args.append("--quick")
+    if payload.update_db and payload.action == "move":
+        if is_unlim:
+            args += ["--db", str(UNLIM_DB_FILE), "--table", "unlim_files"]
+        elif is_disk:
+            args += ["--db", str(DB_FILE), "--table", "files"]
     return _resp(tm.start("organize", "organize.py", args))
+
+
+@app.get("/api/organize/report")
+def organize_report():
+    """Отчёт последней сортировки: куда что ляжет и полный список."""
+    try:
+        text = paths.ORGANIZE_REPORT_FILE.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    return {
+        "ok": True,
+        "report": text,
+        "plan_file": str(paths.ORGANIZE_PLAN_FILE)
+        if paths.ORGANIZE_PLAN_FILE.exists() else "",
+    }
 
 
 @app.post("/api/organize/stop")
@@ -3980,6 +4084,47 @@ def api_verify_stop():
     log_action("/api/verify/stop")
     ok, msg = tm.stop("verify")
     return {"ok": ok, "msg": msg}
+
+
+class RequeueMissingPayload(BaseModel):
+    scope: str = "disk"
+    keys: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/verify/requeue_missing")
+def api_verify_requeue_missing(payload: RequeueMissingPayload):
+    """Возвращает в очередь файлы, которых нет по записанному пути.
+
+    Берём только статус «missing» из последней проверки: файлы на отключённом
+    диске и несовпадения размера/MD5 не трогаем.
+    """
+    scope = (payload.scope or "disk").strip().lower()
+    if scope not in ("disk", "unlim", "both"):
+        return {"ok": False, "msg": "Неизвестная база"}
+    if _any_task_running(("disk", "unlim", "verify", "organize")):
+        return {"ok": False, "msg": "Сначала остановите выгрузку и проверку"}
+    keys = [str(k) for k in (payload.keys or []) if k]
+    if not keys:
+        data = verify_mod.read_status()
+        keys = [
+            str(item.get("path"))
+            for item in (data.get("problems") or [])
+            if item.get("status") == "missing" and item.get("path")
+        ]
+    scopes = ["disk", "unlim"] if scope == "both" else [scope]
+    updated = 0
+    try:
+        for one in scopes:
+            updated += relocate_mod.requeue_missing(one, keys)
+    except relocate_mod.RelocateError as exc:
+        return {"ok": False, "msg": str(exc)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Ошибка базы: {exc}"}
+    log_action(f"verify/requeue_missing/{scope}")
+    for one in (("disk", "unlim") if scope == "both" else (scope,)):
+        reset_session_counters(one)
+    return {"ok": True, "updated": updated,
+            "msg": f"Возвращено в очередь: {updated}"}
 
 
 @app.get("/api/verify/report")

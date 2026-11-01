@@ -456,6 +456,24 @@ def status_info() -> dict:
     }
 
 
+def verify_info() -> dict:
+    """Сводка последней проверки файлов без длинного списка проблем.
+
+    Сам отчёт и полный статус кладутся в ZIP отдельными файлами: по ним видно,
+    какие именно файлы не нашлись, не раздувая report.json.
+    """
+    data = _read_json(paths.VERIFY_STATUS_FILE)
+    if not data:
+        return {"exists": False}
+    keys = ("scope", "deep", "total", "checked", "ok", "missing", "offline",
+            "size", "md5", "errors", "problems_total", "started_at",
+            "finished_at")
+    out = {key: data.get(key) for key in keys if key in data}
+    out["exists"] = True
+    out["report_available"] = paths.VERIFY_REPORT_FILE.exists()
+    return out
+
+
 # Имя файла → имя атрибута в `paths`. Именно атрибут, а не сам Path: тесты и
 # `YADISK_DATA_DIR` подменяют пути уже после импорта, и зафиксированные здесь
 # объекты указывали бы в старый каталог (из-за этого отчёт в CI был пустым).
@@ -827,6 +845,7 @@ def build_report(task_status: dict | None = None,
             "unlim_state.db": database_info(paths.UNLIM_DB_FILE, "unlim_files"),
         },
         "statuses": status_info(),
+        "verify": verify_info(),
         "tasks": task_info(task_status, auto_status),
         "logs": logs_info(),
         "failures": {
@@ -1005,6 +1024,19 @@ def render_summary(report: dict) -> str:
                 parts.append(f"{field}={st[field]}")
         lines.append(f"  {label}: " + (", ".join(parts) if parts else "данные есть"))
 
+    verify = report.get("verify") or {}
+    if verify.get("exists"):
+        lines += [
+            "",
+            "ПРОВЕРКА ФАЙЛОВ",
+            f"  Проверено {verify.get('checked', 0)} из {verify.get('total', 0)}"
+            f" · в порядке {verify.get('ok', 0)}"
+            f" · нет на диске {verify.get('missing', 0)}"
+            f" · диск не подключён {verify.get('offline', 0)}"
+            f" · размер {verify.get('size', 0)}"
+            f" · MD5 {verify.get('md5', 0)}",
+        ]
+
     lines += ["", "ПОСЛЕДНИЕ ЗАДАЧИ"]
     tasks = (report.get("tasks") or {}).get("tasks") or {}
     if tasks:
@@ -1147,6 +1179,7 @@ def write_report(report: dict | None = None) -> Path:
             "report.txt — краткая сводка, report.json — полные данные.\n"
             "changelog.md — что изменилось в этой версии.\n"
             "logs/ — последние 2 МБ каждого журнала (полные логи не входят).\n"
+            "logs/verify_report.md и logs/verify_status.json — последняя проверка файлов.\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )
         changelog = changelog_section()
@@ -1156,6 +1189,15 @@ def write_report(report: dict | None = None) -> Path:
             sample = read_tail(path, max_bytes=LOG_FILE_BYTES, max_lines=20000)
             if sample["exists"] and sample["lines"]:
                 zf.writestr(f"logs/{name}", "\n".join(sample["lines"]))
+        for name, path in (
+            ("verify_report.md", paths.VERIFY_REPORT_FILE),
+            ("verify_status.json", paths.VERIFY_STATUS_FILE),
+        ):
+            try:
+                if path.exists():
+                    zf.writestr(f"logs/{name}", path.read_text(encoding="utf-8"))
+            except OSError:
+                pass
     return target
 
 

@@ -1328,8 +1328,18 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
 
     <div class="info" style="margin-bottom:16px">
-      <strong>Сначала сделай отчёт</strong> — он покажет, куда что ляжет и сколько найдётся дубликатов, ничего не перемещая. Потом можно применить реальную сортировку. Дубликаты (по размеру + MD5) уедут в <code>_duplicates/</code>.
+      <strong>Сначала нажмите «Отчёт»</strong> — он покажет, куда что ляжет, сколько будет дубликатов и полный список, ничего не перемещая. Потом можно применить реальную сортировку. Дубликаты (по размеру + MD5) уедут в <code>_duplicates/</code>.
     </div>
+
+    <div id="organize-warn" class="diag-note" style="display:none;background:rgba(255,159,10,.08);border-color:rgba(255,159,10,.4);margin-bottom:14px">
+      Это не папка Безлимита. Сортировка перемешает файлы и сломает структуру, как в облаке —
+      особенно для Диска. Для Диска есть кнопка «Вернуть структуру облака» в диагностике.
+    </div>
+
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer">
+      <input type="checkbox" id="organize-update-db" checked style="width:18px;height:18px;accent-color:var(--accent)">
+      <span>Обновить пути в базе — после сортировки проверка файлов не будет искать их на старых местах</span>
+    </label>
 
     <label style="display:flex;align-items:center;gap:10px;margin-bottom:16px;cursor:pointer">
       <input type="checkbox" id="organize-quick" onchange="organizeQuickChanged()" style="width:18px;height:18px;accent-color:var(--accent)">
@@ -1354,6 +1364,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <div id="organize-sub" class="task-banner-sub">…</div>
       </div>
       <div id="organize-time" class="task-banner-time">—</div>
+    </div>
+
+    <div id="organize-report-panel" style="display:none;margin-top:14px">
+      <div style="font-weight:600;margin-bottom:6px">Отчёт: куда лягут файлы</div>
+      <pre id="organize-report-text" class="diag-pre" style="max-height:320px"></pre>
+      <div class="setup-hint" id="organize-plan-hint"></div>
     </div>
   </div>
 
@@ -1827,6 +1843,16 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <pre id="verify-output" class="diag-pre" style="display:none"></pre>
     </div>
 
+    <div class="actions" id="verify-actions" style="margin-top:10px;display:none">
+      <button class="danger" id="verify-requeue-btn" onclick="requeueVerifyMissing()">
+        Вернуть отсутствующие в очередь
+      </button>
+    </div>
+    <div id="verify-hint-move" class="setup-hint" style="display:none">
+      Файлы переехали или диск сменил букву? Откройте настройки → «Файлы переехали?» —
+      программа найдёт их по новой папке, ничего не скачивая.
+    </div>
+
     <div class="setup-hint">Файлы не удаляются, статусы в базе не меняются — это только осмотр.</div>
   </div>
 
@@ -1843,14 +1869,18 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="card" id="reset-queue-card">
     <div class="card-title">♻ Сброс очереди</div>
-    <div class="card-sub">Возвращает файлы из «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
+    <div class="card-sub">Возвращает файлы из «ждут Яндекса», «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
     <div class="reset-grid">
+      <button class="reset-btn tipnode" onclick="resetStatus('lost')"
+              data-tip="Файлы, которые Яндекс не отдал несколько проходов подряд (сервер отвечал ошибкой). Программа попробует скачать их снова — у каждого будет три свежие попытки. Ничего не удаляется.">
+        <span>Ждут Яндекса</span><span class="reset-count" id="reset-lost">0</span>
+      </button>
       <button class="reset-btn tipnode" onclick="resetStatus('disk_failed')"
-              data-tip="Файлы Диска, которые не скачались (ошибки сервера, обрывы), снова встанут в очередь. Уже скачанные файлы и их статусы не меняются.">
+              data-tip="Файлы Диска с обычными ошибками скачивания (нет места, оборвался диск). Снова встанут в очередь. Уже скачанные файлы не меняются.">
         <span>Ошибочные Диска</span><span class="reset-count" id="reset-disk-failed">0</span>
       </button>
       <button class="reset-btn tipnode" onclick="resetStatus('unlim_skipped')"
-              data-tip="Пропущенные файлы Безлимита снова встанут в очередь — программа попробует скачать их заново. Ничего не удаляется.">
+              data-tip="Пропущенные файлы Безлимита (нет прав, файл удалён из облака) снова встанут в очередь. Ничего не удаляется.">
         <span>Пропущенные Безлимита</span><span class="reset-count" id="reset-unlim-skipped">0</span>
       </button>
       <button class="reset-btn tipnode tip-right" onclick="resetStatus('unlim_stuck')"
@@ -1903,8 +1933,8 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
     <hr>
 
-    <div style="font-weight:600;margin-bottom:4px">Переезд на другую папку</div>
-    <div class="card-sub">Для случая, когда файлы уже перенесены на новый диск. Сам перенос программа не делает.</div>
+    <div style="font-weight:600;margin-bottom:4px">Скачать заново в другую папку</div>
+    <div class="card-sub">Файлы уже перенесены и их надо просто найти в новом месте? Это карточка «Файлы переехали?» ниже — там безопасно, с предпросмотром.</div>
     <label class="field-label" for="db-new-dir">Новая папка выгрузки</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <input type="text" id="db-new-dir" placeholder="например: E:\Backup\Disk"
@@ -1914,14 +1944,66 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </button>
     </div>
     <div class="actions" style="margin-top:0">
-      <button id="db-relocate-btn" disabled onclick="relocateDb()">Перепривязать базу</button>
       <button class="danger" id="db-redownload-btn" disabled onclick="redownloadDb()">Скачать заново в новую папку</button>
     </div>
     <div class="setup-hint" style="margin-top:8px">
-      «Перепривязать» только меняет пути в базе — ничего не скачивается.
       «Скачать заново» возвращает всё в очередь и начинает выгрузку в новую папку; копия базы сохраняется.
+      Старые копии файлов при этом не удаляются.
     </div>
     <div id="rebuild-status" class="setup-hint" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="find-files-card">
+    <div class="card-title">Файлы переехали?</div>
+    <div class="card-sub">
+      Укажите папку, где сейчас лежат скачанные файлы. Программа сверит базу с диском,
+      найдёт файлы в подпапках после сортировки и перепривяжет пути. Ничего не скачивается
+      и не удаляется.
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <select id="find-scope" aria-label="Какие базы искать" onchange="findScopeChanged()">
+        <option value="both">Обе базы</option>
+        <option value="disk">Обычный Диск</option>
+        <option value="unlim">Безлимит</option>
+      </select>
+      <input type="text" id="find-new-dir" placeholder="например: E:\Backup"
+             style="flex:1;min-width:160px;padding:9px 12px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:14px">
+      <button class="ghost" onclick="browseFolder('find','find-new-dir')" style="white-space:nowrap">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
+    <div id="find-roots" class="setup-hint"></div>
+
+    <div class="actions" style="margin-top:10px">
+      <button id="find-preview-btn" onclick="previewFindFiles()">
+        <svg class="ico-sm"><use href="#i-search"/></svg>Найти файлы
+      </button>
+      <button id="find-apply-btn" class="primary" disabled onclick="applyFindFiles()">Применить</button>
+      <button id="find-restore-btn" class="ghost" onclick="previewRestoreCloud()">
+        Вернуть структуру облака
+      </button>
+    </div>
+
+    <div id="find-status" class="setup-hint" role="status" aria-live="polite" style="margin-top:10px"></div>
+    <div id="find-result" style="display:none;margin-top:10px">
+      <pre id="find-result-text" class="diag-pre"></pre>
+      <div class="actions" id="find-result-actions">
+        <button id="find-requeue-btn" class="danger" style="display:none" onclick="requeueMissingFromPlan()">
+          Скачать отсутствующие заново
+        </button>
+        <button id="find-list-btn" class="ghost" style="display:none" onclick="toggleFindList()">
+          Показать список
+        </button>
+      </div>
+      <pre id="find-list" class="diag-pre" style="display:none"></pre>
+    </div>
+
+    <div class="setup-hint">
+      «Вернуть структуру облака» пригодится, если папку Диска уже сортировали:
+      файлы разложатся обратно по облачным папкам. Для Безлимита эта кнопка не нужна —
+      там сортировка по датам и есть основная раскладка.
+    </div>
   </div>
 
   <div class="card" id="snapshots-card">
@@ -2874,10 +2956,33 @@ async function organize(actionType, btn){
   const inp=document.getElementById('organize-input').value.trim();
   const scheme=document.getElementById('organize-scheme').value;
   const quick=document.getElementById('organize-quick').checked;
+  const updateDb=document.getElementById('organize-update-db')?.checked !== false;
   if(!inp){toast('Укажите папку','err');return}
 
   // С галочкой «Сортировать сразу» отчёт превращается в реальную сортировку (move)
   const action = (quick && actionType === 'report-only') ? 'move' : actionType;
+
+  // Сортировать можно только в папке Безлимита. Если выбрана другая — честно
+  // предупреждаем и просим подтверждение; для папки Диска оно жёстче.
+  const cfg=(window._lastStatus||{}).config||{};
+  const norm=(p)=>(p||'').replace(/\//g,'\\').replace(/\\+$/,'').toLowerCase();
+  const isUnlim = !!cfg.unlim_dir && norm(inp) === norm(cfg.unlim_dir);
+  const isDisk = !!cfg.disk_dir && norm(inp) === norm(cfg.disk_dir);
+  const warn=document.getElementById('organize-warn');
+  if(warn) warn.style.display = isUnlim ? 'none' : '';
+  if(!isUnlim){
+    const ok = await askConfirm({
+      title: isDisk ? 'Это папка Диска' : 'Это не папка Безлимита',
+      text: (isDisk
+        ? 'В папке Диска файлы лежат по папкам облака. Сортировка по датам их перемешает, '
+          + 'и структура перестанет совпадать с облаком.\n\n'
+        : 'Сортировка рассчитана на папку Безлимита. Для другой папки она тоже сработает, '
+          + 'но файлы переместятся по датам.\n\n')
+        + 'Папка: ' + inp,
+      ok: 'Всё равно сортировать', danger: true
+    });
+    if(!ok) return;
+  }
 
   // Сохраняем путь и фактическое действие для показа в статусе
   _organizePath = inp;
@@ -2896,6 +3001,9 @@ async function organize(actionType, btn){
   document.getElementById('organize-time').textContent = '0с';
   const stopBtn = document.getElementById('organize-stop-btn');
   if(stopBtn) stopBtn.disabled = false;
+  const reportPanel = document.getElementById('organize-report-panel');
+  if(reportPanel) reportPanel.style.display = 'none';
+  _organizeReportKey = '';
   setTimeout(()=>banner.scrollIntoView({behavior:'smooth', block:'center'}), 50);
 
   if(btn){
@@ -2906,7 +3014,7 @@ async function organize(actionType, btn){
   }
 
   try {
-    const r=await fetch('/api/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:inp, action:action, scheme:scheme, quick:quick})});
+    const r=await fetch('/api/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:inp, action:action, scheme:scheme, quick:quick, update_db:updateDb, confirmed:!isUnlim})});
     const d=await r.json();
     toast(d.msg, d.ok===false?'err':'ok');
     if(d.ok===false && stopBtn) stopBtn.disabled = true;
@@ -2927,6 +3035,7 @@ function organizeQuickChanged(){
 
 let _organizePath = '';
 let _organizeAction = 'report-only';
+let _organizeReportKey = '';   // чтобы не перечитывать отчёт на каждом refresh
 let _diskDownloadPath = '';
 let _unlimDownloadPath = '';
 
@@ -3115,6 +3224,54 @@ function updateOrganizeControls(task){
   if(btn) btn.disabled = !(task && task.running);
 }
 
+async function loadOrganizeReport(key){
+  if(key && key === _organizeReportKey) return;
+  _organizeReportKey = key || '';
+  const panel = document.getElementById('organize-report-panel');
+  const pre = document.getElementById('organize-report-text');
+  const hint = document.getElementById('organize-plan-hint');
+  if(!panel) return;
+  try{
+    const r = await fetch('/api/organize/report');
+    const d = await r.json();
+    if(!d.report){
+      if(panel) panel.style.display = 'none';
+      return;
+    }
+    if(pre) pre.textContent = d.report;
+    if(hint){
+      hint.textContent = d.plan_file
+        ? `Полный список с путями — файл ${d.plan_file} (открывается в Excel или Блокноте).`
+        : '';
+    }
+    panel.style.display = '';
+  }catch(e){
+    if(panel) panel.style.display = 'none';
+  }
+}
+
+// Подставляем папку Безлимита и предупреждаем, если выбрана другая.
+function renderOrganizeDefaults(cfg){
+  const inp = document.getElementById('organize-input');
+  const warn = document.getElementById('organize-warn');
+  if(!inp) return;
+  cfg = cfg || {};
+  if(!inp.value && !inp.dataset.touched && cfg.unlim_dir){
+    inp.value = cfg.unlim_dir;
+  }
+  const norm=(p)=>(p||'').replace(/\//g,'\\').replace(/\\+$/,'').toLowerCase();
+  const chosen = inp.value.trim();
+  const isUnlim = !!cfg.unlim_dir && norm(chosen) === norm(cfg.unlim_dir);
+  if(warn) warn.style.display = (!chosen || isUnlim) ? 'none' : '';
+  if(!inp.dataset.watch){
+    inp.dataset.watch = '1';
+    inp.addEventListener('input', () => {
+      inp.dataset.touched = '1';
+      renderOrganizeDefaults((window._lastStatus || {}).config || {});
+    });
+  }
+}
+
 function updateOrganizeBanner(task){
   const banner = document.getElementById('organize-banner');
   if(!banner) return;
@@ -3165,6 +3322,7 @@ function updateOrganizeBanner(task){
       : '<span style="color:var(--green)">Сортировка применена</span>';
     sub.innerHTML = `Папка: <code>${esc(_organizePath)}</code>`;
     time.textContent = dur(task.elapsed);
+    loadOrganizeReport(`${task.elapsed}|${task.exit_code}|${_organizeAction}`);
   } else if(isStopped(task.exit_code)){
     banner.style.display = 'flex';
     banner.className = 'task-banner stopped';
@@ -4179,6 +4337,11 @@ function renderResetCounts(s){
     s && s.unlim && s.unlim.db ? s.unlim.db.skipped : 0);
   const unlimStuck = count('reset-unlim-stuck',
     s && s.unlim && s.unlim.db ? s.unlim.db.in_progress : 0);
+  // С 35.6.3 сбои сервера Яндекса уходят в «lost», а не в failed/skipped —
+  // поэтому раньше три верхние кнопки показывали нули, хотя ждать было чего.
+  const lost = count('reset-lost',
+    ((s && s.disk && s.disk.db ? s.disk.db.lost : 0) || 0)
+    + ((s && s.unlim && s.unlim.db ? s.unlim.db.lost : 0) || 0));
 
   // Кнопка без работы — ловушка: нажимаешь, а сбрасывать нечего. Пока идёт
   // выгрузка, сброс запрещён и на сервере, поэтому гасим заранее.
@@ -4195,6 +4358,7 @@ function renderResetCounts(s){
     const el = document.querySelector(`#reset-queue-card [onclick="resetStatus('${what}')"]`);
     if(el) el.disabled = !enabled;
   };
+  setEnabled('lost', lost > 0 && !diskBusy && !unlimBusy);
   setEnabled('disk_failed', diskFailed > 0 && !diskBusy);
   setEnabled('unlim_skipped', unlimSkipped > 0 && !unlimBusy);
   setEnabled('unlim_stuck', unlimStuck > 0 && !unlimBusy);
@@ -4257,6 +4421,8 @@ async function refresh(){
     renderWatchdog(s.watchdog);
     renderPreviews(s.config);
     renderCloudConfig(s.config);
+    renderOrganizeDefaults(s.config);
+    renderFindRoots();
     renderVerify(s.verify);
     renderResetCounts(s);
     renderRebuildCounts(s);
@@ -5299,6 +5465,30 @@ function toggleVerifyReport(force){
   if(show) loadVerifyReport();
 }
 
+async function requeueVerifyMissing(){
+  const scope = (document.getElementById('verify-scope') || {}).value || 'disk';
+  if(!await askConfirm({
+    title: 'Вернуть отсутствующие файлы в очередь?',
+    text: 'Файлы, которых нет по записанному пути, будут скачаны заново. '
+      + 'Файлы на отключённом диске и с несовпадающим размером не трогаются.\n\n'
+      + 'Если файлы просто переехали — лучше сначала настройки → «Файлы переехали?».',
+    ok: 'Скачать заново'
+  })){
+    return;
+  }
+  try{
+    const r = await fetch('/api/verify/requeue_missing', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scope, keys: []})
+    });
+    const d = await r.json();
+    toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
+    if(d.ok) refresh();
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
 function renderVerify(v){
   const startBtn = document.getElementById('verify-start-btn');
   const stopBtn = document.getElementById('verify-stop-btn');
@@ -5311,28 +5501,40 @@ function renderVerify(v){
 
   const checked = +(v && v.checked || 0);
   const total = +(v && v.total || 0);
-  const problems = +(v && (v.missing || 0) + (v.size || 0) + (v.md5 || 0) + (v.errors || 0));
+  const missing = +(v && v.missing || 0);
+  const offline = +(v && v.offline || 0);
+  const problems = +(v && missing + (v.size || 0) + (v.md5 || 0) + (v.errors || 0));
+  const offlineText = offline ? ` · на отключённом диске ${offline.toLocaleString('ru')}` : '';
   if(running){
     status.className = 'setup-hint';
     status.textContent = total
       ? `Проверяю: ${checked.toLocaleString('ru')} из ${total.toLocaleString('ru')}`
         + ` · в порядке ${(+(v.ok || 0)).toLocaleString('ru')}`
         + (problems ? ` · проблем ${problems.toLocaleString('ru')}` : '')
+        + offlineText
       : 'Собираю список файлов…';
   } else if(v && v.finished_at){
     if(problems){
       status.className = 'setup-hint warn';
       status.textContent = `Проверено ${checked.toLocaleString('ru')} из ${total.toLocaleString('ru')}`
-        + ` · проблем ${problems.toLocaleString('ru')} — подробности в отчёте ниже`;
+        + ` · проблем ${problems.toLocaleString('ru')}${offlineText} — подробности в отчёте ниже`;
     } else if(checked){
-      status.className = 'setup-hint ok';
-      status.textContent = `✅ Проверено ${checked.toLocaleString('ru')} файлов — все на месте`;
+      status.className = 'setup-hint ' + (offline ? 'warn' : 'ok');
+      status.textContent = offline
+        ? `Проверено ${checked.toLocaleString('ru')} файлов · файлов нет только из-за отключённого диска: ${offline.toLocaleString('ru')}`
+        : `✅ Проверено ${checked.toLocaleString('ru')} файлов — все на месте`;
     }
   } else if(!v || !v.started_at){
     status.className = 'setup-hint';
     status.textContent = '';
   }
   if(wrap) wrap.style.display = (v && v.started_at) ? 'block' : 'none';
+
+  // «Отсутствующие» есть смысл вернуть в очередь; «отключённый диск» — нет.
+  const actions = document.getElementById('verify-actions');
+  if(actions) actions.style.display = (!running && missing) ? '' : 'none';
+  const moveHint = document.getElementById('verify-hint-move');
+  if(moveHint) moveHint.style.display = (!running && (missing || offline)) ? '' : 'none';
 
   // Один раз после окончания раскрываем готовый отчёт.
   if(!running && v && v.finished_at && window._verifyDoneAt !== v.finished_at){
@@ -5678,9 +5880,7 @@ function updateRebuildBtn(){
   const ready = !!inp && inp.value.trim().toUpperCase() === 'ПЕРЕСОЗДАТЬ';
   if(btn) btn.disabled = !ready;
   const newDir = (document.getElementById('db-new-dir')?.value || '').trim();
-  const relocate = document.getElementById('db-relocate-btn');
   const redownload = document.getElementById('db-redownload-btn');
-  if(relocate) relocate.disabled = !newDir;
   if(redownload) redownload.disabled = !(ready && newDir);
 }
 
@@ -5727,33 +5927,323 @@ async function rebuildDb(){
   }
 }
 
-async function relocateDb(){
-  const scope = _dbScope();
-  const newDir = (document.getElementById('db-new-dir').value || '').trim();
-  if(!newDir){
-    _dbStatus('Укажите новую папку', 'err');
-    return;
+// ── «Файлы переехали?»: предпросмотр, перепривязка, возврат структуры ──────
+
+let _findPlan = null;   // последний предпросмотр — из него берём список отсутствующих
+let _findDir = '';
+let _findListText = '';
+
+const FIND_SCOPE_NAMES = {disk: 'Обычный Диск', unlim: 'Безлимит', both: 'обе базы'};
+
+function _findStatus(text, cls){
+  const el = document.getElementById('find-status');
+  if(!el) return;
+  el.className = 'setup-hint' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+
+function _findResetResult(){
+  _findPlan = null;
+  _findListText = '';
+  const box = document.getElementById('find-result');
+  if(box) box.style.display = 'none';
+  const apply = document.getElementById('find-apply-btn');
+  if(apply){
+    apply.disabled = true;
+    apply.onclick = applyFindFiles;
+    apply.textContent = 'Применить';
   }
+  const req = document.getElementById('find-requeue-btn');
+  if(req) req.style.display = 'none';
+  const listBtn = document.getElementById('find-list-btn');
+  if(listBtn) listBtn.style.display = 'none';
+  const list = document.getElementById('find-list');
+  if(list) { list.style.display = 'none'; list.textContent = ''; }
+}
+
+function findScopeChanged(){
+  _findResetResult();
+  _findStatus('');
+  renderFindRoots();
+}
+
+function renderFindRoots(){
+  const el = document.getElementById('find-roots');
+  if(!el) return;
+  const cfg = (window._lastStatus || {}).config || {};
+  const scope = (document.getElementById('find-scope') || {}).value || 'both';
+  const parts = [];
+  if(scope !== 'unlim' && cfg.disk_dir) parts.push(`Диск: ${cfg.disk_dir}`);
+  if(scope !== 'disk' && cfg.unlim_dir) parts.push(`Безлимит: ${cfg.unlim_dir}`);
+  el.textContent = parts.length
+    ? 'Сейчас программа пишет сюда — ' + parts.join(' · ')
+    : 'Текущие папки выгрузки не заданы.';
+}
+
+function _findDirValue(){
+  const el = document.getElementById('find-new-dir');
+  return el ? el.value.trim() : '';
+}
+
+function _planLine(name, p){
+  if(!p) return `${name}: нет базы`;
+  const bits = [
+    `всего ${p.total}`,
+    `уже на месте ${p.already}`,
+    `найдено по пути ${p.by_path}`,
+    `в подпапках ${p.by_name + p.by_md5}`
+  ];
+  if(p.offline) bits.push(`диск не подключён ${p.offline}`);
+  if(p.missing) bits.push(`не найдено ${p.missing}`);
+  if(p.conflicts) bits.push(`спорных ${p.conflicts}`);
+  return `${name}: ${bits.join(' · ')}`;
+}
+
+function _renderFindPlan(plans, applied){
+  const lines = [];
+  const scope = (document.getElementById('find-scope') || {}).value || 'both';
+  const names = {disk: 'Обычный Диск', unlim: 'Безлимит'};
+  const order = scope === 'both' ? ['disk', 'unlim'] : [scope];
+  for(const one of order){
+    const p = plans && plans[one];
+    if(!p) continue;
+    lines.push(_planLine(names[one], p));
+    if(!applied){
+      const moved = p.retied || 0;
+      lines.push(moved ? `  → можно перепривязать ${moved} файл(ов)` : '  → перепривязывать нечего');
+    }
+  }
+  const text = document.getElementById('find-result-text');
+  const box = document.getElementById('find-result');
+  if(box) box.style.display = '';
+
+  const missingTotal = order.reduce((n, one) => n + ((plans?.[one]?.missing) || 0), 0);
+  const conflictTotal = order.reduce((n, one) => n + ((plans?.[one]?.conflicts) || 0), 0);
+  const offlineTotal = order.reduce((n, one) => n + ((plans?.[one]?.offline) || 0), 0);
+  if(!applied && missingTotal){
+    lines.push('', `Не найдено ${missingTotal} — их можно вернуть в очередь и скачать заново.`);
+  }
+  if(!applied && offlineTotal){
+    lines.push('', `На отключённом диске ${offlineTotal}: подключите его и нажмите «Найти файлы» ещё раз.`);
+  }
+  if(!applied && conflictTotal){
+    lines.push('', `Спорных ${conflictTotal}: подходящих файлов несколько. Они не переносятся автоматически — видно в списке.`);
+  }
+  if(text) text.textContent = lines.join('\n');
+
+  _findListText = _collectFindList(plans);
+  const listBtn = document.getElementById('find-list-btn');
+  if(listBtn){
+    listBtn.style.display = _findListText ? '' : 'none';
+    listBtn.textContent = 'Показать список';
+  }
+}
+
+function _collectFindList(plans){
+  const scope = (document.getElementById('find-scope') || {}).value || 'both';
+  const order = scope === 'both' ? ['disk', 'unlim'] : [scope];
+  const names = {disk: 'Обычный Диск', unlim: 'Безлимит'};
+  const out = [];
+  for(const one of order){
+    const p = plans?.[one];
+    if(!p) continue;
+    const push = (title, items) => {
+      if(!items || !items.length) return;
+      out.push(`${names[one]} — ${title}:`);
+      for(const it of items.slice(0, 50)) out.push('  ' + (it.path || it.name || '?'));
+      if(items.length > 50) out.push(`  … и ещё ${items.length - 50}`);
+      out.push('');
+    };
+    push('не найдено', p.missing_items);
+    push('подходящих файлов несколько', p.conflict_items);
+    push('диск не подключён', p.offline_items);
+  }
+  return out.join('\n');
+}
+
+function toggleFindList(){
+  const el = document.getElementById('find-list');
+  const btn = document.getElementById('find-list-btn');
+  if(!el) return;
+  const show = el.style.display === 'none';
+  if(show) el.textContent = _findListText || 'Список пуст.';
+  el.style.display = show ? '' : 'none';
+  if(btn) btn.textContent = show ? 'Скрыть список' : 'Показать список';
+}
+
+async function previewFindFiles(){
+  const dir = _findDirValue();
+  const scope = (document.getElementById('find-scope') || {}).value || 'both';
+  if(!dir){ _findStatus('Укажите папку, где сейчас лежат файлы', 'err'); return; }
+  _findResetResult();
+  _findDir = dir;
+  _findStatus('Сверяю базу с папкой… На большом архиве это может занять минуту.');
+  const btn = document.getElementById('find-preview-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const d = await _dbPost('/api/db/relocate', {scope, new_dir: dir, preview: true});
+    if(!d.ok){
+      _findStatus(d.msg || 'Не удалось сверить файлы', 'err');
+      return;
+    }
+    _findPlan = d.plans || null;
+    _renderFindPlan(_findPlan, false);
+    const total = Object.values(_findPlan || {}).reduce((n, p) => n + (p.retied || 0), 0);
+    _findStatus(total
+      ? `Найдено ${total} файл(ов). Нажмите «Применить» — база запомнит новые пути.`
+      : 'Файлы уже учтены или не найдены — смотрите сводку ниже.', total ? 'ok' : '');
+    const apply = document.getElementById('find-apply-btn');
+    if(apply) apply.disabled = !total;
+    const req = document.getElementById('find-requeue-btn');
+    if(req){
+      const missing = Object.values(_findPlan || {}).reduce((n, p) => n + (p.missing || 0), 0);
+      req.style.display = missing ? '' : 'none';
+    }
+  }catch(e){
+    _findStatus('Нет связи с программой: ' + e.message, 'err');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function applyFindFiles(){
+  if(!_findPlan){ _findStatus('Сначала нажмите «Найти файлы»', 'err'); return; }
+  const dir = _findDir || _findDirValue();
+  const scope = (document.getElementById('find-scope') || {}).value || 'both';
+  const total = Object.values(_findPlan || {}).reduce((n, p) => n + (p.retied || 0), 0);
+  if(!total) return;
   if(!await askConfirm({
-    title: `Перепривязать базу ${DB_SCOPE_NAMES[scope]} к новой папке?`,
-    text: `В базе путь «папка выгрузки / …» заменится на:\n${newDir}\n\nФайлы не скачиваются и не удаляются. `
-      + 'Делайте это только после того, как файлы действительно перенесены.',
-    ok: 'Перепривязать'
+    title: 'Перепривязать базу к этой папке?',
+    text: `База запомнит новые пути к ${total} файл(ам) в папке:\n${dir}\n\n`
+      + 'Файлы не скачиваются, не перемещаются и не удаляются. Копия базы сохраняется.',
+    ok: 'Применить'
   })){
     return;
   }
-  _dbStatus('Перепривязываю…');
+  _findStatus('Записываю новые пути…');
   try{
-    const d = await _dbPost('/api/db/relocate', {scope, new_dir: newDir});
+    const d = await _dbPost('/api/db/relocate', {scope, new_dir: dir, preview: false});
     if(!d.ok){
-      _dbStatus(d.msg || 'Не удалось перепривязать базу', 'err');
+      _findStatus(d.msg || 'Не удалось применить', 'err');
       return;
     }
-    _dbStatus(`${d.msg}. Новая папка записана в настройки.`, 'ok');
-    toast('База перепривязана', 'ok');
+    _renderFindPlan(d.plans || _findPlan, true);
+    const backup = d.backup && (d.backup.disk || d.backup.unlim);
+    _findStatus(`${d.msg || 'Готово'}.` + (backup ? ` Копия базы: ${backup}` : ''), 'ok');
+    toast('Пути в базе обновлены', 'ok');
+    const apply = document.getElementById('find-apply-btn');
+    if(apply) apply.disabled = true;
     refresh();
   }catch(e){
-    _dbStatus('Ошибка: ' + e.message, 'err');
+    _findStatus('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function previewRestoreCloud(){
+  _findResetResult();
+  _findStatus('Смотрю, какие файлы можно вернуть в папки облака…');
+  try{
+    const d = await _dbPost('/api/db/restore_cloud', {scope: 'disk', preview: true});
+    if(!d.ok){
+      _findStatus(d.msg || 'Не удалось построить план', 'err');
+      return;
+    }
+    const p = d.plan || {};
+    const lines = [
+      `Обычный Диск: всего ${p.total || 0}`,
+      `  уже на месте ${p.already || 0}`,
+      `  перенести в папки облака ${p.moves || 0}`,
+      `  не найдено ${p.missing || 0}`,
+      `  диск не подключён ${p.offline || 0}`,
+      `  спорных ${p.conflicts || 0}`
+    ];
+    if(p.conflicts){
+      lines.push('', 'Спорные не переносятся автоматически: в облаке два разных пути легли в одно имя, '
+        + 'либо на месте уже есть другой файл.');
+    }
+    const text = document.getElementById('find-result-text');
+    if(text) text.textContent = lines.join('\n');
+    const box = document.getElementById('find-result');
+    if(box) box.style.display = '';
+    _findPlan = null;
+    _findListText = (p.conflict_items || []).length
+      ? 'Спорные файлы (не переносятся):\n'
+        + p.conflict_items.slice(0, 50).map(it => '  ' + (it.path || it.name || '?')).join('\n')
+      : '';
+    const listBtn = document.getElementById('find-list-btn');
+    if(listBtn){
+      listBtn.style.display = _findListText ? '' : 'none';
+      listBtn.textContent = 'Показать список';
+    }
+    _findStatus(p.moves
+      ? `Можно вернуть ${p.moves} файл(ов) в папки, как в облаке.`
+      : 'Возвращать нечего: всё уже лежит по облачным папкам.', p.moves ? 'ok' : '');
+    const apply = document.getElementById('find-apply-btn');
+    if(apply){
+      apply.disabled = !p.moves;
+      apply.onclick = applyRestoreCloud;
+      apply.textContent = 'Вернуть структуру';
+    }
+  }catch(e){
+    _findStatus('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function applyRestoreCloud(){
+  const root = ((window._lastStatus || {}).config || {}).disk_dir || '';
+  if(!await askConfirm({
+    title: 'Вернуть файлы Диска в папки облака?',
+    text: 'Файлы будут перемещены по диску в папки с теми названиями, что в облаке.'
+      + (root ? `\nПапка Диска: ${root}` : '')
+      + '\n\nНичего не скачивается и не удаляется. Копия базы сохраняется.',
+    ok: 'Вернуть'
+  })){
+    return;
+  }
+  _findStatus('Переношу файлы…');
+  try{
+    const d = await _dbPost('/api/db/restore_cloud', {scope: 'disk', preview: false});
+    if(!d.ok){
+      _findStatus(d.msg || 'Не удалось вернуть структуру', 'err');
+      return;
+    }
+    let msg = d.msg || 'Готово';
+    if(d.errors && d.errors.length) msg += `. Не удалось: ${d.errors.length} (${d.errors[0]})`;
+    _findStatus(msg, d.errors && d.errors.length ? 'warn' : 'ok');
+    toast(msg, 'ok');
+    const apply = document.getElementById('find-apply-btn');
+    if(apply){ apply.disabled = true; apply.onclick = applyFindFiles; apply.textContent = 'Применить'; }
+    refresh();
+  }catch(e){
+    _findStatus('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function requeueMissingFromPlan(){
+  if(!_findPlan){ _findStatus('Сначала нажмите «Найти файлы»', 'err'); return; }
+  if(!await askConfirm({
+    title: 'Вернуть отсутствующие файлы в очередь?',
+    text: 'Файлы, которых нет ни в новой папке, ни на старом месте, будут скачаны заново. '
+      + 'Уже скачанные файлы и пути в базе не меняются.',
+    ok: 'Скачать заново'
+  })){
+    return;
+  }
+  _findStatus('Возвращаю в очередь…');
+  let updated = 0;
+  try{
+    for(const [scope, p] of Object.entries(_findPlan || {})){
+      const keys = (p && p.missing_keys) || [];
+      if(!keys.length) continue;
+      const d = await _dbPost('/api/verify/requeue_missing', {scope, keys});
+      if(!d.ok){ _findStatus(d.msg || 'Не удалось вернуть в очередь', 'err'); return; }
+      updated += d.updated || 0;
+    }
+    _findStatus(`Возвращено в очередь: ${updated}. Скачивание начнётся при следующем запуске.`, 'ok');
+    toast(`В очередь возвращено ${updated} файл(ов)`, 'ok');
+    refresh();
+  }catch(e){
+    _findStatus('Ошибка: ' + e.message, 'err');
   }
 }
 

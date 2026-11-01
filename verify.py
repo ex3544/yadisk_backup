@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 import paths
-from utils import compute_md5, file_size_safe, human_bytes, human_duration
+from utils import compute_md5, file_size_safe, human_bytes, human_duration, volume_ready
 
 # Как часто писать статус: читать его будет веб-панель раз в 1,5 секунды,
 # чаще писать на диск незачем.
@@ -34,6 +34,7 @@ class VerifyCounts:
     checked: int = 0
     ok: int = 0
     missing: int = 0
+    offline: int = 0
     size: int = 0
     md5: int = 0
     errors: int = 0
@@ -51,6 +52,7 @@ class VerifyCounts:
             "checked": self.checked,
             "ok": self.ok,
             "missing": self.missing,
+            "offline": self.offline,
             "size": self.size,
             "md5": self.md5,
             "errors": self.errors,
@@ -179,11 +181,16 @@ def run(
     _write_status(counts.as_dict(active=True, scope=scope, deep=deep))
 
     for i, (remote, local, size, md5) in enumerate(rows, start=1):
-        status, detail = check_one(local, size, md5, deep=deep)
+        if not volume_ready(local):
+            status, detail = "offline", "диск с этим файлом не подключён"
+        else:
+            status, detail = check_one(local, size, md5, deep=deep)
         counts.checked = i
         if status == "ok":
             counts.ok += 1
             counts.bytes_checked += int(size or 0)
+        elif status == "offline":
+            counts.offline += 1
         elif status == "missing":
             counts.missing += 1
         elif status == "size":
@@ -217,6 +224,7 @@ def render_report(data: dict) -> str:
         f"- Проверено: {data.get('checked', 0)} из {data.get('total', 0)}",
         f"- В порядке: {data.get('ok', 0)}",
         f"- Нет на диске: {data.get('missing', 0)}",
+        f"- Диск не подключён: {data.get('offline', 0)}",
         f"- Размер не совпал: {data.get('size', 0)}",
         f"- MD5 не совпал: {data.get('md5', 0)}",
         f"- Не удалось прочитать: {data.get('errors', 0)}",
@@ -231,9 +239,16 @@ def render_report(data: dict) -> str:
         lines += ["", "## Проблемные файлы", ""]
         for p in problems:
             lines.append(f"- `{p.get('path')}` — {p.get('detail')}")
+            local = p.get("local")
+            if local:
+                # Где именно искали: без этого «нет на диске» не проверить руками.
+                lines.append(f"  искали здесь: `{local}`")
         total = int(data.get("problems_total") or 0)
         if total > len(problems):
             lines.append(f"- … и ещё {total - len(problems)}")
+    if data.get("offline"):
+        lines += ["", "Файлы на отключённом диске не потеряны: подключите диск "
+                      "и запустите проверку снова."]
     lines.append("")
     lines.append("Скачанные файлы не удалены и статусы в базе не менялись.")
     return "\n".join(lines)
