@@ -1631,3 +1631,114 @@ def test_organize_asks_confirmation_outside_unlim_folder(tmp_path, monkeypatch):
 
     assert out["ok"] is False
     assert "не папка Безлимита" in out["msg"]
+
+
+# ── сверка с облаком (35.7.6) ───────────────────────────────────────────────
+
+def test_cloud_audit_start_uses_audit_slot(monkeypatch):
+    calls = {}
+
+    def fake_start(slot, script, args):
+        calls.update(slot=slot, script=script, args=args)
+        return True, "запущено"
+
+    monkeypatch.setattr(webui.tm, "start", fake_start)
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    out = webui.api_cloud_audit_start(webui.CloudAuditPayload(scope="both"))
+    assert out["ok"] is True
+    assert calls == {"slot": "audit", "script": "cloud_audit_worker.py",
+                     "args": ["--scope", "both"]}
+
+
+def test_cloud_audit_start_rejects_unknown_scope(monkeypatch):
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    out = webui.api_cloud_audit_start(webui.CloudAuditPayload(scope="all"))
+    assert out["ok"] is False
+    assert "Неизвестная база" in out["msg"]
+
+
+def test_cloud_audit_status_shows_running_flag(monkeypatch):
+    monkeypatch.setattr(webui.cloud_audit_mod, "read_status",
+                        lambda: {"scope": "disk", "same": 1})
+    out = webui._cloud_audit_status({"audit": {"running": True}})
+    assert out["running"] is True
+    assert out["same"] == 1
+
+
+def test_cloud_audit_add_new_blocked_while_downloading(monkeypatch):
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: True)
+    out = webui.api_cloud_audit_add_new()
+    assert out["ok"] is False
+    assert "Сначала остановите" in out["msg"]
+
+
+def test_cloud_audit_add_new_reports_counts(monkeypatch):
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+    monkeypatch.setattr(webui.cloud_audit_mod, "add_new", lambda: {
+        "added": 2, "requeued": 1, "renamed": 1, "skipped": 0, "errors": [],
+    })
+    monkeypatch.setattr(webui.cloud_audit_mod, "read_status",
+                        lambda: {"scope": "disk"})
+    reset = []
+    monkeypatch.setattr(webui, "reset_session_counters", reset.append)
+
+    out = webui.api_cloud_audit_add_new()
+    assert out["ok"] is True
+    assert "Добавлено новых: 2" in out["msg"]
+    assert reset == ["disk"]
+
+
+def test_cloud_audit_mark_gone_reports_count(monkeypatch):
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+    monkeypatch.setattr(webui.cloud_audit_mod, "mark_gone", lambda: {
+        "marked": 3, "errors": [],
+    })
+    out = webui.api_cloud_audit_mark_gone()
+    assert out["ok"] is True
+    assert "3" in out["msg"]
+
+
+def test_cloud_audit_stop_marks_status_stopped(monkeypatch):
+    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
+    monkeypatch.setattr(webui.tm, "stop", lambda slot: (True, "остановлено"))
+    monkeypatch.setattr(webui.cloud_audit_mod, "read_status",
+                        lambda: {"scope": "unlim"})
+    stopped = {}
+    monkeypatch.setattr(webui.cloud_audit_mod, "write_stopped",
+                        lambda scope: stopped.update(scope=scope))
+    out = webui.api_cloud_audit_stop()
+    assert out["ok"] is True
+    assert stopped == {"scope": "unlim"}
+
+
+def test_cloud_audit_report_reads_file(tmp_path, monkeypatch):
+    report = tmp_path / "cloud_audit_report.txt"
+    report.write_text("СВЕРКА С ОБЛАКОМ\n", encoding="utf-8")
+    monkeypatch.setattr(webui.paths, "CLOUD_AUDIT_REPORT_FILE", report)
+    out = webui.api_cloud_audit_report()
+    assert out["ok"] is True
+    assert "СВЕРКА С ОБЛАКОМ" in out["report"]
+
+
+def test_db_stats_keeps_deleted_out_of_total(tmp_path):
+    """«Удалён из облака» — история, а не очередь: total её не считает."""
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE files (remote_path TEXT PRIMARY KEY, size INTEGER, "
+                "status TEXT, local_path TEXT, error TEXT, downloaded_at TEXT)")
+    con.executemany(
+        "INSERT INTO files (remote_path, size, status) VALUES (?, ?, ?)",
+        [("disk:/a.jpg", 10, "downloaded"),
+         ("disk:/b.jpg", 20, "deleted"),
+         ("disk:/c.jpg", 30, "pending")],
+    )
+    con.commit()
+    con.close()
+
+    out = webui.db_stats(db, "files", "remote_path")
+    assert out["deleted"] == 1
+    assert out["total"] == 2
+    assert out["bytes_total"] == 40

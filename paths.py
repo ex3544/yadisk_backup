@@ -113,6 +113,13 @@ VERIFY_REPORT_FILE = LOG_DIR / "verify_report.md"
 # полный список для Excel/блокнота.
 ORGANIZE_REPORT_FILE = LOG_DIR / "organize_report.txt"
 ORGANIZE_PLAN_FILE = LOG_DIR / "organize_plan.csv"
+# Сверка с облаком (35.7.6): прогресс для окна, читаемый отчёт, полный
+# список в CSV и полный план в JSON (по нему работают кнопки действий).
+CLOUD_AUDIT_STATUS_FILE = LOG_DIR / "cloud_audit_status.json"
+CLOUD_AUDIT_REPORT_FILE = LOG_DIR / "cloud_audit_report.txt"
+CLOUD_AUDIT_CSV_FILE = LOG_DIR / "cloud_audit.csv"
+CLOUD_AUDIT_PLAN_FILE = LOG_DIR / "cloud_audit_plan.json"
+CLOUD_AUDIT_ACTIONS_FILE = LOG_DIR / "cloud_audit_actions.json"
 ACTION_LOG = LOG_DIR / "webui_actions.log"
 MIGRATIONS_LOG = LOG_DIR / "migrations.log"
 LAUNCHER_LOG = LOG_DIR / "launcher.log"

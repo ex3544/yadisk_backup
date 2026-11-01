@@ -1266,3 +1266,45 @@ def test_relocate_sorting_and_lost_queue_are_visible_in_ui():
     assert 'id="organize-report-panel"' in organize
     assert "/api/organize/report" in html
     assert "renderOrganizeDefaults" in html
+
+
+def test_cloud_audit_card_sits_between_verify_and_relocate():
+    """35.7.6: «Сверка с облаком» — в «Диагностике», после проверки файлов."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    diag = _panel_html(html, "diagnostics")
+
+    assert 'id="cloud-audit-card"' in diag
+    assert (diag.index('id="verify-card"')
+            < diag.index('id="cloud-audit-card"')
+            < diag.index('id="find-files-card"'))
+
+    # Выбор баз за один проход и обе кнопки действий.
+    for option in ('value="both"', 'value="disk"', 'value="unlim"'):
+        assert option in diag
+    for fn in ("startCloudAudit()", "stopCloudAudit()", "auditAddNew()",
+               "auditMarkGone()", "toggleAuditList('same')",
+               "toggleAuditList('new')", "toggleAuditList('changed')",
+               "toggleAuditList('gone')", "toggleAuditReport()"):
+        assert fn in diag
+
+    # Цифры четырёх состояний и отчёт на месте.
+    for ident in ("audit-same", "audit-new", "audit-changed", "audit-gone",
+                  "audit-list", "audit-report", "audit-actions"):
+        assert f'id="{ident}"' in diag
+
+    # Подсказки: у карточки и у каждой кнопки — что делает и для чего нужно.
+    assert 'data-tip="Проверяет, что сейчас реально лежит в облаке' in diag
+    assert 'data-tip="Обходит облако онлайн и только читает список файлов' in diag
+    assert 'data-tip="Новые и изменившиеся файлы встанут в очередь' in diag
+    assert 'data-tip="Файлы, которые удалили из облака' in diag
+    assert 'data-tip="Диск — обычные папки' in diag
+
+
+def test_cloud_audit_worker_is_in_frozen_build():
+    """Воркер сверки должен запускаться из собранного exe."""
+    spec = (PROJECT_DIR / "yadisk_backup.spec").read_text(encoding="utf-8")
+    assert "'cloud_audit'" in spec
+    assert "'cloud_audit_worker'" in spec
+
+    import webui
+    assert webui.WORKER_SCRIPTS["cloud_audit_worker.py"] == "cloud_audit_worker"

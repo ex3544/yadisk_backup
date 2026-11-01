@@ -52,6 +52,11 @@ def temp_paths(tmp_path, monkeypatch):
         "UPDATES_STATUS_FILE": logs / "updates_status.json",
         "VERIFY_STATUS_FILE": logs / "verify_status.json",
         "VERIFY_REPORT_FILE": logs / "verify_report.md",
+        "CLOUD_AUDIT_STATUS_FILE": logs / "cloud_audit_status.json",
+        "CLOUD_AUDIT_REPORT_FILE": logs / "cloud_audit_report.txt",
+        "CLOUD_AUDIT_CSV_FILE": logs / "cloud_audit.csv",
+        "CLOUD_AUDIT_PLAN_FILE": logs / "cloud_audit_plan.json",
+        "CLOUD_AUDIT_ACTIONS_FILE": logs / "cloud_audit_actions.json",
     }
     for name, value in mapping.items():
         monkeypatch.setattr(paths, name, value)
@@ -128,14 +133,17 @@ def test_zip_contains_only_safe_files(temp_paths):
         names = set(zf.namelist())
         payload = "".join(zf.read(n).decode("utf-8") for n in names)
     # С 35.6.0 в архив кладутся хвосты логов: report.json/… плюс logs/<файл>.log.
-    # С 35.7.4 — ещё changelog.md, с 35.7.5 — отчёт проверки файлов.
+    # С 35.7.4 — ещё changelog.md, с 35.7.5 — отчёт проверки файлов,
+    # с 35.7.6 — отчёт сверки с облаком.
     expected = {"report.json", "report.txt", "README.txt", "changelog.md"}
     assert expected <= names
     extra = names - expected
     assert all(
         n.startswith("logs/") and (n.endswith(".log")
                                    or n.endswith("verify_report.md")
-                                   or n.endswith("verify_status.json"))
+                                   or n.endswith("verify_status.json")
+                                   or n.endswith("cloud_audit_report.txt")
+                                   or n.endswith("cloud_audit_status.json"))
         for n in extra
     )
     assert TOKEN not in payload
@@ -158,6 +166,25 @@ def test_zip_includes_last_verify_report(temp_paths):
     assert status["missing"] == 1
     assert report["verify"]["exists"] is True
     assert report["verify"]["missing"] == 1
+
+
+def test_zip_includes_last_cloud_audit(temp_paths):
+    """С 35.7.6 диагностика везёт отчёт последней сверки с облаком."""
+    paths.CLOUD_AUDIT_STATUS_FILE.write_text(
+        json.dumps({"scope": "disk", "same": 10, "new": 1}),
+        encoding="utf-8",
+    )
+    paths.CLOUD_AUDIT_REPORT_FILE.write_text("СВЕРКА С ОБЛАКОМ\n", encoding="utf-8")
+    report = diagnostics.build_report()
+    target = diagnostics.write_report(report)
+    with zipfile.ZipFile(target) as zf:
+        names = set(zf.namelist())
+        status = json.loads(zf.read("logs/cloud_audit_status.json"))
+        text = zf.read("logs/cloud_audit_report.txt").decode("utf-8")
+    assert "logs/cloud_audit_report.txt" in names
+    assert "logs/cloud_audit_status.json" in names
+    assert status["new"] == 1
+    assert "СВЕРКА С ОБЛАКОМ" in text
 
 
 def test_zip_name_has_report_id_and_profile(temp_paths):

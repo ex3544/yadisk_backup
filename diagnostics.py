@@ -1180,6 +1180,7 @@ def write_report(report: dict | None = None) -> Path:
             "changelog.md — что изменилось в этой версии.\n"
             "logs/ — последние 2 МБ каждого журнала (полные логи не входят).\n"
             "logs/verify_report.md и logs/verify_status.json — последняя проверка файлов.\n"
+            "logs/cloud_audit_report.txt и logs/cloud_audit_status.json — последняя сверка с облаком.\n"
             "Секреты и содержимое файлов в отчёт не включаются.\n",
         )
         changelog = changelog_section()
@@ -1192,6 +1193,8 @@ def write_report(report: dict | None = None) -> Path:
         for name, path in (
             ("verify_report.md", paths.VERIFY_REPORT_FILE),
             ("verify_status.json", paths.VERIFY_STATUS_FILE),
+            ("cloud_audit_report.txt", paths.CLOUD_AUDIT_REPORT_FILE),
+            ("cloud_audit_status.json", paths.CLOUD_AUDIT_STATUS_FILE),
         ):
             try:
                 if path.exists():

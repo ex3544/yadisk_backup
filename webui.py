@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import backups
+import cloud_audit as cloud_audit_mod
 import dbsnapshots
 import diagnostics
 import monitor
@@ -1508,7 +1509,7 @@ def db_stats(db_file: Path, table: str = "files",
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-                "lost": 0,
+                "lost": 0, "deleted": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
@@ -1516,7 +1517,7 @@ def db_stats(db_file: Path, table: str = "files",
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-               "lost": 0,
+               "lost": 0, "deleted": 0,
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
@@ -1526,6 +1527,11 @@ def db_stats(db_file: Path, table: str = "files",
             if st not in out:
                 out[st] = 0
             out[st] = r["n"]
+            # «Удалён из облака» — это история, а не очередь: в общий объём
+            # такие файлы не входят, иначе полоса готовности откатывалась бы
+            # назад после «Пометить пропавшие».
+            if st == "deleted":
+                continue
             out["total"] += r["n"]
             out["bytes_total"] += r["b"]
             # Объём по каждому статусу: по нему считается остаток в гигабайтах
@@ -1724,7 +1730,11 @@ def unlim_db_summary() -> dict:
         clusters_total = 0
         clusters_unfetched = 0
         if "unlim_files" in tables:
-            total_files = c.execute("SELECT count(*) FROM unlim_files").fetchone()[0]
+            # Файлы, помеченные «удалён из облака», остаются в базе как
+            # история, но в счётчики и оценку готовности не входят.
+            total_files = c.execute(
+                "SELECT count(*) FROM unlim_files WHERE status <> 'deleted'"
+            ).fetchone()[0]
         if "unlim_clusters" in tables:
             clusters_total = c.execute("SELECT count(*) FROM unlim_clusters").fetchone()[0]
             clusters_unfetched = c.execute("SELECT count(*) FROM unlim_clusters WHERE fetched = 0").fetchone()[0]
@@ -1926,6 +1936,7 @@ def api_status():
         "watchdog": watchdog.status(),
         "tasks": tasks,
         "verify": _verify_status(verify_mod.read_status(), tasks),
+        "cloud_audit": _cloud_audit_status(tasks),
         "pipeline": pipeline.status(),
         "speed": download_status,
         "disk_speed": disk_status,
@@ -4146,6 +4157,102 @@ def _verify_status(data: dict, tasks: dict) -> dict:
     return out
 
 
+# ── Сверка с облаком (35.7.6) ───────────────────────────────────────────────
+
+
+class CloudAuditPayload(BaseModel):
+    scope: str = "both"
+
+
+@app.post("/api/cloud/audit/start")
+def api_cloud_audit_start(payload: CloudAuditPayload):
+    """Запускает онлайн-сверку облака с базой в фоновой задаче."""
+    log_action("/api/cloud/audit/start", payload)
+    scope = (payload.scope or "both").strip().lower()
+    if scope not in ("disk", "unlim", "both"):
+        return {"ok": False, "msg": "Неизвестная база для сверки"}
+    ok, msg = tm.start("audit", "cloud_audit_worker.py", ["--scope", scope])
+    return {"ok": ok, "msg": msg, "scope": scope}
+
+
+@app.post("/api/cloud/audit/stop")
+def api_cloud_audit_stop():
+    log_action("/api/cloud/audit/stop")
+    data = cloud_audit_mod.read_status()
+    ok, msg = tm.stop("audit")
+    if ok:
+        cloud_audit_mod.write_stopped(str(data.get("scope") or "both"))
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/cloud/audit/add_new")
+def api_cloud_audit_add_new():
+    """Ставит в очередь новые и изменившиеся файлы из последней сверки."""
+    log_action("/api/cloud/audit/add_new")
+    if _any_task_running(("disk", "unlim", "verify", "organize", "audit")):
+        return {"ok": False, "msg": "Сначала остановите выгрузку и другие проверки"}
+    try:
+        result = cloud_audit_mod.add_new()
+    except cloud_audit_mod.AuditError as exc:
+        return {"ok": False, "msg": str(exc)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Ошибка базы: {exc}"}
+    data = cloud_audit_mod.read_status()
+    for one in (("disk", "unlim") if data.get("scope") == "both"
+                else (str(data.get("scope") or "disk"),)):
+        reset_session_counters(one)
+    msg = (
+        f"Добавлено новых: {result['added']} · "
+        f"поставлено на повтор: {result['requeued']} · "
+        f"старых копий переименовано: {result['renamed']}"
+    )
+    if result["skipped"]:
+        msg += f" · пропущено: {result['skipped']}"
+    return {"ok": True, "msg": msg, **result}
+
+
+@app.post("/api/cloud/audit/mark_gone")
+def api_cloud_audit_mark_gone():
+    """Помечает файлы, исчезнувшие из облака; на диске они остаются."""
+    log_action("/api/cloud/audit/mark_gone")
+    if _any_task_running(("disk", "unlim", "verify", "organize", "audit")):
+        return {"ok": False, "msg": "Сначала остановите выгрузку и другие проверки"}
+    try:
+        result = cloud_audit_mod.mark_gone()
+    except cloud_audit_mod.AuditError as exc:
+        return {"ok": False, "msg": str(exc)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "msg": f"Ошибка базы: {exc}"}
+    return {
+        "ok": True,
+        "msg": f"Помечено «удалён из облака»: {result['marked']}",
+        **result,
+    }
+
+
+@app.get("/api/cloud/audit/status")
+def api_cloud_audit_status():
+    return {"ok": True, "audit": _cloud_audit_status(tm.status())}
+
+
+@app.get("/api/cloud/audit/report")
+def api_cloud_audit_report():
+    """Текст последней сверки для окна."""
+    try:
+        text = paths.CLOUD_AUDIT_REPORT_FILE.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    return {"ok": True, "report": text}
+
+
+def _cloud_audit_status(tasks: dict) -> dict:
+    out = dict(cloud_audit_mod.read_status() or {})
+    task = (tasks or {}).get("audit") or {}
+    out["running"] = bool(task.get("running"))
+    out["report_available"] = paths.CLOUD_AUDIT_REPORT_FILE.exists()
+    return out
+
+
 class UpdateOpenPayload(BaseModel):
     url: str = ""
 
@@ -4313,6 +4420,7 @@ WORKER_SCRIPTS = {
     "report_status.py": "report_status",
     "watch.py": "watch",
     "verify_local.py": "verify_local",
+    "cloud_audit_worker.py": "cloud_audit_worker",
 }
 
 

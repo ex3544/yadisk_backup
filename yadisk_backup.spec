@@ -80,6 +80,8 @@ hidden_imports = [
     'watch',
     'verify',
     'verify_local',
+    'cloud_audit',
+    'cloud_audit_worker',
 ]
 
 datas = [

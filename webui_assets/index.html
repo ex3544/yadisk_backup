@@ -1856,6 +1856,69 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="setup-hint">Файлы не удаляются, статусы в базе не меняются — это только осмотр.</div>
   </div>
 
+  <div class="card" id="cloud-audit-card">
+    <div class="card-title tipnode" data-tip="Проверяет, что сейчас реально лежит в облаке, и сравнивает с нашей базой. Ничего не скачивает и не удаляет — только показывает: что совпадает, что появилось, что изменилось, что пропало. Нужна, если файлы добавляли или удаляли с телефона, другого компьютера или через сайт Яндекса, а наша база об этом ещё не знает.">Сверка с облаком<span class="tip-i" aria-hidden="true">i</span></div>
+    <div class="card-sub">Что сейчас реально лежит в Яндексе и как это сходится с базой: ✅ совпадает, ➕ новое, 🔁 изменилось, ➖ пропало.</div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <select id="audit-scope" class="tipnode" aria-label="Какие базы сверять"
+              data-tip="Диск — обычные папки, Безлимит — мобильные фото и видео, Обе — обе базы за один проход.">
+        <option value="both">Обе базы</option>
+        <option value="disk">Обычный Диск</option>
+        <option value="unlim">Безлимит</option>
+      </select>
+      <button class="primary tipnode" id="audit-start-btn" onclick="startCloudAudit()"
+              data-tip="Обходит облако онлайн и только читает список файлов. Ничего не скачивается, статусы в базе не меняются. На большом облаке занимает несколько минут.">
+        <svg class="ico-sm"><use href="#i-search"/></svg>Проверить облако
+      </button>
+      <button class="ghost" id="audit-stop-btn" onclick="stopCloudAudit()" style="display:none">Остановить</button>
+    </div>
+
+    <div id="audit-status" class="setup-hint" role="status" aria-live="polite" style="margin-top:10px"></div>
+
+    <div id="audit-counters" class="reset-grid" style="margin-top:10px;display:none">
+      <button class="reset-btn tipnode" onclick="toggleAuditList('same')"
+              data-tip="Файлы, которые есть и в облаке, и в базе, размер совпадает. Нажмите, чтобы увидеть пояснение и где взять полный список.">
+        <span>✅ Совпадает</span><span class="reset-count" id="audit-same">0</span>
+      </button>
+      <button class="reset-btn tipnode" onclick="toggleAuditList('new')"
+              data-tip="Файлы, которые есть в облаке, а в базе их нет: их добавили с телефона, другого компьютера или через сайт. Нажмите, чтобы увидеть первые 500.">
+        <span>➕ Новое</span><span class="reset-count" id="audit-new">0</span>
+      </button>
+      <button class="reset-btn tipnode" onclick="toggleAuditList('changed')"
+              data-tip="Файлы, которые есть в облаке и в базе, но размер или содержимое уже не совпадают: файл заменили или изменили. Нажмите, чтобы увидеть первые 500.">
+        <span>🔁 Изменилось</span><span class="reset-count" id="audit-changed">0</span>
+      </button>
+      <button class="reset-btn tipnode" onclick="toggleAuditList('gone')"
+              data-tip="Файлы, которые есть в базе, но из облака исчезли. На диске они остаются. Нажмите, чтобы увидеть первые 500.">
+        <span>➖ Пропало</span><span class="reset-count" id="audit-gone">0</span>
+      </button>
+    </div>
+    <pre id="audit-list" class="diag-pre" style="display:none"></pre>
+
+    <div class="actions" id="audit-actions" style="margin-top:10px;display:none">
+      <button class="primary tipnode" id="audit-add-new-btn" onclick="auditAddNew()"
+              data-tip="Новые и изменившиеся файлы встанут в очередь и скачаются при следующем запуске. Если файл изменился, старая копия останется рядом с припиской «_старая» — ничего не удаляется.">
+        Добавить новые в очередь
+      </button>
+      <button class="danger tipnode" id="audit-mark-gone-btn" onclick="auditMarkGone()"
+              data-tip="Файлы, которые удалили из облака, получат в базе пометку «удалён из облака». На вашем диске они останутся — программа ничего не удаляет.">
+        Пометить пропавшие
+      </button>
+    </div>
+
+    <div id="audit-result" style="display:none;margin-top:10px">
+      <div class="list-toggle" id="audit-report-toggle" onclick="toggleAuditReport()">
+        <span class="list-toggle-chevron" id="audit-report-chevron">▸</span>
+        <span>Отчёт сверки</span>
+        <span class="list-toggle-hint" id="audit-report-hint">показать</span>
+      </div>
+      <pre id="audit-report" class="diag-pre" style="display:none"></pre>
+    </div>
+
+    <div class="setup-hint">Сверка и обе кнопки ничего не удаляют. Свежий список файлов строится при каждом запуске — это и есть проверка «что сейчас в облаке».</div>
+  </div>
+
   <div class="card">
     <div class="card-title">Последние отчёты</div>
     <div class="card-sub">Файлы лежат в папке данных приложения.</div>
@@ -4424,6 +4487,7 @@ async function refresh(){
     renderOrganizeDefaults(s.config);
     renderFindRoots();
     renderVerify(s.verify);
+    renderCloudAudit(s.cloud_audit);
     renderResetCounts(s);
     renderRebuildCounts(s);
 
@@ -5543,6 +5607,216 @@ function renderVerify(v){
   }
 }
 
+// ── Сверка с облаком (35.7.6) ──
+const AUDIT_KIND_NAMES = {same:'совпадает', new:'новое', changed:'изменилось', gone:'пропало'};
+
+async function startCloudAudit(){
+  const scope = (document.getElementById('audit-scope') || {}).value || 'both';
+  const status = document.getElementById('audit-status');
+  if(status){ status.className = 'setup-hint'; status.textContent = 'Запускаю сверку…'; }
+  try{
+    const r = await fetch('/api/cloud/audit/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scope})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.msg || 'Не удалось запустить сверку');
+    toast('Сверка с облаком запущена', 'ok');
+  }catch(e){
+    if(status){ status.className = 'setup-hint err'; status.textContent = 'Ошибка: ' + e.message; }
+    toast('Не удалось запустить сверку', 'err');
+  }
+  refresh();
+}
+
+async function stopCloudAudit(){
+  if(!await askConfirm({
+    title: 'Остановить сверку?',
+    text: 'Сверка прекратится. База и файлы не изменятся — можно запустить снова.',
+    ok: 'Остановить', danger: true
+  })) return;
+  try{
+    const r = await fetch('/api/cloud/audit/stop', {method:'POST'});
+    const d = await r.json();
+    toast(d.msg || 'Сверка остановлена', d.ok ? 'ok' : 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+  refresh();
+}
+
+async function auditAddNew(){
+  const a = window._auditStatus || {};
+  const count = (+(a.new || 0)) + (+(a.changed || 0));
+  if(!count){ toast('Новых и изменившихся файлов нет', 'err'); return; }
+  if(!await askConfirm({
+    title: 'Добавить новые в очередь?',
+    text: `В очередь встанут ${count.toLocaleString('ru')} файлов: новые и изменившиеся. `
+      + 'Изменившиеся скачаются заново, а их старые копии останутся рядом '
+      + 'с припиской «_старая». Ничего не удаляется.',
+    ok: 'Добавить в очередь'
+  })) return;
+  try{
+    const r = await fetch('/api/cloud/audit/add_new', {method:'POST'});
+    const d = await r.json();
+    toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
+    if(d.ok){
+      if((d.errors || []).length){
+        toast(`Не удалось обработать: ${d.errors.length} — подробности в отчёте сверки`, 'err');
+      }
+      refresh();
+      toggleAuditReport(true);
+    }
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function auditMarkGone(){
+  const a = window._auditStatus || {};
+  const count = +(a.gone || 0);
+  if(!count){ toast('Пропавших файлов нет', 'err'); return; }
+  if(!await askConfirm({
+    title: 'Пометить пропавшие?',
+    text: `${count.toLocaleString('ru')} файлов получат в базе пометку «удалён из облака». `
+      + 'На вашем диске они останутся — программа ничего не удаляет. '
+      + 'Скачивать их программа больше не будет.',
+    ok: 'Пометить', danger: true
+  })) return;
+  try{
+    const r = await fetch('/api/cloud/audit/mark_gone', {method:'POST'});
+    const d = await r.json();
+    toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
+    if(d.ok){ refresh(); toggleAuditReport(true); }
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+function toggleAuditList(kind){
+  const box = document.getElementById('audit-list');
+  if(!box) return;
+  if(box.style.display !== 'none' && box.dataset.kind === kind){
+    box.style.display = 'none';
+    box.dataset.kind = '';
+    return;
+  }
+  const a = window._auditStatus || {};
+  const lines = [];
+  if(kind === 'same'){
+    lines.push(`✅ Совпадает: ${(+(a.same || 0)).toLocaleString('ru')} файлов.`);
+    lines.push('Это самый длинный список, поэтому в окне он не показывается. '
+      + 'Полный перечень всех файлов лежит в logs/cloud_audit.csv.');
+  }else{
+    const total = +(((a.items_total || {})[kind]) || 0);
+    const items = a[kind + '_items'] || [];
+    lines.push(`${AUDIT_KIND_NAMES[kind]}: ${total.toLocaleString('ru')}`);
+    if(!items.length) lines.push('  список пуст');
+    for(const it of items){
+      const path = it.scope === 'disk' ? it.key : it.name;
+      const base = it.scope === 'disk' ? 'Диск' : 'Безлимит';
+      lines.push(`  [${base}] ${path}${it.detail ? ' — ' + it.detail : ''}`);
+    }
+    if(total > items.length){
+      lines.push(`  … и ещё ${(total - items.length).toLocaleString('ru')} — полный список в CSV.`);
+    }
+  }
+  box.textContent = lines.join('\n');
+  box.dataset.kind = kind;
+  box.style.display = 'block';
+}
+
+async function loadCloudAuditReport(){
+  try{
+    const r = await fetch('/api/cloud/audit/report');
+    const d = await r.json();
+    const out = document.getElementById('audit-report');
+    if(out) out.textContent = d.report || 'Отчёт пока не готов.';
+  }catch(e){ /* отчёт — необязателен */ }
+}
+
+function toggleAuditReport(force){
+  const box = document.getElementById('audit-report');
+  const hint = document.getElementById('audit-report-hint');
+  const chevron = document.getElementById('audit-report-chevron');
+  if(!box) return;
+  const show = force === undefined ? box.style.display === 'none' : !!force;
+  box.style.display = show ? 'block' : 'none';
+  if(hint) hint.textContent = show ? 'скрыть' : 'показать';
+  if(chevron) chevron.textContent = show ? '▾' : '▸';
+  if(show) loadCloudAuditReport();
+}
+
+function renderCloudAudit(a){
+  const status = document.getElementById('audit-status');
+  if(!status) return;
+  window._auditStatus = a || {};
+  const running = !!(a && a.running);
+  const startBtn = document.getElementById('audit-start-btn');
+  const stopBtn = document.getElementById('audit-stop-btn');
+  if(startBtn) startBtn.disabled = running;
+  if(stopBtn) stopBtn.style.display = running ? 'inline-flex' : 'none';
+
+  const same = +(a && a.same || 0);
+  const nw = +(a && a.new || 0);
+  const changed = +(a && a.changed || 0);
+  const gone = +(a && a.gone || 0);
+  const setCount = (id, value) => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = value.toLocaleString('ru');
+  };
+  setCount('audit-same', same);
+  setCount('audit-new', nw);
+  setCount('audit-changed', changed);
+  setCount('audit-gone', gone);
+  const counters = document.getElementById('audit-counters');
+  if(counters) counters.style.display = (a && a.finished_at) ? 'grid' : 'none';
+
+  if(running){
+    status.className = 'setup-hint';
+    const n = +(a.cloud_files || 0);
+    const label = a.stage === 'disk' ? 'Диск'
+      : a.stage === 'unlim' ? 'Безлимит' : '';
+    status.textContent = label
+      ? `Читаю облако (${label}): ${n.toLocaleString('ru')} файлов…`
+      : 'Готовлюсь к сверке…';
+  }else if(a && a.error){
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + a.error;
+  }else if(a && a.stage === 'stopped'){
+    status.className = 'setup-hint warn';
+    status.textContent = 'Сверка остановлена. Можно запустить снова.';
+  }else if(a && a.finished_at){
+    const total = same + nw + changed + gone;
+    if(!total){
+      status.className = 'setup-hint';
+      status.textContent = 'Сверка закончена, но в облаке и в базе ничего не нашлось.';
+    }else if(nw || changed || gone){
+      status.className = 'setup-hint warn';
+      status.textContent = `Сверено ${total.toLocaleString('ru')}: `
+        + `✅ ${same.toLocaleString('ru')} · ➕ ${nw.toLocaleString('ru')} · `
+        + `🔁 ${changed.toLocaleString('ru')} · ➖ ${gone.toLocaleString('ru')}`;
+    }else{
+      status.className = 'setup-hint ok';
+      status.textContent = `✅ Всё совпадает: ${same.toLocaleString('ru')} файлов`;
+    }
+  }else{
+    status.className = 'setup-hint';
+    status.textContent = '';
+  }
+
+  const actions = document.getElementById('audit-actions');
+  if(actions) actions.style.display =
+    (!running && a && a.finished_at && (nw || changed || gone)) ? '' : 'none';
+  const addBtn = document.getElementById('audit-add-new-btn');
+  const markBtn = document.getElementById('audit-mark-gone-btn');
+  if(addBtn) addBtn.disabled = running || !(nw || changed);
+  if(markBtn) markBtn.disabled = running || !gone;
+
+  const result = document.getElementById('audit-result');
+  if(result) result.style.display = (a && a.started_at) ? 'block' : 'none';
+}
+
 async function buildDiagnostics(){
   setDiagBusy(true, 'Собираю отчёт… Это займёт несколько секунд.');
   try{
@@ -5863,7 +6137,11 @@ function renderDbScope(){
   const info = document.getElementById('db-scope-info');
   if(info){
     const total = db.total || 0;
-    info.textContent = total ? `в базе ${total.toLocaleString('ru')} файлов` : 'база пуста или ещё не создана';
+    const gone = db.deleted || 0;
+    info.textContent = total
+      ? `в базе ${total.toLocaleString('ru')} файлов`
+        + (gone ? ` · удалено из облака ${gone.toLocaleString('ru')}` : '')
+      : 'база пуста или ещё не создана';
   }
   const newDir = document.getElementById('db-new-dir');
   if(newDir && scope === 'unlim'){
