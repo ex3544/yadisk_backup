@@ -77,6 +77,7 @@ DB_FILE = paths.DB_FILE
 UNLIM_DB_FILE = paths.UNLIM_DB_FILE
 COOKIES_FILE = paths.COOKIES_FILE
 COOKIES_FETCH_STATUS = paths.COOKIES_FETCH_STATUS
+TOKEN_FETCH_STATUS = paths.TOKEN_FETCH_STATUS
 ACTION_LOG = paths.ACTION_LOG
 TEMPLATES_DIR = BUNDLE_DIR / "webui_assets"
 
@@ -1703,6 +1704,40 @@ def cookies_fetch_status() -> dict:
     return data
 
 
+# Какой файл статуса токена мы уже подхватили в os.environ. fetch_token.py
+# пишет токен в .env отдельным процессом, поэтому без перечитывания UI видел
+# бы старый токен до перезапуска программы.
+_token_env_stamp: float | None = None
+
+
+def token_fetch_status() -> dict:
+    """Статус полуавтоматического получения токена (fetch_token.py)."""
+    global _token_env_stamp
+    data: dict = {"state": "idle", "msg": ""}
+    if TOKEN_FETCH_STATUS.exists():
+        try:
+            data = json.loads(TOKEN_FETCH_STATUS.read_text(encoding="utf-8"))
+        except Exception:
+            return {"state": "unknown", "msg": "Ошибка чтения статуса"}
+    if data.get("state") == "running":
+        task = tm.status().get("token_fetch")
+        if task is not None and not task.get("running"):
+            data = {"state": "stopped", "msg": "Процесс завершён",
+                    "updated_at": data.get("updated_at")}
+    if data.get("state") == "done":
+        try:
+            stamp = TOKEN_FETCH_STATUS.stat().st_mtime
+        except OSError:
+            stamp = None
+        if stamp is not None and stamp != _token_env_stamp:
+            try:
+                load_dotenv(ENV_FILE, override=True)
+            except Exception:  # noqa: BLE001 - статус важнее перечитывания
+                pass
+            _token_env_stamp = stamp
+    return data
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -1945,6 +1980,7 @@ def api_status():
         "disk_state": disk_status.get("state"),
         "download_error": download_error,
         "cookies_fetch": cookies_fetch_status(),
+        "token_fetch": token_fetch_status(),
         "last_unlim_log": get_last_unlim_log(),
         "monitor": monitor.monitor_status(),
     }
@@ -2922,6 +2958,30 @@ def api_cookies_fetch_cancel():
     try:
         COOKIES_FETCH_STATUS.parent.mkdir(parents=True, exist_ok=True)
         COOKIES_FETCH_STATUS.write_text(
+            json.dumps({"state": "cancelled", "msg": "Отменено пользователем",
+                        "updated_at": time.time()}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/token/fetch")
+def api_token_fetch():
+    """Запускает полуавтоматическое получение OAuth-токена через Playwright."""
+    st = tm.status().get("token_fetch")
+    if st and st.get("running"):
+        return {"ok": False, "msg": "Получение токена уже идёт"}
+    ok, msg = tm.start("token_fetch", "fetch_token.py", [])
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/token/fetch/cancel")
+def api_token_fetch_cancel():
+    ok, msg = tm.stop("token_fetch")
+    try:
+        TOKEN_FETCH_STATUS.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_FETCH_STATUS.write_text(
             json.dumps({"state": "cancelled", "msg": "Отменено пользователем",
                         "updated_at": time.time()}, ensure_ascii=False),
             encoding="utf-8")
@@ -3957,6 +4017,56 @@ def api_diagnostics_key(payload: ReportKeyPayload):
             "configured": diagnostics.report_key_configured()}
 
 
+class FeedbackPayload(BaseModel):
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    message: str = ""
+    consent: bool = False
+    attach_report: bool = True
+
+
+@app.post("/api/diagnostics/feedback")
+def api_diagnostics_feedback(payload: FeedbackPayload):
+    """Отправляет сообщение разработчику через Cloudflare Worker в Telegram."""
+    log_action("diagnostics/feedback", {"attach_report": payload.attach_report})
+    name = (payload.name or "").strip()
+    email = (payload.email or "").strip()
+    phone = (payload.phone or "").strip()
+    message = (payload.message or "").strip()
+    if not name:
+        return {"ok": False, "error": "Укажите имя."}
+    if len(name) > 80:
+        return {"ok": False, "error": "Имя слишком длинное (до 80 символов)."}
+    if not email or "@" not in email or "." not in email.rsplit("@", 1)[-1] or " " in email:
+        return {"ok": False, "error": "Укажите почту — по ней придёт ответ."}
+    if len(email) > 120:
+        return {"ok": False, "error": "Почта слишком длинная (до 120 символов)."}
+    if len(phone) > 40:
+        return {"ok": False, "error": "Телефон слишком длинный (до 40 символов)."}
+    if not message:
+        return {"ok": False, "error": "Опишите проблему — без текста отправить нечего."}
+    if len(message) > 4000:
+        return {"ok": False, "error": "Сообщение слишком длинное (до 4000 символов)."}
+    if not payload.consent:
+        return {"ok": False, "error": "Нужно согласие на отправку сообщения."}
+    report_path = None
+    try:
+        if payload.attach_report:
+            report = diagnostics.build_report(
+                tm.status(), full_cycle.status(),
+                updates=updater.updates_snapshot(update_manager.status()),
+            )
+            report_path = diagnostics.write_report(report)
+        result = diagnostics.send_feedback(name, email, phone, message, report_path)
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")},
+            status_code=500,
+        )
+    return result
+
+
 @app.get("/api/diagnostics/reports")
 def api_diagnostics_reports():
     return {"ok": True, "reports": diagnostics.latest_reports()}
@@ -4479,6 +4589,7 @@ WORKER_SCRIPTS = {
     "organize.py": "organize",
     "dedupe.py": "dedupe",
     "fetch_cookies.py": "fetch_cookies",
+    "fetch_token.py": "fetch_token",
     "extract_cookies.py": "extract_cookies",
     "report_status.py": "report_status",
     "watch.py": "watch",

@@ -75,6 +75,7 @@ hidden_imports = [
     'unlim_download',
     'unlim_worker',
     'fetch_cookies',
+    'fetch_token',
     'extract_cookies',
     'report_status',
     'watch',

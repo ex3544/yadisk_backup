@@ -1403,6 +1403,62 @@ def send_report(path: Path | None = None,
     return result
 
 
+def send_feedback(name: str,
+                  email: str,
+                  phone: str,
+                  message: str,
+                  report_path: Path | None = None) -> dict:
+    """Отправляет сообщение клиента через Cloudflare Worker в Telegram.
+
+    Ключ не нужен: у Worker есть отдельный публичный маршрут /feedback.
+    Диагностический отчёт, если он есть, прикладывается файлом.
+    """
+    result: dict = {"ok": False}
+    data = {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "app_version": version.APP_VERSION,
+        "message": redact_text(message),
+    }
+    file_handle = None
+    try:
+        import requests
+        files = None
+        if report_path is not None:
+            file_handle = Path(report_path).open("rb")
+            files = {"file": (Path(report_path).name, file_handle, "application/zip")}
+        response = requests.post(
+            f"{_report_url()}/feedback",
+            data=data,
+            files=files,
+            timeout=(15, 180),
+        )
+    except Exception as e:
+        result["error"] = (
+            "Не удалось связаться с сервером сообщений "
+            f"({type(e).__name__}). Проверьте интернет и попробуйте ещё раз."
+        )
+        return result
+    finally:
+        if file_handle is not None:
+            try:
+                file_handle.close()
+            except Exception:
+                pass
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if response.status_code == 200 and payload.get("ok"):
+        result["ok"] = True
+        result["message_id"] = payload.get("message_id")
+        return result
+    error = payload.get("error") or f"HTTP {response.status_code}"
+    result["error"] = redact_text(str(error))[:300]
+    return result
+
+
 def latest_reports(limit: int = 10) -> list[dict]:
     """Список последних отчётов для интерфейса."""
     items: list[dict] = []

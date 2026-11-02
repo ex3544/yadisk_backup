@@ -1438,3 +1438,55 @@ def test_instruction_opens_once_after_install_and_has_a_header_button():
     webui_src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
     assert '@app.get("/api/guide")' in webui_src
     assert '@app.post("/api/guide/seen")' in webui_src
+
+
+def test_token_is_fetched_automatically_manual_input_is_secondary():
+    """35.8.1: токен получается через браузер, ручной ввод — в «Дополнительно»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="token-fetch-area"' in html
+    assert 'id="btn-token-fetch"' in html
+    assert 'onclick="startTokenFetch()"' in html
+    assert "function startTokenFetch(" in html
+    assert "function renderTokenFetch(" in html
+    assert "/api/token/fetch" in html
+    assert "Дополнительно: вставить токен вручную" in html
+    # Ручное поле живёт внутри свёрнутого блока «Дополнительно», а кнопка
+    # автоматического получения — над ним.
+    manual = html.index("Дополнительно: вставить токен вручную")
+    assert html.index('id="token-input"') > manual
+    assert html.index('id="token-fetch-area"') < manual
+    # Плашка ведёт к автоматическому получению, а не к ручному полю.
+    assert "'pill-token':        {panel:'setup', selector:'#btn-token-fetch'" in html
+
+    spec = (PROJECT_DIR / "yadisk_backup.spec").read_text(encoding="utf-8")
+    assert "'fetch_token'" in spec
+    import webui
+    assert webui.WORKER_SCRIPTS["fetch_token.py"] == "fetch_token"
+
+
+def test_feedback_form_lives_in_report_card_and_explains_privacy():
+    """35.8.1: «Написать разработчику» — в одной карточке с отчётом."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    card_start = html.index('id="diag-report-card"')
+    card_end = html.index('id="diag-key-card"')
+    card = html[card_start:card_end]
+
+    for marker in ('id="feedback-name"', 'id="feedback-email"',
+                   'id="feedback-phone"', 'id="feedback-message"',
+                   'id="feedback-consent"', 'id="feedback-attach"',
+                   'id="feedback-send-btn"', 'onclick="sendFeedback()"'):
+        assert marker in card, marker
+    assert "function sendFeedback(" in html
+    assert "/api/diagnostics/feedback" in html
+    phrase = ("Имя и контакт нужны только чтобы ответить. Отдельной базы или "
+              "файла с вашими данными у разработчика нет: сообщение придёт в "
+              "Telegram и останется в переписке.")
+    assert phrase in card
+
+    worker = (PROJECT_DIR / "worker" / "src" / "index.js").read_text(encoding="utf-8")
+    assert 'url.pathname === "/feedback"' in worker
+    assert "async function feedback(" in worker
+    # Публичный маршрут стоит до проверки ключа: иначе клиент без ключа
+    # не сможет написать разработчику.
+    assert worker.index('url.pathname === "/feedback"') < worker.index("if (!authorized(")

@@ -1783,16 +1783,18 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
 
     <div class="ctab-panel active" data-ctab-panel="token" role="tabpanel">
-    <details class="info" id="token-details">
-      <summary>Где взять OAuth-токен (1 минута)<span class="info-hint"></span></summary>
-      <ol>
-        <li>Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
-        <li>Войдите в свой аккаунт Яндекса</li>
-        <li>Справа вверху: <strong>«Получить OAuth-токен»</strong></li>
-        <li>Скопируйте строку <code>y0_xxxx…</code> и вставьте её ниже</li>
-        <li>Сначала <strong>«Проверить»</strong>, потом <strong>«Сохранить»</strong> когда статус зелёный</li>
-      </ol>
-    </details>
+    <!-- Полуавтоматическое получение токена через Playwright -->
+    <div id="token-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Получить токен автоматически</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войдите в Яндекс, токен сохранится сам.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="primary" id="btn-token-fetch" onclick="startTokenFetch()">
+          <svg class="ico-sm"><use href="#i-key"/></svg>Получить токен
+        </button>
+        <button id="btn-token-fetch-cancel" onclick="cancelTokenFetch()" style="display:none">Отмена</button>
+      </div>
+      <div id="token-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
+    </div>
 
     <!-- Текущий сохранённый -->
     <div id="saved-token-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
@@ -1806,23 +1808,34 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
     </div>
 
-    <label class="field-label">Новый токен</label>
-    <input type="password" id="token-input" placeholder="y0_AgAAA…" autocomplete="off" spellcheck="false">
-    <div class="actions">
-      <button onclick="testToken()">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
-      </button>
-      <button class="primary" id="btn-save-token" onclick="saveToken()" disabled>
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
-      <button class="ghost tipnode" id="btn-token-view" onclick="toggleTokenView()" disabled
-              data-tip="Показывает открытым то, что вы ввели в поле «Новый токен». Сохранённый токен остаётся скрытым: выше видна только маска. Кнопка неактивна, пока поле пустое.">Показать</button>
-    </div>
-    <hr>
-    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-      <span class="muted">Статус сохранённого</span>
-      <span class="badge" id="check-token">проверяю…</span>
-    </div>
+    <details class="info" id="token-details">
+      <summary>Дополнительно: вставить токен вручную<span class="info-hint"></span></summary>
+      <ol>
+        <li>Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">yandex.ru/dev/disk/poligon</a></li>
+        <li>Войдите в свой аккаунт Яндекса</li>
+        <li>Справа вверху: <strong>«Получить OAuth-токен»</strong></li>
+        <li>Скопируйте строку <code>y0_xxxx…</code> и вставьте её ниже</li>
+        <li>Сначала <strong>«Проверить»</strong>, потом <strong>«Сохранить»</strong> когда статус зелёный</li>
+      </ol>
+
+      <label class="field-label">Новый токен</label>
+      <input type="password" id="token-input" placeholder="y0_AgAAA…" autocomplete="off" spellcheck="false">
+      <div class="actions">
+        <button onclick="testToken()">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
+        </button>
+        <button class="primary" id="btn-save-token" onclick="saveToken()" disabled>
+          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        </button>
+        <button class="ghost tipnode" id="btn-token-view" onclick="toggleTokenView()" disabled
+                data-tip="Показывает открытым то, что вы ввели в поле «Новый токен». Сохранённый токен остаётся скрытым: выше видна только маска. Кнопка неактивна, пока поле пустое.">Показать</button>
+      </div>
+      <hr>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+        <span class="muted">Статус сохранённого</span>
+        <span class="badge" id="check-token">проверяю…</span>
+      </div>
+    </details>
     </div><!-- /ctab token -->
 
     <div class="ctab-panel" data-ctab-panel="cookies" role="tabpanel">
@@ -2053,6 +2066,30 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
       <pre id="diag-output" class="diag-pre" style="display:none"></pre>
     </div>
+
+    <hr style="margin:18px 0 14px">
+    <div class="card-title" style="font-size:16px;margin-bottom:4px">✉️ Написать разработчику</div>
+    <div class="card-sub">Опишите проблему своими словами — сообщение придёт в Telegram. Можно приложить диагностический отчёт.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0">
+      <input type="text" id="feedback-name" placeholder="Ваше имя" maxlength="80" autocomplete="name">
+      <input type="email" id="feedback-email" placeholder="Почта для ответа" maxlength="120" autocomplete="email">
+      <input type="tel" id="feedback-phone" placeholder="Телефон (необязательно)" maxlength="40" autocomplete="tel">
+    </div>
+    <textarea id="feedback-message" placeholder="Что случилось? Что вы ожидали и что произошло?" maxlength="4000" style="min-height:96px"></textarea>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13.5px;margin:10px 0;cursor:pointer">
+      <input type="checkbox" id="feedback-attach" checked style="margin-top:2px;flex:none">
+      <span>Приложить диагностический отчёт — так проще найти причину. В нём нет токена, кук и файлов.</span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--text-secondary);margin:10px 0;cursor:pointer">
+      <input type="checkbox" id="feedback-consent" style="margin-top:2px;flex:none">
+      <span>Согласен отправить сообщение. Имя и контакт нужны только чтобы ответить. Отдельной базы или файла с вашими данными у разработчика нет: сообщение придёт в Telegram и останется в переписке.</span>
+    </label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="primary" id="feedback-send-btn" onclick="sendFeedback()">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Отправить сообщение
+      </button>
+    </div>
+    <div id="feedback-status" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
   <div class="card" id="diag-key-card">
@@ -2669,7 +2706,7 @@ const PILL_TARGETS = {
   'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
   'avatar-btn':        {panel:'setup', selector:'#profiles-card'},
   'pill-profile':      {panel:'setup', selector:'#profiles-card'},
-  'pill-token':        {panel:'setup', selector:'#token-input',
+  'pill-token':        {panel:'setup', selector:'#btn-token-fetch',
                         card:'access-card', tab:'token'},
   'pill-cookies':      {panel:'setup', selector:'#cookies-input',
                         card:'access-card', tab:'cookies'},
@@ -3024,6 +3061,51 @@ function renderCookieFetch(f){
       status.innerHTML = `✅ <strong style="color:var(--green)">${f.msg||'Готово'}</strong>`;
     } else if(state==='cancelled' || state==='stopped'){
       // Закрытое окно браузера или «Отмена» — обычное действие, не ошибка.
+      status.innerHTML = `⏹ <strong style="color:var(--text-secondary)">${f.msg||'Отменено'}</strong>`;
+    } else if(state==='timeout' || state==='error'){
+      status.innerHTML = `⚠️ <strong style="color:var(--red)">${f.msg||state}</strong>`;
+    } else {
+      status.innerHTML = '';
+    }
+  }
+}
+
+async function startTokenFetch(){
+  try {
+    const r=await fetch('/api/token/fetch',{method:'POST'});
+    const d=await r.json();
+    toast(d.msg||(d.ok?'Запускаю…':'Ошибка'), d.ok?'ok':'err');
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
+  refresh();
+}
+
+async function cancelTokenFetch(){
+  try {
+    const r=await fetch('/api/token/fetch/cancel',{method:'POST'});
+    const d=await r.json();
+    toast(d.msg||'Отменено','ok');
+  } catch(e){ toast('Нет связи с программой: '+e.message,'err') }
+  refresh();
+}
+
+function renderTokenFetch(f){
+  const area=document.getElementById('token-fetch-area');
+  if(!area) return;
+  const btn=document.getElementById('btn-token-fetch');
+  const cancel=document.getElementById('btn-token-fetch-cancel');
+  const status=document.getElementById('token-fetch-status');
+  f = f || {};
+  const state = f.state || 'idle';
+  if(state==='running'){
+    btn.disabled = true;
+    cancel.style.display = 'inline-block';
+    status.innerHTML = `⏳ <strong>${f.msg||'Жду входа…'}</strong>`;
+  } else {
+    btn.disabled = false;
+    cancel.style.display = 'none';
+    if(state==='done'){
+      status.innerHTML = `✅ <strong style="color:var(--green)">${f.msg||'Готово'}</strong>`;
+    } else if(state==='cancelled' || state==='stopped'){
       status.innerHTML = `⏹ <strong style="color:var(--text-secondary)">${f.msg||'Отменено'}</strong>`;
     } else if(state==='timeout' || state==='error'){
       status.innerHTML = `⚠️ <strong style="color:var(--red)">${f.msg||state}</strong>`;
@@ -3551,6 +3633,7 @@ const TASK_LABELS = {
   unlim_collect: '🟣 Безлимит · сбор кластеров',
   organize: '🗂️ Сортировка файлов',
   cookies_fetch: '🍪 Обновление кук',
+  token_fetch: '🔑 Получение токена',
 };
 
 function taskLabel(slot){
@@ -3562,6 +3645,7 @@ function taskLabel(slot){
 function taskKind(slot, logTail){
   const txt = (logTail || []).join(' ');
   if(slot === 'cookies_fetch') return 'обновление кук';
+  if(slot === 'token_fetch') return 'получение токена';
   if(slot === 'organize') return 'сортировка';
   if(slot === 'unlim_collect' || /фотосреза|кластер|collect/i.test(txt)) return 'сбор базы';
   if(/Повторный проход|Фаза 2|пропущенных|retry/i.test(txt)) return 'повтор сбойных';
@@ -4873,8 +4957,9 @@ async function refresh(){
       dkOfflineBanner.style.display = (s.disk_state === 'disk_offline') ? 'block' : 'none';
     }
 
-    // Полуавтоматическое обновление кук
+    // Полуавтоматическое обновление кук и получение токена
     renderCookieFetch(s.cookies_fetch);
+    renderTokenFetch(s.token_fetch);
 
     // Setup checks
     const ct=document.getElementById('check-token');
@@ -4910,8 +4995,8 @@ async function refresh(){
     // настроено, — раскрываем один раз, дальше решает пользователь.
     if(!_infoAutoDone){
       _infoAutoDone = true;
-      const tokenDetails = document.getElementById('token-details');
-      if(tokenDetails && !s.token.ok) tokenDetails.open = true;
+      // Ручной ввод токена теперь в «Дополнительно»: главный способ — кнопка
+      // «Получить токен» над ним, поэтому инструкцию сама не раскрываем.
       const cookiesDetails = document.getElementById('cookies-details');
       if(cookiesDetails && !(s.cookies.count > 0)) cookiesDetails.open = true;
     }
@@ -6395,6 +6480,43 @@ async function sendDiagnostics(){
     toast('Не удалось отправить отчёт', 'err');
   }finally{
     setDiagBusy(false);
+  }
+}
+
+async function sendFeedback(){
+  const name = (document.getElementById('feedback-name').value || '').trim();
+  const email = (document.getElementById('feedback-email').value || '').trim();
+  const phone = (document.getElementById('feedback-phone').value || '').trim();
+  const message = (document.getElementById('feedback-message').value || '').trim();
+  const attach = document.getElementById('feedback-attach').checked;
+  const consent = document.getElementById('feedback-consent').checked;
+  const status = document.getElementById('feedback-status');
+  if(!name){ toast('Укажите имя', 'err'); return; }
+  if(!email.includes('@') || !email.includes('.')){ toast('Укажите почту для ответа', 'err'); return; }
+  if(!message){ toast('Опишите проблему', 'err'); return; }
+  if(!consent){ toast('Поставьте галочку согласия', 'err'); return; }
+  const btn = document.getElementById('feedback-send-btn');
+  btn.disabled = true;
+  status.className = 'setup-hint';
+  status.textContent = attach ? 'Отправляю сообщение и диагностику…' : 'Отправляю сообщение…';
+  try{
+    const r = await fetch('/api/diagnostics/feedback', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, email, phone, message, consent, attach_report:attach})
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || d.detail || 'Не удалось отправить сообщение');
+    if(!d.ok) throw new Error(d.error || 'Не удалось отправить сообщение');
+    status.className = 'setup-hint ok';
+    status.textContent = 'Сообщение отправлено. Ответ придёт на указанную почту.';
+    document.getElementById('feedback-message').value = '';
+    toast('Сообщение отправлено', 'ok');
+  }catch(e){
+    status.className = 'setup-hint err';
+    status.textContent = 'Ошибка: ' + e.message;
+    toast('Не удалось отправить сообщение', 'err');
+  }finally{
+    btn.disabled = false;
   }
 }
 

@@ -1190,6 +1190,52 @@ def test_report_url_endpoints_change_the_address(tmp_path, monkeypatch):
     assert reset["url"] == webui.diagnostics.DEFAULT_REPORT_URL
 
 
+def test_feedback_requires_fields_and_consent():
+    def send(**kwargs):
+        return webui.api_diagnostics_feedback(webui.FeedbackPayload(**kwargs))
+
+    assert send(name="", email="a@b.ru", message="текст", consent=True)["ok"] is False
+    assert send(name="Иван", email="нет-почты", message="текст", consent=True)["ok"] is False
+    assert send(name="Иван", email="a@b.ru", message="", consent=True)["ok"] is False
+    out = send(name="Иван", email="a@b.ru", message="текст", consent=False)
+    assert out["ok"] is False
+    assert "согласие" in out["error"].lower()
+
+
+def test_feedback_is_sent_through_worker(monkeypatch):
+    calls = {}
+
+    def fake_send(name, email, phone, message, report_path=None):
+        calls.update(name=name, email=email, phone=phone,
+                     message=message, report_path=report_path)
+        return {"ok": True, "message_id": 42}
+
+    monkeypatch.setattr(webui.diagnostics, "send_feedback", fake_send)
+    out = webui.api_diagnostics_feedback(webui.FeedbackPayload(
+        name="Иван", email="ivan@example.org", phone="+7 900",
+        message="Не скачивается файл", consent=True, attach_report=False))
+
+    assert out == {"ok": True, "message_id": 42}
+    assert calls["name"] == "Иван"
+    assert calls["email"] == "ivan@example.org"
+    assert calls["message"] == "Не скачивается файл"
+    assert calls["report_path"] is None
+
+
+def test_token_fetch_status_marks_dead_process_stopped(tmp_path, monkeypatch):
+    import json
+
+    status = tmp_path / "token_fetch_status.json"
+    status.write_text(json.dumps({"state": "running", "msg": "Жду входа"}),
+                      encoding="utf-8")
+    monkeypatch.setattr(webui, "TOKEN_FETCH_STATUS", status)
+    monkeypatch.setattr(webui.tm, "status",
+                        lambda: {"token_fetch": {"running": False}})
+
+    out = webui.token_fetch_status()
+    assert out["state"] == "stopped"
+
+
 def test_ping_endpoint_reports_reachability(tmp_path, monkeypatch):
     import paths
 

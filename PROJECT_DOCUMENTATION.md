@@ -2129,3 +2129,69 @@ UI: окно `#guide-modal` с прокруткой и лёгким разбор
 вызывается, в карточке копий есть «Автоматических копий» и `#backups-keep`,
 аватар в шапке стоит перед темой и открывает профиль, все 15 символов на
 месте. Всего 632 теста; `ruff --select F,E9` и `node --check` чисто.
+
+---
+
+## 43. Ноябрь 2026: токен через браузер, «Написать разработчику» (v35.8.1)
+
+### Полуавтоматическое получение токена
+
+`fetch_token.py` повторяет подход `fetch_cookies.py`: запускает видимое окно
+Chrome (или встроенного Chromium), открывает `https://yandex.ru/dev/disk/poligon/`
+и ждёт входа в аккаунт по кукам `Session_id`/`yandexuid`/`sessionid2`. После
+входа скрипт один раз перезагружает страницу, нажимает «Получить OAuth-токен»
+и ищет токен `y0_…` в полях ввода, тексте страницы, адресе и
+`localStorage`/`sessionStorage`. Найденный токен проверяется запросом к
+`https://cloud-api.yandex.net/v1/disk/` и сохраняется в `.env` как
+`YA_DISK_TOKEN` через `dotenv.set_key(..., quote_mode="never")`. Сам токен в
+файл статуса не пишется — только логин.
+
+Статус — `logs/token_fetch_status.json` (`paths.TOKEN_FETCH_STATUS`), состояния
+`running`/`done`/`cancelled`/`stopped`/`timeout`/`error`. `webui.py`:
+
+- `token_fetch_status()` читает статус; если файл говорит `running`, а задачи
+  `token_fetch` в `TaskManager` уже нет, показывает `stopped`; при `done`
+  один раз перечитывает `.env` (`load_dotenv(..., override=True)`), чтобы UI
+  увидел новый токен без перезапуска;
+- `POST /api/token/fetch` запускает `fetch_token.py`, `POST
+  /api/token/fetch/cancel` останавливает и пишет `cancelled`;
+- `worker_scripts`/`yadisk_backup.spec` включают `fetch_token`, иначе в
+  frozen-сборке запустился бы GUI вместо воркера.
+
+В интерфейсе вкладки «Токен» сверху появился блок `#token-fetch-area` с
+кнопкой «Получить токен», отменой и статусом (`renderTokenFetch`), ручной ввод
+убран под `details#token-details` «Дополнительно: вставить токен вручную».
+Плашка `pill-token` теперь ведёт к `#btn-token-fetch`.
+
+### «Написать разработчику»
+
+Форма живёт в карточке `#diag-report-card` рядом с диагностическим отчётом:
+имя, почта, телефон (необязательно), текст до 4000 символов, галочка согласия
+и необязательное приложение диагностического ZIP. Точная формулировка про
+данные: «Имя и контакт нужны только чтобы ответить. Отдельной базы или файла с
+вашими данными у разработчика нет: сообщение придёт в Telegram и останется в
+переписке.»
+
+- `POST /api/diagnostics/feedback` (`FeedbackPayload`) проверяет имя, почту,
+  длину полей, текст и согласие; при `attach_report` собирает отчёт через
+  `diagnostics.build_report`/`write_report`. Текст сообщения проходит
+  `redact_text`, поэтому случайно вставленный токен не уйдёт.
+- `diagnostics.send_feedback()` отправляет `multipart/form-data` на
+  `{REPORT_URL}/feedback` без `X-Report-Key`; ZIP — поле `file`. Ошибки сети
+  объясняются по-русски, ключ не требуется.
+- В Worker (`worker/src/index.js`) маршрут `/feedback` обрабатывается **до**
+  проверки `REPORT_KEY`: иначе у клиента без ключа форма не работала бы.
+  Сообщение уходит в Telegram через `sendMessage`, диагностика — через
+  `sendDocument`; длина имени/почты/телефона/текста ограничена, есть скрытое
+  поле-ловушка `website`.
+
+### Тесты
+
+`tests/test_fetch_token.py`: поиск токена в поле, адресе и хранилище, сохранение
+`YA_DISK_TOKEN` без потери остальных строк `.env`, проверка через API.
+`tests/test_diagnostics.py`: `send_feedback` не требует ключа, маскирует токен
+в тексте и прикладывает ZIP. `tests/test_webui.py`: валидация формы, отправка,
+статус оборванного процесса. `tests/test_packaging.py`: автоматическая кнопка
+выше ручного ввода, `fetch_token` в spec и `WORKER_SCRIPTS`, форма и точная
+фраза в карточке отчёта, публичный `/feedback` до проверки ключа.
+Всего 645 тестов; `ruff --select F,E9` и `node --check` чисто.

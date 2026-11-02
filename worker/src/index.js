@@ -22,6 +22,11 @@ const HEARTBEAT_TTL_SEC = 30 * 24 * 60 * 60;
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Публичный маршрут: клиент пишет разработчику без ключа. Иначе форма
+    // «Написать разработчику» не работала бы у обычного пользователя.
+    if (request.method === "POST" && url.pathname === "/feedback") {
+      return feedback(request, env);
+    }
     if (!authorized(request, env.REPORT_KEY)) {
       return json({ ok: false, error: "unauthorized" }, 401);
     }
@@ -197,6 +202,101 @@ async function message(request, env) {
     );
   }
   return json({ ok: true, message_id: data.result.message_id });
+}
+
+/**
+ * Сообщение от клиента без ключа: форма «Написать разработчику».
+ * Имя, почта и текст обязательны; телефон необязателен; диагностический ZIP
+ * приходит отдельным файлом. Ключ здесь не проверяется намеренно.
+ */
+async function feedback(request, env) {
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > MAX_BYTES + 64 * 1024) {
+    return json({ ok: false, error: "too_large" }, 413);
+  }
+
+  const contentType = request.headers.get("Content-Type") || "";
+  let form = null;
+  let body = {};
+  if (contentType.includes("multipart/form-data")) {
+    try {
+      form = await request.formData();
+    } catch (_) {
+      return json({ ok: false, error: "bad_form" }, 400);
+    }
+  } else {
+    try {
+      body = await request.json();
+    } catch (_) {
+      body = {};
+    }
+  }
+
+  const field = (key, max) => {
+    const value = form ? form.get(key) : body[key];
+    return value == null || typeof value === "object" ? "" : String(value).trim().slice(0, max);
+  };
+
+  // Скрытое поле-ловушка: люди его не видят и не заполняют.
+  if (field("website", 200)) {
+    return json({ ok: true, message_id: 0 });
+  }
+
+  const name = field("name", 80);
+  const email = field("email", 120);
+  const phone = field("phone", 40);
+  const appVersion = field("app_version", 32);
+  const text = field("message", 4000);
+
+  if (!name) return json({ ok: false, error: "name_required" }, 400);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return json({ ok: false, error: "email_required" }, 400);
+  }
+  if (!text) return json({ ok: false, error: "message_required" }, 400);
+
+  const fullText = [
+    "💬 Сообщение от пользователя Yad.backup",
+    `Имя: ${name}`,
+    `Почта: ${email}`,
+    `Телефон: ${phone || "не указан"}`,
+    `Версия: ${appVersion || "не указана"}`,
+    "",
+    text,
+  ].join("\n").slice(0, 4096);
+
+  const sent = await tg(env, "sendMessage", {
+    chat_id: env.TELEGRAM_CHAT_ID,
+    text: fullText,
+  });
+  if (!sent.ok) {
+    return json({ ok: false, error: sent.description || "sendMessage failed" }, 502);
+  }
+
+  const file = form ? form.get("file") : null;
+  if (file && typeof file !== "string" && "size" in file && file.size > 0) {
+    if (file.size > MAX_BYTES) {
+      return json({ ok: false, error: "too_large" }, 413);
+    }
+    const fd = new FormData();
+    fd.append("chat_id", env.TELEGRAM_CHAT_ID);
+    fd.append("caption", `Диагностика · ${name} · ${appVersion || "версия не указана"}`.slice(0, 1024));
+    fd.append("document", file, safeName(file.name));
+    const res = await fetch(
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`,
+      { method: "POST", body: fd },
+    );
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = { ok: false, description: `telegram_http_${res.status}` };
+    }
+    if (!data.ok) {
+      return json({ ok: false, error: data.description || "sendDocument failed" }, 502);
+    }
+  }
+
+  return json({ ok: true, message_id: sent.result.message_id });
 }
 
 /**

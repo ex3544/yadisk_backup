@@ -43,6 +43,7 @@ def temp_paths(tmp_path, monkeypatch):
         "DISK_STATUS_FILE": logs / "disk_download_status.json",
         "UNLIM_STATUS_FILE": logs / "download_status.json",
         "COOKIES_FETCH_STATUS": logs / "cookies_fetch_status.json",
+        "TOKEN_FETCH_STATUS": logs / "token_fetch_status.json",
         "HTTP_ERRORS_FILE": logs / "http_errors.json",
         "CRASH_LOG": logs / "crash.log",
         "MONITOR_STATE_FILE": data / ".monitor_state.json",
@@ -343,6 +344,61 @@ def test_send_with_key_calls_worker(temp_paths, monkeypatch):
     assert calls["headers"]["X-Report-Key"] == "test-report-key"
     assert calls["data"]["app_version"] == diagnostics.version.APP_VERSION
     assert calls["data"]["report_id"] == report["report_id"]
+
+
+def test_send_feedback_needs_no_key_and_redacts_token(temp_paths, monkeypatch):
+    calls = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True, "message_id": 5}
+
+    def fake_post(url, **kwargs):
+        calls["url"] = url
+        calls["data"] = kwargs.get("data", {})
+        calls["files"] = kwargs.get("files")
+        calls["headers"] = kwargs.get("headers", {})
+        return FakeResponse()
+
+    monkeypatch.setattr("requests.post", fake_post)
+    result = diagnostics.send_feedback(
+        "Иван", "ivan@example.org", "+7 900", f"Не работает, токен {TOKEN}")
+
+    assert result["ok"] is True
+    assert result["message_id"] == 5
+    assert calls["url"].endswith("/feedback")
+    assert "X-Report-Key" not in calls["headers"]
+    assert calls["data"]["name"] == "Иван"
+    assert calls["data"]["email"] == "ivan@example.org"
+    assert calls["data"]["phone"] == "+7 900"
+    assert TOKEN not in calls["data"]["message"]
+    assert "y0_***" in calls["data"]["message"]
+    assert calls["files"] is None
+
+
+def test_send_feedback_attaches_report_file(temp_paths, monkeypatch):
+    report = diagnostics.build_report()
+    path = diagnostics.write_report(report)
+    calls = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True, "message_id": 6}
+
+    def fake_post(url, **kwargs):
+        calls["files"] = kwargs.get("files")
+        return FakeResponse()
+
+    monkeypatch.setattr("requests.post", fake_post)
+    result = diagnostics.send_feedback("Иван", "ivan@example.org", "", "Текст", path)
+
+    assert result["ok"] is True
+    assert "file" in calls["files"]
+    assert calls["files"]["file"][0] == path.name
 
 
 def test_report_key_save_and_clear(temp_paths):
