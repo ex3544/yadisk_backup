@@ -1099,6 +1099,28 @@ def test_status_reports_disk_state(monkeypatch, tmp_path):
     assert body["disk_state"] == "disk_offline"
 
 
+def test_status_exposes_saved_update_check_for_the_pill(monkeypatch, tmp_path):
+    """35.8.2: плашка о новой версии не ждёт сети — берёт сохранённую проверку."""
+    import json
+
+    saved = tmp_path / "updates_status.json"
+    saved.write_text(json.dumps({
+        "checked_ts": 1.0,
+        "current": webui.version.APP_VERSION,
+        "latest": "99.0.0",
+        "update_available": True,
+        "url": "https://github.com/ex3544/yadisk_backup/releases/tag/v99.0.0",
+        "notes": "длинное описание " * 100,
+    }), encoding="utf-8")
+    monkeypatch.setattr(webui.paths, "UPDATES_STATUS_FILE", saved)
+
+    body = webui.api_status()
+    assert body["update_check"]["update_available"] is True
+    assert body["update_check"]["latest"] == "99.0.0"
+    # Описание релиза в статус не попадает: он опрашивается каждые 1,5 секунды.
+    assert "notes" not in body["update_check"]
+
+
 # ── 35.6.7: сгоревшие файлы и установка обновления ─────────────────────────
 
 

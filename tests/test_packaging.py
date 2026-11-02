@@ -885,15 +885,35 @@ def test_watchdog_is_on_by_default_with_20gb():
     assert '<option value="20" selected>20 ГБ</option>' in html
 
 
-def test_updates_are_checked_on_startup_with_a_centered_dialog():
-    """Автопроверка при старте: то же окно «Что нового», без сети — молча."""
+def test_updates_are_checked_on_startup_and_shown_as_a_header_pill():
+    """35.8.2: при старте окно само не всплывает — о версии говорит плашка."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     assert "async function startupUpdateCheck()" in html
     assert "setTimeout(startupUpdateCheck, 2500)" in html
     start = html.index("async function startupUpdateCheck()")
-    chunk = html[start:start + 1200]
-    assert "showUpdateModal(d);" in chunk
+    chunk = html[start:html.index("// ── Общий вывод текста", start)]
+    assert "renderUpdatePill(d);" in chunk
+    # Автовсплытия больше нет: окно открывается только кликом по плашке.
+    assert "showUpdateModal" not in chunk
     assert "catch(e){ /* нет сети — молча */ }" in chunk
+
+
+def test_update_pill_stays_until_the_user_updates():
+    """Плашка в шапке: скрыта без обновления, показывает версию, клик — окно."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert 'id="update-pill"' in html
+    assert 'id="update-pill-text"' in html
+    assert "function renderUpdatePill(info)" in html
+    assert "async function openUpdateFromPill()" in html
+    start = html.index("function renderUpdatePill(info)")
+    chunk = html[start:start + 900]
+    assert "info.update_available && latest" in chunk   # без обновления скрыта
+    assert "textContent = `Доступна ${latest}`" in chunk
+    # Крестика нет: плашку нельзя закрыть, не обновившись.
+    assert "update-pill-close" not in html
+    # Плашка живёт в шапке рядом с остальными постоянными плашками.
+    assert html.index('id="update-pill"') > html.index('id="pills-main"')
+    assert "renderUpdatePill(s.update_check)" in html
 
 
 def test_update_window_shows_what_is_new_and_stays_during_download():
@@ -936,14 +956,26 @@ def test_profiles_card_lists_and_switches_users():
     assert "def write_profile_restart_helper(" in py
 
 
-def test_profile_avatars_live_in_the_header_and_profile_card():
-    """35.8.0: 15 своих SVG-аватарок, аватар слева от темы, клик ведёт в профиль."""
+def test_profile_avatars_live_in_the_profile_pill_and_under_a_spoiler():
+    """35.8.2: аватар внутри плашки профиля, выбор аватарок — под катом."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    # Аватар стоит в ряду постоянных плашек перед кнопкой темы.
-    assert html.index('id="avatar-btn"') < html.index('id="theme-btn"')
-    assert "'avatar-btn':        {panel:'setup', selector:'#profiles-card'}" in html
-    assert 'id="avatar-grid"' in html
-    assert "async function chooseAvatar(" in html
+    # Отдельной кнопки слева от темы больше нет.
+    assert 'id="avatar-btn"' not in html
+    assert "avatar-btn" not in html
+    # Аватар — внутри плашки профиля, рядом с точкой и именем.
+    pill_start = html.index('id="pill-profile"')
+    pill_end = html.index("</span></span>", pill_start)
+    pill = html[pill_start:pill_end]
+    assert 'id="avatar-use"' in pill
+    assert 'class="pill-profile-avatar"' in pill
+    assert 'id="pill-profile-text"' in pill
+    # Имя без лишней фигурки: аватар + точка + имя.
+    assert "pn.textContent = '👤 " not in html
+    # Выбор аватарки свёрнут в раскрывающийся блок.
+    assert '<details class="info" id="avatar-details"' in html
+    details = html[html.index('id="avatar-details"'):]
+    assert 'id="avatar-grid"' in details[:700]
+    assert "Сменить аватарку" in details[:200]
     assert "function applyAvatar(" in html
     assert "function renderAvatarPicker(" in html
 

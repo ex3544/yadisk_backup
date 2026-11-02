@@ -382,6 +382,25 @@ def last_check() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def last_check_summary() -> dict:
+    """Короткая выжимка последней проверки — для плашки в шапке.
+
+    Описание релиза в статус не попадает: оно нужно только окну «Что нового»,
+    а /api/status опрашивается каждые полторы секунды.
+    """
+    last = last_check()
+    if not last:
+        return {}
+    summary = {key: last.get(key, "") for key in
+               ("current", "latest", "update_available", "url", "checked_ts")}
+    # Программа обновилась после этой проверки — старый ответ больше не в счёт,
+    # иначе плашка «доступна новая версия» висела бы уже на новой сборке.
+    current = str(summary.get("current") or "")
+    if current and current != version.APP_VERSION:
+        summary["update_available"] = False
+    return summary
+
+
 def check_is_stale(last: dict, max_age: float = CHECK_TTL_SEC) -> bool:
     if not last:
         return True

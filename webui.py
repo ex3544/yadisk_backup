@@ -1967,6 +1967,9 @@ def api_status():
         "ram": ram_info(),
         "full_cycle": cycle,
         "update": update_manager.status(),
+        # Сохранённая последняя проверка: плашка в шапке должна знать о новой
+        # версии сразу, не дожидаясь ответа GitHub и не создавая второго запроса.
+        "update_check": updater.last_check_summary(),
         "legacy_install": legacy_install_status(),
         "watchdog": watchdog.status(),
         "tasks": tasks,

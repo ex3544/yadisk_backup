@@ -149,6 +149,14 @@
      и рамкой, из-за чего плашка выглядела квадратнее и выше соседних. */
   .pill.service.on{background:transparent;border-color:transparent;color:var(--green)}
   .pill.service.on .dot{background:var(--green);box-shadow:0 0 8px rgba(48,209,88,.55)}
+  /* Плашка «доступна новая версия»: заметная, но не кричащая. Висит, пока
+     пользователь не обновится, и не закрывается крестиком. */
+  .pill.update-pill{
+    background:rgba(10,132,255,.16);border-color:rgba(10,132,255,.55);
+    color:var(--accent);font-weight:600;
+  }
+  .pill.update-pill:hover{background:rgba(10,132,255,.26)}
+  .pill.update-pill .arrow{font-size:12px;line-height:1}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
   /* Подсказка при наведении: своя плашка в цветах приложения вместо системного
@@ -506,11 +514,9 @@
   .profile-dir{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
   .profile-actions{display:flex;gap:6px;flex-wrap:wrap}
   .profile-actions button{padding:6px 10px;font-size:12.5px}
-  /* Аватар в шапке слева от темы и выбор аватарки в профиле (35.8.0). */
-  .avatar-btn{width:34px;height:34px;padding:0;border-radius:50%;overflow:hidden;
-    border:1px solid var(--hairline-strong);background:var(--surface2);cursor:pointer;
-    display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
-  .avatar-btn:hover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(10,132,255,.2)}
+  /* Аватар внутри плашки профиля и выбор аватарки в настройках (35.8.0). */
+  .pill-profile-avatar{width:18px;height:18px;border-radius:50%;overflow:hidden;
+    flex:0 0 auto;display:inline-flex;background:var(--surface2)}
   .avatar-svg{width:100%;height:100%;display:block}
   .avatar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));
     gap:9px;margin-top:8px}
@@ -1227,11 +1233,13 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </div>
   <!-- Постоянные плашки: тема, задачи, профиль, токен, куки, сторож. -->
   <div class="pills pills-main" id="pills-main">
-    <button id="avatar-btn" class="avatar-btn tipnode" type="button"
-      data-tip="Аватар профиля. Нажмите — откроет настройки пользователя."
-      aria-label="Аватар профиля">
-      <svg class="avatar-svg" aria-hidden="true"><use id="avatar-use" href="#av-fox"/></svg>
-    </button>
+    <span class="pill update-pill clickable" id="update-pill" style="display:none"
+      role="button" tabindex="0"
+      data-tip="Вышла новая версия. Нажмите, чтобы посмотреть, что нового и обновиться."
+      onclick="openUpdateFromPill()"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openUpdateFromPill();}">
+      <span class="arrow" aria-hidden="true">⬆</span><span id="update-pill-text">Доступна новая версия</span>
+    </span>
     <button id="theme-btn" class="ghost tipnode" onclick="toggleTheme()"
       data-tip="Светлая или тёмная тема. Выбор запоминается."
       aria-label="Переключить тему" aria-pressed="false"
@@ -1240,7 +1248,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
     </span>
-    <span class="pill service clickable" id="pill-profile" role="button" tabindex="0" data-tip="Профиль пользователя: у каждого свои куки, токен, базы и папки выгрузки. Нажмите — откроет список профилей в «Настройках»."><span class="dot"></span><span id="pill-profile-text">👤 Основной</span></span>
+    <span class="pill service clickable" id="pill-profile" role="button" tabindex="0" data-tip="Профиль и аватарка: у каждого профиля свои куки, токен, базы и папки выгрузки. Нажмите — откроет настройки пользователя."><span class="pill-profile-avatar"><svg class="avatar-svg" aria-hidden="true"><use id="avatar-use" href="#av-fox"/></svg></span><span class="dot"></span><span id="pill-profile-text">Основной</span></span>
     <span class="pill service clickable" id="pill-token" role="button" tabindex="0" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Нажмите — откроет поле токена в «Настройках»."><span class="dot"></span><span id="pill-token-text">токен</span></span>
     <span class="pill service clickable" id="pill-cookies" role="button" tabindex="0" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Нажмите — откроет поле кук в «Настройках»."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
     <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
@@ -1675,13 +1683,13 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="card-title">Пользователь</div>
     <div class="card-sub">Профиль — отдельный набор данных: свои куки, токен, базы, логи, отчёты и папки выгрузки. При переключении программа перезапустится.</div>
     <div id="profiles-list" class="profile-list"></div>
-    <div style="margin-top:4px">
-      <div class="field-label">Аватар текущего профиля</div>
+    <details class="info" id="avatar-details" style="margin-top:4px">
+      <summary>Сменить аватарку</summary>
       <div id="avatar-grid" class="avatar-grid" role="group" aria-label="Выбор аватарки"></div>
       <div class="setup-hint" id="avatar-status" role="status" aria-live="polite">
-        Выберите весёленькую аватарку — она появится в шапке слева от кнопки темы.
+        Выберите весёленькую аватарку — она появится в плашке профиля в шапке.
       </div>
-    </div>
+    </details>
     <div class="actions" style="margin-top:4px">
       <button class="ghost" onclick="openProfileCreate()">Создать профиль</button>
       <span class="setup-hint" id="profiles-status" role="status" aria-live="polite"></span>
@@ -2704,7 +2712,6 @@ function gotoSetting(panel, selector, cardId, tab){
 // Куда ведёт клик по плашке в шапке: панель и поле, к которому прокрутить.
 const PILL_TARGETS = {
   'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
-  'avatar-btn':        {panel:'setup', selector:'#profiles-card'},
   'pill-profile':      {panel:'setup', selector:'#profiles-card'},
   'pill-token':        {panel:'setup', selector:'#btn-token-fetch',
                         card:'access-card', tab:'token'},
@@ -4853,6 +4860,7 @@ async function refresh(){
     renderRamHint(s.ram);
     renderFullCycle(s.full_cycle);
     renderUpdate(s.update);
+    renderUpdatePill(s.update_check);
     // Итоговое окно показываем один раз — при переходе «идёт → завершён»,
     // чтобы после F5 старая сводка не всплывала снова.
     const fc = s.full_cycle || {};
@@ -4885,7 +4893,7 @@ async function refresh(){
     if(pp && s.profile){
       pp.className = 'pill service ' + (s.profile.active ? 'ok' : '');
       const pn = document.getElementById('pill-profile-text');
-      if(pn) pn.textContent = '👤 ' + (s.profile.name || 'профиль');
+      if(pn) pn.textContent = s.profile.name || 'профиль';
       applyAvatar(s.profile.avatar);
     }
 
@@ -5552,6 +5560,7 @@ async function checkUpdates(){
       status.textContent = d.error || 'Не удалось проверить обновления.';
       return;
     }
+    renderUpdatePill(d);
     if(d.update_available){
       lastUpdateUrl = d.url || '';
       status.className = 'setup-hint ok';
@@ -5580,7 +5589,47 @@ async function checkUpdates(){
 
 let _lastUpdate = {};
 
-// Проверка обновлений при старте программы: одно окно по центру с вопросом.
+// Плашка «доступна новая версия» в шапке. Висит, пока пользователь не
+// обновится: крестика у неё нет, а после установки новая проверка вернёт
+// update_available=false и она исчезнет сама.
+function renderUpdatePill(info){
+  const pill = document.getElementById('update-pill');
+  const text = document.getElementById('update-pill-text');
+  if(!pill || !text) return;
+  info = info || {};
+  const latest = String(info.latest || '');
+  const show = !!(info.update_available && latest);
+  pill.style.display = show ? 'inline-flex' : 'none';
+  if(show){
+    text.textContent = `Доступна ${latest}`;
+    pill.setAttribute('aria-label',
+      `Доступна версия ${latest}. Нажмите, чтобы посмотреть, что нового и обновиться.`);
+  }
+}
+
+// Клик по плашке: свежая проверка и окно «Что нового» — то же, что кнопка
+// «Проверить обновления», только сразу с открытым окном.
+async function openUpdateFromPill(){
+  try{
+    const r = await fetch('/api/updates/check', {cache:'no-store'});
+    const d = await r.json();
+    renderUpdatePill(d);
+    if(d && d.ok && d.update_available){
+      lastUpdateUrl = d.url || '';
+      showUpdateModal(d);
+      return;
+    }
+    if(d && d.ok){
+      toast(`У вас последняя версия (${d.current || ''})`, 'ok');
+      return;
+    }
+    toast((d && d.error) || 'Не удалось проверить обновления', 'err');
+  }catch(e){
+    toast('Не удалось связаться с GitHub', 'err');
+  }
+}
+
+// Проверка обновлений при старте: окно само не всплывает, только плашка.
 // Если сети нет или GitHub молчит — тихо, без красных ошибок.
 let _startupUpdateChecked = false;
 async function startupUpdateCheck(){
@@ -5589,12 +5638,9 @@ async function startupUpdateCheck(){
   try{
     const r = await fetch('/api/updates/check', {cache:'no-store'});
     const d = await r.json();
-    if(!d || !d.ok || !d.update_available) return;
-    if(!(d.installer || d.portable)) return;   // обновиться нечем — не мешаем
-    lastUpdateUrl = d.url || '';
-    // То же окно, что и по кнопке «Проверить обновления»: сначала справка,
-    // что нового, потом «Закрыть и обновить».
-    showUpdateModal(d);
+    if(!d || !d.ok) return;
+    if(d.update_available) lastUpdateUrl = d.url || '';
+    renderUpdatePill(d);
   }catch(e){ /* нет сети — молча */ }
 }
 

@@ -313,6 +313,30 @@ def test_record_check_saves_release_notes(monkeypatch, tmp_path):
     assert data["checked_ts"] > 0
 
 
+def test_last_check_summary_is_short_and_ignored_after_update(
+    monkeypatch, tmp_path
+):
+    """Плашке в шапке нужны только версия и флаг, а не описание релиза."""
+    _status_file(monkeypatch, tmp_path)
+    updater.record_check({
+        "ok": True, "current": version.APP_VERSION, "latest": "99.0.0",
+        "update_available": True,
+        "url": "https://github.com/ex3544/yadisk_backup/releases/tag/v99.0.0",
+        "notes": "Очень длинное описание " * 50,
+    })
+    summary = updater.last_check_summary()
+    assert summary["update_available"] is True
+    assert summary["latest"] == "99.0.0"
+    assert "notes" not in summary
+
+    # Программа обновилась после проверки — старый ответ больше не в счёт.
+    updater.record_check({
+        "ok": True, "current": "35.0.0", "latest": "99.0.0",
+        "update_available": True,
+    })
+    assert updater.last_check_summary()["update_available"] is False
+
+
 def test_record_check_does_not_crash_without_directory(monkeypatch, tmp_path):
     """Папка логов пропала — проверка обновлений всё равно не падает."""
     target = tmp_path / "missing" / "updates_status.json"
