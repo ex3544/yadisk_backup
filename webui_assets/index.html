@@ -514,9 +514,12 @@
   .profile-dir{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
   .profile-actions{display:flex;gap:6px;flex-wrap:wrap}
   .profile-actions button{padding:6px 10px;font-size:12.5px}
-  /* Аватар внутри плашки профиля и выбор аватарки в настройках (35.8.0). */
-  .pill-profile-avatar{width:18px;height:18px;border-radius:50%;overflow:hidden;
+  /* Аватар внутри плашки профиля и выбор аватарки в настройках (35.8.0).
+     Уменьшенные вертикальные отступы не дают овалу вырасти: аватар 22 px
+     целиком помещается внутри плашки и не выходит за её край. */
+  .pill-profile-avatar{width:22px;height:22px;border-radius:50%;overflow:hidden;
     flex:0 0 auto;display:inline-flex;background:var(--surface2)}
+  #pill-profile{padding:1px 10px 1px 3px}
   .avatar-svg{width:100%;height:100%;display:block}
   .avatar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));
     gap:9px;margin-top:8px}
@@ -1205,6 +1208,96 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <circle cx="32" cy="44" r="3.2" fill="#3f2412"/>
       <circle cx="22" cy="42" r="3" fill="#fca5a5" opacity=".6"/>
       <circle cx="42" cy="42" r="3" fill="#fca5a5" opacity=".6"/>
+    </symbol>
+    <!-- 35.8.3: спортивные и музыкальные аватарки, без животных. -->
+    <symbol id="av-volleyball" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dbeafe"/>
+      <circle cx="32" cy="32" r="21" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
+      <path d="M32 11c8 4 13 12 14 21" stroke="#2563eb" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M13 26c9-3 19-1 26 5" stroke="#2563eb" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M20 48c1-10 8-18 17-23" stroke="#f59e0b" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M46 43c-8 3-17 0-23-6" stroke="#f59e0b" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-football" viewBox="0 0 64 64">
+      <defs>
+        <clipPath id="av-ball-clip"><circle cx="32" cy="32" r="21"/></clipPath>
+      </defs>
+      <circle cx="32" cy="32" r="30" fill="#e0f2fe"/>
+      <circle cx="32" cy="32" r="21" fill="#ffffff"/>
+      <path d="M47.9 10.2L50.4 18.0L43.8 22.8L37.1 18.0L39.6 10.2z M57.7 40.3L51.0 45.2L44.4 40.3L46.9 32.5L55.1 32.5z M32.0 59.0L25.3 54.2L27.9 46.3L36.1 46.3L38.7 54.2z M6.3 40.3L8.9 32.5L17.1 32.5L19.6 40.3L13.0 45.2z M16.1 10.2L24.4 10.2L26.9 18.0L20.2 22.8L13.6 18.0z" fill="#1f2937" clip-path="url(#av-ball-clip)"/>
+      <path d="M32 19l7.5 5.5-2.9 8.9h-9.2L24.5 24.5z" fill="#1f2937"/>
+      <circle cx="32" cy="32" r="21" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    </symbol>
+    <symbol id="av-basketball" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ffedd5"/>
+      <circle cx="32" cy="32" r="21" fill="#f97316" stroke="#c2410c" stroke-width="2"/>
+      <path d="M11 32h42M32 11v42" stroke="#7c2d12" stroke-width="2.2"/>
+      <path d="M17 16c9 7 9 25 0 32M47 16c-9 7-9 25 0 32" stroke="#7c2d12" stroke-width="2.2" fill="none"/>
+    </symbol>
+    <symbol id="av-snowboard" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#e0f2fe"/>
+      <g transform="rotate(-32 32 32)">
+        <rect x="26.5" y="8" width="11" height="48" rx="5.5" fill="#0ea5e9" stroke="#0369a1" stroke-width="2"/>
+        <rect x="24.5" y="21" width="15" height="6" rx="3" fill="#f8fafc"/>
+        <rect x="24.5" y="37" width="15" height="6" rx="3" fill="#f8fafc"/>
+      </g>
+      <circle cx="14" cy="18" r="2" fill="#ffffff"/><circle cx="50" cy="46" r="2" fill="#ffffff"/>
+    </symbol>
+    <symbol id="av-skis" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ecfccb"/>
+      <g transform="rotate(28 32 32)"><rect x="29" y="6" width="6" height="52" rx="3" fill="#1d4ed8"/></g>
+      <g transform="rotate(-28 32 32)"><rect x="29" y="6" width="6" height="52" rx="3" fill="#ef4444"/></g>
+      <circle cx="32" cy="32" r="4" fill="#f8fafc"/>
+    </symbol>
+    <symbol id="av-tennis" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dcfce7"/>
+      <g transform="rotate(-12 22 28)">
+        <ellipse cx="22" cy="22" rx="9" ry="11" fill="#ffffff" stroke="#15803d" stroke-width="2.2"/>
+        <path d="M14 18h16M14 24h16M18 12v18M26 12v18" stroke="#86efac" stroke-width="1.1"/>
+        <rect x="20" y="32" width="4" height="20" rx="2" fill="#166534"/>
+      </g>
+      <g transform="rotate(12 42 28)">
+        <ellipse cx="42" cy="22" rx="9" ry="11" fill="#ffffff" stroke="#f97316" stroke-width="2.2"/>
+        <path d="M34 18h16M34 24h16M38 12v18M46 12v18" stroke="#fdba74" stroke-width="1.1"/>
+        <rect x="40" y="32" width="4" height="20" rx="2" fill="#c2410c"/>
+      </g>
+      <circle cx="32" cy="50" r="5.5" fill="#facc15" stroke="#ca8a04" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="av-microphone" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#f3e8ff"/>
+      <rect x="25" y="9" width="14" height="26" rx="7" fill="#7c3aed"/>
+      <path d="M26 16h12M26 22h12M26 28h12" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M19 30a13 13 0 0 0 26 0" stroke="#4c1d95" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M32 43v9M24 52h16" stroke="#4c1d95" stroke-width="3" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-note" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef3c7"/>
+      <path d="M27 44V19l18-4v21" stroke="#b45309" stroke-width="3" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+      <ellipse cx="21.5" cy="45" rx="7" ry="5.2" fill="#b45309" transform="rotate(-18 21.5 45)"/>
+      <ellipse cx="39.5" cy="37" rx="7" ry="5.2" fill="#b45309" transform="rotate(-18 39.5 37)"/>
+    </symbol>
+    <symbol id="av-drum" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fee2e2"/>
+      <path d="M14 36h36v5c0 7-8 12-18 12s-18-5-18-12z" fill="#b91c1c"/>
+      <ellipse cx="32" cy="36" rx="18" ry="11" fill="#fecaca" stroke="#7f1d1d" stroke-width="2"/>
+      <path d="M15 17l13 17M49 17 36 34" stroke="#92400e" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="14.5" cy="16.5" r="2.5" fill="#f59e0b"/><circle cx="49.5" cy="16.5" r="2.5" fill="#f59e0b"/>
+      <path d="M16 39c5 3 11 4 16 4s11-1 16-4" stroke="#ef4444" stroke-width="1.6" fill="none"/>
+    </symbol>
+    <symbol id="av-letter-ya" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fff1f2"/>
+      <circle cx="32" cy="32" r="24" fill="#ffffff" stroke="#fecdd3" stroke-width="2"/>
+      <text x="32" y="48" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#dc2626">Я</text>
+    </symbol>
+    <symbol id="av-jager" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#0f3d2e"/>
+      <circle cx="32" cy="32" r="24" fill="#14503a"/>
+      <path d="M32 8v10M27 11.5h10" stroke="#e8c872" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M32 31c-5-4-9-8-10-14M22 17l-1.5-5M22 20l-6-2M32 31c5-4 9-8 10-14M42 17l1.5-5M42 20l6-2" stroke="#e8c872" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M32 30c-6 0-11 5-11 11 0 7 5 11 11 11s11-4 11-11c0-6-5-11-11-11z" fill="#e8c872"/>
+      <path d="M21 33l-7-3 5 7zM43 33l7-3-5 7z" fill="#e8c872"/>
+      <circle cx="28" cy="39" r="1.6" fill="#14503a"/><circle cx="36" cy="39" r="1.6" fill="#14503a"/>
+      <ellipse cx="32" cy="47" rx="2.6" ry="2" fill="#14503a"/>
     </symbol>
   </defs>
 </svg>
@@ -1915,7 +2008,14 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       Отдельные снимки помечаются, когда серверы Яндекса их не отдают: вместо пустого
       места лежит маленькая копия, а оригинал остаётся в очереди.
     </div>
-    <label class="field-label" for="previews-dir-input">Папка для превью</label>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <label class="field-label" for="previews-dir-input" style="margin-bottom:0">Папка для превью</label>
+      <button class="ghost tipnode" onclick="openPreviewsFolder()"
+        data-tip="Открыть в проводнике папку с превью (внутри — disk и unlim)"
+        style="padding:3px 9px;font-size:12px;white-space:nowrap">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Открыть папку
+      </button>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
       <input type="text" id="previews-dir-input" placeholder="по умолчанию — на диске C рядом с базами" style="flex:1">
       <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки превью" onclick="browseFolder('previews')" style="white-space:nowrap;padding:8px 14px">
@@ -4351,6 +4451,16 @@ function renderPreviews(cfg){
 
 // Сохранить папку превью: программа перенесёт уже скачанные превью и
 // поправит пути в обоих базах.
+async function openPreviewsFolder(){
+  try{
+    const r = await fetch('/api/previews/open', {method:'POST'});
+    const d = await r.json();
+    if(!d.ok) toast(d.error || 'Не удалось открыть папку с превью', 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
 async function savePreviewsDir(){
   const el = document.getElementById('previews-dir-input');
   const dir = el ? el.value.trim() : '';

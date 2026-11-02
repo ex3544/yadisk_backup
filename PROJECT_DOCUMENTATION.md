@@ -2244,3 +2244,42 @@ Chrome (или встроенного Chromium), открывает `https://yan
 `startupUpdateCheck`; аватар внутри `#pill-profile`, нет `avatar-btn`, выбор
 аватарок под `<details id="avatar-details">`.
 Всего 648 тестов; `ruff --select F,E9` и `node --check` чисто.
+
+## 45. Ноябрь 2026: 26 аватарок, просмотр превью, повтор отправки (v35.8.3)
+
+### Новые аватарки
+
+`profiles.AVATARS` расширен с 15 до 26: `av-volleyball`, `av-football`,
+`av-basketball`, `av-snowboard`, `av-skis`, `av-tennis`, `av-microphone`,
+`av-note`, `av-drum`, `av-letter-ya`, `av-jager`. Все — свои SVG-символы
+64×64 в спрайте `webui_assets/index.html`, с круглым фоном и без растровых
+ресурсов; спортивная и музыкальная тема, плюс красная «Я» и шуточный олень.
+Аватарка в плашке профиля увеличена с 18 до 22 px; у `#pill-profile`
+вертикальные отступы уменьшены до 1 px, поэтому овал не становится выше
+соседних плашек, а `overflow:hidden` не даёт картинке выйти за край.
+
+### «Открыть папку» у превью
+
+`POST /api/previews/open` берёт `previews.preview_root()`, создаёт папку при
+необходимости и открывает её в проводнике так же, как копии баз
+(`os.startfile` / `open` / `xdg-open`). В карточке `#previews-card` кнопка
+стоит в одной строке с подписью «Папка для превью»; JS — `openPreviewsFolder()`,
+ошибка показывается через `toast`.
+
+### Повтор отправки «Написать разработчику»
+
+В `diagnostics.send_feedback()` появились `FEEDBACK_RETRY_DELAYS = (3.0, 6.0)`:
+всего три попытки, повтор только при `ConnectionError`/`Timeout`, файл отчёта
+каждый раз открывается заново. При окончательной неудаче
+`_connection_error_text()` различает таймаут, ошибку TLS и отсутствие
+соединения и пишет по-русски, что делать, вместо имени исключения. Повод:
+02.11 в 04:36 отправка из 35.8.1 упала с `ConnectionError` из-за короткого
+обрыва сети (в `launcher.log` рядом был `ConnectTimeoutError`).
+
+### Тесты
+
+`tests/test_diagnostics.py`: повтор после двух обрывов и понятная причина при
+полной недоступности. `tests/test_webui.py`: `/api/previews/open` создаёт и
+открывает папку. `tests/test_packaging.py`: 26 аватарок и наличие новых
+символов, кнопка «Открыть папку» в карточке превью.
+Всего 651 тест; `ruff --select F,E9`, `node --check` и разбор SVG-спрайта чисто.

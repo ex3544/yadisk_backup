@@ -27,6 +27,7 @@ import sqlite3
 import ssl
 import sys
 import threading
+import time
 import traceback
 import zipfile
 from datetime import datetime
@@ -1403,6 +1404,22 @@ def send_report(path: Path | None = None,
     return result
 
 
+# Паузы перед повторными попытками отправки сообщения (всего 3 попытки).
+FEEDBACK_RETRY_DELAYS = (3.0, 6.0)
+
+
+def _connection_error_text(exc: Exception | None, requests_mod) -> str:
+    """Понятная причина вместо технического ConnectionError."""
+    if isinstance(exc, requests_mod.exceptions.Timeout):
+        reason = "сервер не ответил вовремя"
+    elif isinstance(exc, requests_mod.exceptions.SSLError):
+        reason = "не удалось установить защищённое соединение"
+    else:
+        reason = "нет соединения"
+    return (f"Не удалось связаться с сервером сообщений: {reason}. "
+            "Проверьте интернет и нажмите «Отправить» ещё раз.")
+
+
 def send_feedback(name: str,
                   email: str,
                   phone: str,
@@ -1421,31 +1438,43 @@ def send_feedback(name: str,
         "app_version": version.APP_VERSION,
         "message": redact_text(message),
     }
-    file_handle = None
-    try:
-        import requests
-        files = None
-        if report_path is not None:
-            file_handle = Path(report_path).open("rb")
-            files = {"file": (Path(report_path).name, file_handle, "application/zip")}
-        response = requests.post(
-            f"{_report_url()}/feedback",
-            data=data,
-            files=files,
-            timeout=(15, 180),
-        )
-    except Exception as e:
-        result["error"] = (
-            "Не удалось связаться с сервером сообщений "
-            f"({type(e).__name__}). Проверьте интернет и попробуйте ещё раз."
-        )
+    import requests
+    response = None
+    last_error: Exception | None = None
+    # Короткий обрыв сети не должен пугать человека: повторяем отправку дважды.
+    # Отчёт каждый раз открывается заново — после первой попытки файл уже прочитан.
+    for attempt in range(len(FEEDBACK_RETRY_DELAYS) + 1):
+        file_handle = None
+        try:
+            files = None
+            if report_path is not None:
+                file_handle = Path(report_path).open("rb")
+                files = {"file": (Path(report_path).name, file_handle,
+                                  "application/zip")}
+            response = requests.post(
+                f"{_report_url()}/feedback",
+                data=data,
+                files=files,
+                timeout=(15, 180),
+            )
+            break
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            last_error = e
+            if attempt < len(FEEDBACK_RETRY_DELAYS):
+                time.sleep(FEEDBACK_RETRY_DELAYS[attempt])
+        except Exception as e:  # noqa: BLE001 — показываем понятную причину
+            last_error = e
+            break
+        finally:
+            if file_handle is not None:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+    if response is None:
+        result["error"] = _connection_error_text(last_error, requests)
         return result
-    finally:
-        if file_handle is not None:
-            try:
-                file_handle.close()
-            except Exception:
-                pass
     try:
         payload = response.json()
     except Exception:

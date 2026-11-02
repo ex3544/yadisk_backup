@@ -401,6 +401,50 @@ def test_send_feedback_attaches_report_file(temp_paths, monkeypatch):
     assert calls["files"]["file"][0] == path.name
 
 
+def test_send_feedback_retries_after_a_short_network_glitch(
+    temp_paths, monkeypatch
+):
+    """Короткий обрыв связи не должен обрывать отправку сообщения."""
+    import requests
+
+    calls = {"n": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True, "message_id": 7}
+
+    def fake_post(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.exceptions.ConnectionError("обрыв")
+        return FakeResponse()
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(diagnostics.time, "sleep", lambda _seconds: None)
+    result = diagnostics.send_feedback("Иван", "ivan@example.org", "", "Текст")
+
+    assert result["ok"] is True
+    assert calls["n"] == 3
+
+
+def test_send_feedback_explains_a_dead_connection(temp_paths, monkeypatch):
+    """Вместо ConnectionError — понятная причина и совет, что делать."""
+    import requests
+
+    def boom(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("обрыв")
+
+    monkeypatch.setattr("requests.post", boom)
+    monkeypatch.setattr(diagnostics.time, "sleep", lambda _seconds: None)
+    result = diagnostics.send_feedback("Иван", "ivan@example.org", "", "Текст")
+
+    assert result["ok"] is False
+    assert "нет соединения" in result["error"]
+    assert "ConnectionError" not in result["error"]
+
+
 def test_report_key_save_and_clear(temp_paths):
     assert diagnostics.report_key_configured() is False
     diagnostics.save_report_key("abc")

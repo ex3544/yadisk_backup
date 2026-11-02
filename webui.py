@@ -2505,6 +2505,24 @@ def api_set_previews_dir(payload: PreviewsDirPayload):
             "moved": res["moved"], "updated": res["updated"]}
 
 
+@app.post("/api/previews/open")
+def api_previews_open():
+    """Открывает папку превью в проводнике; пустую создаёт заранее."""
+    try:
+        folder = Path(previews.preview_root())
+        folder.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(folder))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+        return {"ok": True, "path": str(folder)}
+    except Exception as e:  # noqa: BLE001 — причину показываем в окне
+        return {"ok": False,
+                "error": diagnostics.redact_text(f"{type(e).__name__}: {e}")}
+
+
 # ── Облачные папки и типы файлов (C2) ───────────────────────────────────────
 
 MEDIA_LABELS = {"photos": "только фото", "videos": "только видео", "all": "фото и видео"}

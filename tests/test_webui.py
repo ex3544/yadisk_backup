@@ -1087,6 +1087,22 @@ def test_migrate_previews_dir_moves_files_and_updates_db(tmp_path):
     assert path.startswith(str(new_root))
 
 
+def test_previews_open_creates_and_opens_the_folder(monkeypatch, tmp_path):
+    """35.8.3: «Открыть папку» показывает превью; пустую папку создаёт сама."""
+    root = tmp_path / "previews"
+    monkeypatch.setattr(webui.previews, "preview_root", lambda: str(root))
+    opened = {}
+    monkeypatch.setattr(webui.os, "startfile",
+                        lambda path: opened.update(path=path), raising=False)
+
+    out = webui.api_previews_open()
+
+    assert out["ok"] is True
+    assert out["path"] == str(root)
+    assert root.is_dir()
+    assert opened["path"] == str(root)
+
+
 def test_status_reports_disk_state(monkeypatch, tmp_path):
     """Состояние прохода Диска доходит до UI: по нему видно отключение (B0)."""
     import json

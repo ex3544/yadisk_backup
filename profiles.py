@@ -43,6 +43,11 @@ AVATARS = (
     "av-boy-blue", "av-boy-green",
     "av-fox", "av-cat", "av-panda", "av-bear", "av-bunny",
     "av-owl", "av-frog", "av-penguin", "av-dog", "av-hedgehog",
+    # 35.8.3: спорт, музыка и пара шутливых — всего 26 на выбор.
+    "av-volleyball", "av-football", "av-basketball",
+    "av-snowboard", "av-skis", "av-tennis",
+    "av-microphone", "av-note", "av-drum",
+    "av-letter-ya", "av-jager",
 )
 DEFAULT_AVATAR = "av-fox"
 # Символы, недопустимые в имени профиля: имя попадает в списки и файлы,

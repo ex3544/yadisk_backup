@@ -981,10 +981,16 @@ def test_profile_avatars_live_in_the_profile_pill_and_under_a_spoiler():
 
     profiles_src = (PROJECT_DIR / "profiles.py").read_text(encoding="utf-8")
     import profiles as profiles_mod
-    assert len(profiles_mod.AVATARS) == 15
+    assert len(profiles_mod.AVATARS) == 26
     for avatar in profiles_mod.AVATARS:
         assert avatar in profiles_src
         assert f'<symbol id="{avatar}"' in html, avatar
+    # 35.8.3: спорт, музыка, красная «Я» и шуточный олень.
+    for avatar in ("av-volleyball", "av-football", "av-basketball",
+                   "av-snowboard", "av-skis", "av-tennis",
+                   "av-microphone", "av-note", "av-drum",
+                   "av-letter-ya", "av-jager"):
+        assert avatar in profiles_mod.AVATARS
 
 
 def test_stop_button_is_available_in_the_quick_launch_card():
@@ -1009,6 +1015,11 @@ def test_previews_dir_can_be_chosen_and_defaults_to_drive_c():
     assert "Рекомендуем оставить на диске" in html
     assert "def preview_root()" in prev
     assert 'os.getenv("PREVIEWS_DIR")' in prev
+    # 35.8.3: превью можно посмотреть — кнопка открывает папку в проводнике.
+    assert "function openPreviewsFolder()" in html
+    assert "/api/previews/open" in html and "/api/previews/open" in py
+    start = html.index('id="previews-card"')
+    assert "Открыть папку" in html[start:start + 1500]
 
 
 def test_stop_button_text_is_visible_on_red():
