@@ -218,7 +218,8 @@ async function feedback(request, env) {
   const contentType = request.headers.get("Content-Type") || "";
   let form = null;
   let body = {};
-  if (contentType.includes("multipart/form-data")) {
+  if (contentType.includes("multipart/form-data")
+      || contentType.includes("application/x-www-form-urlencoded")) {
     try {
       form = await request.formData();
     } catch (_) {

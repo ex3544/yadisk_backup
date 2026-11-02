@@ -1487,6 +1487,9 @@ def test_feedback_form_lives_in_report_card_and_explains_privacy():
     worker = (PROJECT_DIR / "worker" / "src" / "index.js").read_text(encoding="utf-8")
     assert 'url.pathname === "/feedback"' in worker
     assert "async function feedback(" in worker
+    # Сообщение без ZIP приходит как обычная HTML-форма (requests с files=None),
+    # поэтому Worker разбирает и urlencoded, а не только multipart.
+    assert 'contentType.includes("application/x-www-form-urlencoded")' in worker
     # Публичный маршрут стоит до проверки ключа: иначе клиент без ключа
     # не сможет написать разработчику.
     assert worker.index('url.pathname === "/feedback"') < worker.index("if (!authorized(")
