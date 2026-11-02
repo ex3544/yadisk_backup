@@ -5,9 +5,11 @@ import os
 import pytest
 
 import paths
+import unlim_backup as ub
 from previews import (
     PREVIEW_DIR_NAME,
     is_photo,
+    make_disk_preview,
     preview_dir,
     preview_path_for,
     remove_preview,
@@ -19,11 +21,11 @@ from state import State
 
 
 class _Resp:
-    def __init__(self, status=200, payload=None, body=b""):
+    def __init__(self, status=200, payload=None, body=b"", headers=None):
         self.status_code = status
         self._payload = payload
         self._body = body
-        self.headers = {"Content-Type": "image/jpeg"}
+        self.headers = headers or {"Content-Type": "image/jpeg"}
 
     def json(self):
         if self._payload is None:
@@ -71,12 +73,26 @@ def test_is_photo_by_extension():
     assert not is_photo("")
 
 
-def test_preview_path_mirrors_structure(tmp_path, monkeypatch):
+def test_preview_paths_are_flat_by_kind(tmp_path, monkeypatch):
+    """35.7.9: превью Диска и Безлимита — в своих плоских папках disk/unlim."""
     monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
-    p = preview_path_for("disk:/Фото/2019/a.jpg")
-    assert p.endswith("a.jpg")
-    assert os.sep + "Фото" in p
-    assert p.startswith(str(tmp_path))
+    p = preview_path_for("disk", "disk:/Фото/2019/a.jpg")
+    assert os.path.dirname(p) == os.path.join(str(tmp_path), "disk")
+    assert "Фото" not in p              # не повторяем структуру облака
+    assert os.path.basename(p).startswith("a__")
+    assert p.endswith(".jpg")
+
+    u = preview_path_for("unlim", "/photounlim/2026-09-15 16-29-11/b.jpg")
+    assert os.path.dirname(u) == os.path.join(str(tmp_path), "unlim")
+    assert os.path.basename(u).startswith("b__")
+
+
+def test_preview_names_do_not_collide_for_same_file_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    a = preview_path_for("disk", "disk:/Фото/2019/IMG_0001.JPG")
+    b = preview_path_for("disk", "disk:/Разное/IMG_0001.JPG")
+    assert a != b
+    assert preview_path_for("disk", "disk:/Фото/2019/IMG_0001.JPG") == a
 
 
 def test_preview_dir_defaults_to_program_data(monkeypatch):
@@ -115,6 +131,131 @@ def test_save_from_link_rejects_html_stub(tmp_path):
     sess._responses[0].headers["Content-Type"] = "text/html"
     with pytest.raises(FetchFailure):
         save_from_link("https://h/p.jpg", str(tmp_path / "a.jpg"), session=sess)
+
+
+def test_save_from_link_sends_auth_only_to_preview_link(tmp_path):
+    """Токен уходит в первый запрос, но не на сервер хранения после редиректа."""
+    sess = _Session(
+        _Resp(302, headers={"Location": "https://mds.storage.yandex.net/x"}),
+        _Resp(200, body=b"img"),
+    )
+    dst = str(tmp_path / "prev" / "a.jpg")
+    save_from_link(
+        "https://downloader.disk.yandex.ru/preview/x",
+        dst,
+        session=sess,
+        headers={"Authorization": "OAuth secret"},
+    )
+    assert sess.calls[0][1]["headers"]["Authorization"] == "OAuth secret"
+    assert "Authorization" not in sess.calls[1][1]["headers"]
+    assert open(dst, "rb").read() == b"img"
+
+
+class _Meta:
+    preview = "https://downloader.disk.yandex.ru/preview/x"
+
+
+class _Client:
+    token = "y0_test"
+
+    def get_meta(self, path, preview_size=None):
+        return _Meta()
+
+
+def test_make_disk_preview_uses_oauth_and_disk_folder(tmp_path, monkeypatch):
+    """35.7.9: без токена Яндекс отвечает 403 — превью качается авторизованным."""
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    sess = _Session(_Resp(200, body=b"img"))
+    dst = make_disk_preview(_Client(), "disk:/Фото/a.jpg", session=sess)
+    assert dst == preview_path_for("disk", "disk:/Фото/a.jpg")
+    assert open(dst, "rb").read() == b"img"
+    assert sess.calls[0][1]["headers"]["Authorization"] == "OAuth y0_test"
+    assert os.path.dirname(dst) == os.path.join(str(tmp_path), "disk")
+
+
+def test_existing_disk_preview_is_not_downloaded_again(tmp_path, monkeypatch):
+    """Повторный проход не дёргает API и не качает уже сохранённое превью."""
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    dst = preview_path_for("disk", "disk:/Фото/a.jpg")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(b"old")
+
+    class _NoCalls(_Client):
+        def get_meta(self, path, preview_size=None):
+            raise AssertionError("get_meta не должен вызываться")
+
+    sess = _Session()
+    assert make_disk_preview(_NoCalls(), "disk:/Фото/a.jpg", session=sess) == dst
+    assert sess.calls == []
+
+
+def test_existing_unlim_preview_is_not_downloaded_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREVIEWS_DIR", str(tmp_path))
+    db_path = tmp_path / "unlim_state.db"
+    ub.init_db(db_path)
+    con = ub.get_db(db_path)
+    with con:
+        con.execute("INSERT INTO unlim_files (file_id, name, size) VALUES ('fid','a.jpg',1)")
+    con.close()
+    dst = preview_path_for("unlim", "fid")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(b"old")
+
+    class _NoPost(_Session):
+        def post(self, url, **kwargs):
+            raise AssertionError("сеть не нужна: превью уже есть")
+
+    assert ub.save_preview_for_deferred(
+        db_path, _NoPost(), "sk", "1", "fid", "a.jpg", tmp_path
+    ) == dst
+
+    con = ub.get_db(db_path)
+    row = con.execute(
+        "SELECT preview_path FROM unlim_files WHERE file_id='fid'"
+    ).fetchone()
+    con.close()
+    assert row["preview_path"] == dst
+
+
+def test_old_preview_is_removed_when_disk_original_arrives(st, tmp_path):
+    preview = tmp_path / "disk" / "a__1.jpg"
+    preview.parent.mkdir(parents=True)
+    preview.write_bytes(b"x")
+    st.mark_pending("disk:/a.jpg", 1, None)
+    st.set_preview_path("disk:/a.jpg", str(preview))
+
+    old = st.mark_downloaded("disk:/a.jpg", str(tmp_path / "a.jpg"))
+
+    assert old == str(preview)
+    assert list(st.get_preview_paths()) == []
+
+
+def test_old_preview_is_removed_when_unlim_original_arrives(tmp_path, monkeypatch):
+    db_path = tmp_path / "unlim_state.db"
+    ub.init_db(db_path)
+    con = ub.get_db(db_path)
+    preview = tmp_path / "unlim" / "a__1.jpg"
+    preview.parent.mkdir(parents=True)
+    preview.write_bytes(b"x")
+    with con:
+        con.execute(
+            "INSERT INTO unlim_files (file_id, name, size, preview_path) "
+            "VALUES ('fid', 'a.jpg', 1, ?)",
+            (str(preview),),
+        )
+    con.close()
+
+    ub.mark_done(db_path, "fid", str(tmp_path / "a.jpg"), 1)
+
+    assert not preview.exists()
+    con = ub.get_db(db_path)
+    row = con.execute(
+        "SELECT preview_path FROM unlim_files WHERE file_id='fid'"
+    ).fetchone()
+    con.close()
+    assert row["preview_path"] is None
 
 
 def test_sweep_removes_preview_of_downloaded_file(st, tmp_path):

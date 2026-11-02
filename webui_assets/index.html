@@ -259,6 +259,33 @@
   .tab.active .ico-sm{opacity:1;color:var(--accent)}
   .tab:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(10,132,255,.65)}
 
+  /* Вкладки внутри карточки: компактнее верхних, чтобы не спорить с ними. */
+  .card-tabs{
+    display:flex;gap:6px;flex-wrap:wrap;
+    margin:2px 0 14px;
+    padding-bottom:2px;
+  }
+  .ctab{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:7px 12px;border-radius:9px;cursor:pointer;
+    font-size:12.5px;font-weight:600;
+    color:var(--text-secondary);
+    background:var(--surface2);
+    border:0.5px solid var(--hairline-strong);
+    transition:color .15s,background .15s,border-color .15s,box-shadow .15s;
+  }
+  .ctab:hover{color:var(--text);border-color:rgba(10,132,255,.45)}
+  .ctab.active{
+    color:var(--text);
+    background:rgba(10,132,255,.16);
+    border-color:rgba(10,132,255,.6);
+    box-shadow:0 1px 8px rgba(10,132,255,.18);
+  }
+  .ctab.active .ico-sm{color:var(--accent)}
+  .ctab:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(10,132,255,.65)}
+  .ctab-panel{display:none}
+  .ctab-panel.active{display:block;animation:fadein .18s ease}
+
   /* ── Panel ── */
   .panel{display:none}
   .panel.active{display:block;animation:fadein .25s ease}
@@ -1495,33 +1522,70 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card" id="unlim-dir-card">
-    <div class="card-title">Папка для Безлимита</div>
-    <div class="card-sub">Куда складывать фотографии и видео из Безлимита. Папка создастся автоматически.</div>
-    <label class="field-label">Путь к папке Безлимита</label>
-    <div style="display:flex;gap:8px;margin-bottom:6px">
-      <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim" style="flex:1">
-      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+  <div class="card" id="export-dirs-card">
+    <div class="card-title">Папки выгрузки</div>
+    <div class="card-sub">Куда складывать файлы из облака. Папка создастся автоматически.</div>
+
+    <div class="card-tabs" role="tablist" aria-label="Папки выгрузки">
+      <button class="ctab active" type="button" role="tab" aria-selected="true"
+              data-ctab="disk" onclick="switchCardTab('export-dirs-card','disk')">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
+      </button>
+      <button class="ctab" type="button" role="tab" aria-selected="false"
+              data-ctab="unlim" onclick="switchCardTab('export-dirs-card','unlim')">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Безлимит
       </button>
     </div>
-    <div class="setup-hint" style="margin-bottom:10px">
-      Полный путь с буквой диска, например <code>G:\Бэкап\Unlim</code>.
-      Относительный путь вида <code>backup\Unlim</code> программа примет, но
-      положит папку рядом с программой — так файлы легко потерять.
+
+    <div class="ctab-panel active" data-ctab-panel="disk" role="tabpanel">
+      <label class="field-label">Путь к папке Диска</label>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk" style="flex:1">
+        <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 14px">
+          <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+        </button>
+      </div>
+      <div class="setup-hint" style="margin-bottom:10px">
+        Полный путь с буквой диска, например <code>G:\Бэкап\Disk</code>.
+        Относительный путь программа примет, но положит папку рядом с программой.
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick="checkFolder('disk-dir-input','disk-dir-check')">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
+        </button>
+        <button class="primary" onclick="saveDiskDir()">
+          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        </button>
+      </div>
+      <div id="disk-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
     </div>
-    <div class="actions">
-      <button class="ghost" onclick="checkFolder('unlim-dir-input','unlim-dir-check')">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
-      </button>
-      <button class="primary" onclick="saveUnlimDir()">
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
+
+    <div class="ctab-panel" data-ctab-panel="unlim" role="tabpanel">
+      <label class="field-label">Путь к папке Безлимита</label>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim" style="flex:1">
+        <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
+          <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+        </button>
+      </div>
+      <div class="setup-hint" style="margin-bottom:10px">
+        Полный путь с буквой диска, например <code>G:\Бэкап\Unlim</code>.
+        Относительный путь вида <code>backup\Unlim</code> программа примет, но
+        положит папку рядом с программой — так файлы легко потерять.
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick="checkFolder('unlim-dir-input','unlim-dir-check')">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
+        </button>
+        <button class="primary" onclick="saveUnlimDir()">
+          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        </button>
+      </div>
+      <div id="unlim-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
     </div>
-    <div id="unlim-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
   </div>
 
-  <!-- Сторож — компактной строкой между папкой Безлимита и токеном -->
+  <!-- Сторож — компактной строкой между папками выгрузки и доступом к Яндексу -->
   <div class="card" id="watchdog-card">
     <div class="watchdog-line">
       <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
@@ -1537,10 +1601,22 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card" id="token-card">
-    <div class="card-title">OAuth-токен</div>
-    <div class="card-sub">Нужен для скачивания обычного диска через официальный API.</div>
+  <div class="card" id="access-card">
+    <div class="card-title">Доступ к Яндексу</div>
+    <div class="card-sub">Токен — для обычного Диска через официальный API, куки — для Безлимита. Хранятся только на этом компьютере.</div>
 
+    <div class="card-tabs" role="tablist" aria-label="Доступ к Яндексу">
+      <button class="ctab active" type="button" role="tab" aria-selected="true"
+              data-ctab="token" onclick="switchCardTab('access-card','token')">
+        <svg class="ico-sm"><use href="#i-key"/></svg>Токен
+      </button>
+      <button class="ctab" type="button" role="tab" aria-selected="false"
+              data-ctab="cookies" onclick="switchCardTab('access-card','cookies')">
+        <svg class="ico-sm"><use href="#i-cookies"/></svg>Куки браузера
+      </button>
+    </div>
+
+    <div class="ctab-panel active" data-ctab-panel="token" role="tabpanel">
     <details class="info" id="token-details">
       <summary>Где взять OAuth-токен (1 минута)<span class="info-hint"></span></summary>
       <ol>
@@ -1581,36 +1657,65 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <span class="muted">Статус сохранённого</span>
       <span class="badge" id="check-token">проверяю…</span>
     </div>
-  </div>
+    </div><!-- /ctab token -->
+
+    <div class="ctab-panel" data-ctab-panel="cookies" role="tabpanel">
+    <details class="info" id="cookies-details">
+      <summary>Что это и как получить куки<span class="info-hint"></span></summary>
+      <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
+      <ol>
+        <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
+        <li>Откройте <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и войдите в аккаунт</li>
+        <li>Нажмите на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
+        <li>Вставьте JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
+      </ol>
+      <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
+    </details>
+
+    <!-- Текущие сохранённые -->
+    <div id="saved-cookies-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Сейчас сохранено</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:14px" id="saved-cookies-count">—</div>
+        <button class="danger" onclick="clearCookies()" style="padding:6px 12px;font-size:12px">Удалить</button>
+      </div>
+    </div>
+
+    <label class="field-label">JSON массив кук</label>
+    <textarea id="cookies-input" placeholder='[{"name":"Session_id","value":"…","domain":".yandex.ru", …}, …]'></textarea>
+    <div class="actions">
+      <button onclick="testCookies()">
+        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
+      </button>
+      <button class="primary" id="btn-save-cookies" onclick="saveCookies()" disabled>
+        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+      </button>
+    </div>
+
+    <!-- Полуавтоматическое обновление кук через Playwright -->
+    <div id="cookie-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Обновить куки автоматически</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войди в Яндекс, куки снимутся сами.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="primary" id="btn-cookie-fetch" onclick="startCookieFetch()">
+          <svg class="ico-sm"><use href="#i-cookies"/></svg>Обновить куки
+        </button>
+        <button id="btn-cookie-fetch-cancel" onclick="cancelCookieFetch()" style="display:none">Отмена</button>
+      </div>
+      <div id="cookie-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
+    </div>
+
+    <hr>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+      <span class="muted">Статус сохранённых</span>
+      <span class="badge" id="check-cookies">проверяю…</span>
+    </div>
+    </div><!-- /ctab cookies -->
+  </div><!-- /access-card -->
 
   </div><!-- /setup-col -->
 
   <div class="setup-col">
-
-  <div class="card" id="disk-dir-card">
-    <div class="card-title">Папка для обычного Диска</div>
-    <div class="card-sub">Куда складывать файлы и структуру основного Диска. Папка создастся автоматически.</div>
-    <label class="field-label">Путь к папке Диска</label>
-    <div style="display:flex;gap:8px;margin-bottom:6px">
-      <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk" style="flex:1">
-      <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 14px">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
-      </button>
-    </div>
-    <div class="setup-hint" style="margin-bottom:10px">
-      Полный путь с буквой диска, например <code>G:\Бэкап\Disk</code>.
-      Относительный путь программа примет, но положит папку рядом с программой.
-    </div>
-    <div class="actions">
-      <button class="ghost" onclick="checkFolder('disk-dir-input','disk-dir-check')">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
-      </button>
-      <button class="primary" onclick="saveDiskDir()">
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
-    </div>
-    <div id="disk-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
 
   <!-- Превью отложенных фото -->
   <div class="card" id="previews-card">
@@ -1637,6 +1742,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       Рекомендуем оставить на диске <strong>C</strong>: превью занимают копейки, а базы
       и папки выгрузки на внешних дисках вы меняете — превью останутся на месте.
       При смене папки уже сохранённые превью перенесутся сами.
+      Внутри — две простые папки: <code>disk</code> для Диска и <code>unlim</code>
+      для Безлимита. Превью не считается скачанным файлом и исчезает, как только
+      оригинал догрузится.
     </div>
   </div>
 
@@ -1740,62 +1848,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       Сообщим о конце работы и при остановке — например, если диск отключился.
       Сообщение Windows показывается из значка программы в трее; разрешений
       в настройках окна не требуется.
-    </div>
-  </div>
-
-  <div class="card" id="cookies-card">
-    <div class="card-title">Cookies браузера</div>
-    <div class="card-sub">Опционально — для скачивания безлимитного фото-хранилища.</div>
-
-    <details class="info" id="cookies-details">
-      <summary>Что это и как получить куки<span class="info-hint"></span></summary>
-      <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
-      <ol>
-        <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
-        <li>Откройте <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и войдите в аккаунт</li>
-        <li>Нажмите на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
-        <li>Вставьте JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
-      </ol>
-      <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
-    </details>
-
-    <!-- Текущие сохранённые -->
-    <div id="saved-cookies-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
-      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Сейчас сохранено</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:14px" id="saved-cookies-count">—</div>
-        <button class="danger" onclick="clearCookies()" style="padding:6px 12px;font-size:12px">Удалить</button>
-      </div>
-    </div>
-
-    <label class="field-label">JSON массив кук</label>
-    <textarea id="cookies-input" placeholder='[{"name":"Session_id","value":"…","domain":".yandex.ru", …}, …]'></textarea>
-    <div class="actions">
-      <button onclick="testCookies()">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
-      </button>
-      <button class="primary" id="btn-save-cookies" onclick="saveCookies()" disabled>
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
-    </div>
-
-    <!-- Полуавтоматическое обновление кук через Playwright -->
-    <div id="cookie-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
-      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Обновить куки автоматически</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войди в Яндекс, куки снимутся сами.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="primary" id="btn-cookie-fetch" onclick="startCookieFetch()">
-          <svg class="ico-sm"><use href="#i-cookies"/></svg>Обновить куки
-        </button>
-        <button id="btn-cookie-fetch-cancel" onclick="cancelCookieFetch()" style="display:none">Отмена</button>
-      </div>
-      <div id="cookie-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
-    </div>
-
-    <hr>
-    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-      <span class="muted">Статус сохранённых</span>
-      <span class="badge" id="check-cookies">проверяю…</span>
     </div>
   </div>
 
@@ -2418,6 +2470,22 @@ function showPanel(name){
   return panel;
 }
 
+// Вкладки внутри карточки («Папки выгрузки», «Доступ к Яндексу»). Классы
+// отдельные от верхних .tab, иначе showPanel() переключил бы их случайно.
+function switchCardTab(cardId, name){
+  const card = document.getElementById(cardId);
+  if(!card) return;
+  card.querySelectorAll('.ctab').forEach(b=>{
+    const on = b.dataset.ctab === name;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  });
+  card.querySelectorAll('.ctab-panel').forEach(p=>{
+    p.classList.toggle('active', p.dataset.ctabPanel === name);
+  });
+}
+
 // Прокрутка к настройке и подсветка её карточки — после перехода по плашке.
 function revealTarget(panel, selector){
   if(!panel) return;
@@ -2435,20 +2503,28 @@ function revealTarget(panel, selector){
   if(field && !field.disabled) field.focus({preventScroll:true});
 }
 
-function gotoSetting(panel, selector){
-  revealTarget(showPanel(panel), selector);
+function gotoSetting(panel, selector, cardId, tab){
+  const p = showPanel(panel);
+  // Сначала открываем нужную вкладку карточки, потом ищем поле: иначе поле
+  // лежит в скрытой панели и прокрутка с подсветкой промахнутся.
+  if(cardId && tab) switchCardTab(cardId, tab);
+  revealTarget(p, selector);
 }
 
 // Куда ведёт клик по плашке в шапке: панель и поле, к которому прокрутить.
 const PILL_TARGETS = {
   'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
   'pill-profile':      {panel:'setup', selector:'#profiles-card'},
-  'pill-token':        {panel:'setup', selector:'#token-input'},
-  'pill-cookies':      {panel:'setup', selector:'#cookies-input'},
+  'pill-token':        {panel:'setup', selector:'#token-input',
+                        card:'access-card', tab:'token'},
+  'pill-cookies':      {panel:'setup', selector:'#cookies-input',
+                        card:'access-card', tab:'cookies'},
   'pill-watchdog':     {panel:'setup', selector:'#watchdog-card'},
   'pill-speed':        {panel:'home',  selector:'#pipeline-console'},
-  'pill-session':      {panel:'setup', selector:'#unlim-dir-input'},
-  'pill-disk-session': {panel:'setup', selector:'#disk-dir-input'},
+  'pill-session':      {panel:'setup', selector:'#unlim-dir-input',
+                        card:'export-dirs-card', tab:'unlim'},
+  'pill-disk-session': {panel:'setup', selector:'#disk-dir-input',
+                        card:'export-dirs-card', tab:'disk'},
 };
 
 function bindPillNavigation(){
@@ -2457,7 +2533,7 @@ function bindPillNavigation(){
     if(!el) return;
     const go = ()=>{
       const t = PILL_TARGETS[id];
-      gotoSetting(t.panel, t.selector);
+      gotoSetting(t.panel, t.selector, t.card, t.tab);
     };
     el.addEventListener('click', go);
     el.addEventListener('keydown', e=>{
@@ -7269,9 +7345,9 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
 // на всех вкладках; размер запоминается отдельно по id.
 ['home-unlim-card', 'home-disk-card', 'launch-all-card', 'launch-manual-card',
  'pipeline-card', 'organize-card', 'backups-card', 'profiles-card',
- 'unlim-dir-card', 'watchdog-card', 'token-card', 'disk-dir-card',
+ 'export-dirs-card', 'watchdog-card', 'access-card',
  'previews-card', 'cloud-card', 'picker-card', 'unlim-dates-card',
- 'notify-card', 'cookies-card', 'diag-report-card', 'diag-key-card',
+ 'notify-card', 'diag-report-card', 'diag-key-card',
  'verify-card', 'cloud-audit-card', 'reports-card', 'reset-queue-card',
  'db-card', 'find-files-card', 'snapshots-card', 'update-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});

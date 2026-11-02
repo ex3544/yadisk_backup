@@ -171,8 +171,18 @@ class State:
 
     def mark_downloaded(
         self, remote_path: str, local_path: str, storage_host: Optional[str] = None
-    ) -> None:
+    ) -> Optional[str]:
+        """Ставит «скачано» и возвращает путь прежнего превью (его надо удалить).
+
+        Превью живёт, только пока оригинал ждёт. Возвращённый путь вызывающий
+        код стирает с диска — база его уже не помнит.
+        """
         with self._tx() as conn:
+            row = conn.execute(
+                "SELECT preview_path FROM files WHERE remote_path = ?",
+                (remote_path,),
+            ).fetchone()
+            old_preview = row[0] if row is not None else None
             conn.execute(
                 """
                 UPDATE files
@@ -188,11 +198,18 @@ class State:
                 """,
                 (local_path, storage_host, _utc_now(), remote_path),
             )
+        return old_preview
 
     def mark_skipped(
         self, remote_path: str, local_path: str, storage_host: Optional[str] = None
-    ) -> None:
+    ) -> Optional[str]:
+        """Файл уже лежит на месте: «пропущено» и старый путь превью."""
         with self._tx() as conn:
+            row = conn.execute(
+                "SELECT preview_path FROM files WHERE remote_path = ?",
+                (remote_path,),
+            ).fetchone()
+            old_preview = row[0] if row is not None else None
             conn.execute(
                 """
                 UPDATE files
@@ -206,6 +223,7 @@ class State:
                 """,
                 (local_path, storage_host, _utc_now(), remote_path),
             )
+        return old_preview
 
     def mark_deferred(
         self,

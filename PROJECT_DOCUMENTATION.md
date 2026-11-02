@@ -1111,9 +1111,10 @@ UI показывает плашку `#disk-offline-banner` по `disk_state` и
   лежат в grid/flex и лишний `<div>` ломает раскладку. Классы
   `.resizable-inline{padding-bottom:22px}` и
   `.resizable-sized{overflow-y:auto}`; размер запоминается в `localStorage`,
-  двойной клик сбрасывает. Применено к `#unlim-dir-card`, `#token-card`,
-  `#disk-dir-card`, `#previews-card`, `#cloud-card`, `#launch-all-card`,
-  `#launch-manual-card`.
+  двойной клик сбрасывает. Применено к `#export-dirs-card`, `#access-card`,
+  `#previews-card`, `#cloud-card`, `#launch-all-card`, `#launch-manual-card`
+  (с 35.7.9 отдельные `unlim-dir-card`, `token-card`, `disk-dir-card` и
+  `cookies-card` объединены во вкладки).
 * **Сторож по умолчанию**: `DiskWatchdog.DEFAULT_THRESHOLD_GB = 20.0`,
   `start_background_services()` поднимает его при старте, если
   `WATCHDOG` не `0`; `_remember_watchdog()` записывает `WATCHDOG`/`WATCHDOG_GB`
@@ -1911,7 +1912,7 @@ published_at, notes, url}`) и `skipped`. Если список получить
 `makeResizable(..., {axis:'y', inline:true, key:id})` теперь получают все
 карточки: добавлены `home-unlim-card`, `home-disk-card`, `pipeline-card`,
 `organize-card`, `picker-card`, `unlim-dates-card`, `notify-card`,
-`cookies-card`, `diag-report-card`, `diag-key-card`, `reports-card`,
+`access-card`, `export-dirs-card`, `diag-report-card`, `diag-key-card`, `reports-card`,
 `reset-queue-card`, `db-card`, `find-files-card`, `snapshots-card`,
 `update-card` и другие. Карточкам без id id добавлены. Размер хранится в
 `localStorage` по ключу `ui-resize:<id>`, двойной клик сбрасывает.
@@ -1990,3 +1991,65 @@ UI: окно `#guide-modal` с прокруткой и лёгким разбор
 проход пишет в `per_base` статусы и «размер не отдаётся» в отчёт. В
 `tests/test_packaging.py` проверяется `#audit-bases` и `cloud_size_unknown`.
 Всего 625 тестов; `ruff --select F,E9` и `node --check` чисто.
+
+---
+
+## 41. Ноябрь 2026: превью с авторизацией, объединённые настройки (v35.7.9)
+
+### Почему превью не качались
+
+Проверка 02.11 показала: папка `previews` пуста, в обеих базах 0 записей
+`preview_path`, хотя настройка `previews: true`. Причина — Яндекс отдаёт
+ссылку на превью только авторизованному клиенту: анонимный запрос получает
+`403 text/html`, а с куками или заголовком `Authorization: OAuth <токен>` —
+`200 image/jpeg` (проверено вживую для обеих баз). Программа качала превью
+анонимно: у Безлимита `save_from_link(link, dst, dead_hosts=DEAD_HOSTS)` без
+`session=`, у Диска `_get_thread_http_session()` без кук и токена. `403`
+глотался в `except`, поэтому в журнале была тишина.
+
+### Что сделано
+
+- `fetch.fetch_to_file()` принимает `headers` и добавляет их только к первому
+  запросу — самой ссылке от API. Подписанный редирект на сервер хранения
+  токен не получает.
+- `previews.make_disk_preview()` берёт токен из клиента (`client.token` или
+  явный параметр) и шлёт `Authorization: OAuth …`.
+- `unlim_backup.save_preview_for_deferred()` качает превью в той же сессии с
+  куками (`session=session`).
+- `previews.preview_path_for(kind, source)`: две плоские папки
+  `<корень>/disk` и `<корень>/unlim`, без структуры облака. Имя —
+  `<имя>__<sha1(source)[:8]>.jpg`: одинаковые `IMG_0001.JPG` из разных папок
+  не затирают друг друга, путь стабилен.
+- `state.mark_downloaded()` и `mark_skipped()` возвращают путь прежнего
+  превью; `downloader._apply_result()` сразу удаляет файл. У Безлимита
+  `unlim_backup.mark_done()` делает то же: читает `preview_path`, обнуляет
+  колонку и удаляет файл.
+- `migrate_legacy_previews()` раскладывает старые `_превью` по `disk`/`unlim`.
+  Смена папки превью по-прежнему переносит дерево целиком и правит пути в
+  обеих базах — подпапки сохраняются.
+- Превью не меняет статус файла и не попадает ни в один счётчик «скачано»:
+  у Диска результат остаётся `deferred`, у Безлимита — `pending`/`lost`.
+
+### UI
+
+- `#export-dirs-card` «Папки выгрузки» — вкладки «Обычный Диск» и «Безлимит»
+  (`data-ctab` / `data-ctab-panel`, классы `.ctab`, не пересекаются с верхними
+  `.tab`). Вместо отдельных `#unlim-dir-card` и `#disk-dir-card`.
+- `#access-card` «Доступ к Яндексу» — вкладки «Токен» и «Куки браузера».
+  Вместо `#token-card` и `#cookies-card`.
+- `switchCardTab(cardId, name)` переключает вкладку; `gotoSetting(panel,
+  selector, cardId, tab)` сначала открывает вкладку, потом прокручивает к
+  полю. `PILL_TARGETS` для `pill-token`, `pill-cookies`, `pill-session`,
+  `pill-disk-session` содержит `card` и `tab`, поэтому плашки попадают в
+  видимое поле.
+- Ручки раздвижения перенесены на новые id; список в `makeResizable` обновлён.
+
+### Тесты
+
+`tests/test_previews.py`: плоские папки и защита от совпадения имён, токен
+только в первом запросе, `make_disk_preview` шлёт OAuth и пишет в `disk`,
+удаление превью при `mark_downloaded` и `mark_done`.
+`tests/test_packaging.py`: старые карточки отсутствуют, поля не задвоены,
+есть `switchCardTab` и вкладки у обеих карточек, плашки ведут на вкладку.
+Живая проверка 02.11: превью Диска — 243 КБ JPEG в `disk`, Безлимита —
+602 КБ JPEG в `unlim`.

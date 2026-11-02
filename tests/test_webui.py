@@ -1044,7 +1044,7 @@ def test_legacy_previews_are_moved_out_of_the_download_folder(tmp_path, monkeypa
     res = webui.migrate_legacy_previews()
 
     assert res["moved"] == 1
-    assert (new_root / "2019" / "a.jpg").exists()
+    assert (new_root / "unlim" / "2019" / "a.jpg").exists()
     # пустая папка-остаток убрана
     assert not (unlim_dir / webui.previews.LEGACY_PREVIEW_DIR_NAME).exists()
 

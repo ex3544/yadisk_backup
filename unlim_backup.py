@@ -616,14 +616,21 @@ def take_batch(
 def mark_done(db_path: Path, file_id: str, local_path: str, size: int):
     con = get_db(db_path)
     with con:
+        row = con.execute(
+            "SELECT preview_path FROM unlim_files WHERE file_id=?", (file_id,)
+        ).fetchone()
+        old_preview = row["preview_path"] if row is not None else None
         con.execute(
             """UPDATE unlim_files
                SET status='downloaded', local_path=?, size=?, downloaded_at=CURRENT_TIMESTAMP,
-                   error=NULL, retry_after=NULL, server_fails=0
+                   error=NULL, retry_after=NULL, server_fails=0, preview_path=NULL
                WHERE file_id=?""",
             (local_path, size, file_id),
         )
     con.close()
+    # Оригинал скачан — уменьшенная копия больше не нужна.
+    if old_preview:
+        preview_mod.remove_preview(old_preview)
 
 
 def mark_skipped(db_path: Path, file_id: str, error: str):
@@ -698,6 +705,20 @@ def mark_deferred(db_path: Path, file_id: str, host: str | None, server_failed: 
     con.close()
 
 
+def _remember_preview(db_path: Path, file_id: str, dst: str) -> None:
+    """Запоминает путь превью в базе. Ошибка базы превью не ломает."""
+    try:
+        con = get_db(db_path)
+        with con:
+            con.execute(
+                "UPDATE unlim_files SET preview_path=? WHERE file_id=?",
+                (dst, file_id),
+            )
+        con.close()
+    except sqlite3.Error:
+        pass
+
+
 def save_preview_for_deferred(
     db_path: Path,
     session: requests.Session,
@@ -710,24 +731,21 @@ def save_preview_for_deferred(
     """Превью отложенного фото Безлимита. Никогда не бросает исключений."""
     if not preview_mod.is_photo(name):
         return None
+    dst = preview_mod.preview_path_for("unlim", file_id)
+    # Превью уже лежит с прошлого прохода — не тратим запросы и не качаем заново.
+    if os.path.exists(preview_mod.to_long_path(dst)):
+        _remember_preview(db_path, file_id, dst)
+        return dst
     link = preview_mod.unlim_preview_url(session, sk, uid, file_id, BASE_URL)
     if not link:
         return None
-    dst = preview_mod.preview_path_for(name)
     try:
-        preview_mod.save_from_link(link, dst, dead_hosts=DEAD_HOSTS)
+        # Ссылка превью открыта только авторизованному браузеру: качаем в той
+        # же сессии с куками, иначе Яндекс отвечает 403 и HTML-заглушкой.
+        preview_mod.save_from_link(link, dst, dead_hosts=DEAD_HOSTS, session=session)
     except Exception:  # noqa: BLE001 — превью необязательно
         return None
-    try:
-        con = get_db(db_path)
-        with con:
-            con.execute(
-                "UPDATE unlim_files SET preview_path=? WHERE file_id=?",
-                (dst, file_id),
-            )
-        con.close()
-    except sqlite3.Error:
-        pass
+    _remember_preview(db_path, file_id, dst)
     return dst
 
 

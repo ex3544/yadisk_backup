@@ -2387,10 +2387,14 @@ def migrate_legacy_previews() -> dict:
     убираем, чтобы не путали.
     """
     cfg = get_config()
-    new_root = previews.preview_root()
     total = {"moved": 0, "updated": 0}
-    bases = (cfg.get("unlim_dir"), cfg.get("disk_dir") or cfg.get("download_dir"))
-    for base in bases:
+    # (папка выгрузки, куда класть): старые `_превью` раскладываем по видам.
+    bases = (
+        (cfg.get("unlim_dir"), previews.preview_kind_dir("unlim")),
+        (cfg.get("disk_dir") or cfg.get("download_dir"),
+         previews.preview_kind_dir("disk")),
+    )
+    for base, new_root in bases:
         if not base:
             continue
         old = os.path.join(str(base), previews.LEGACY_PREVIEW_DIR_NAME)

@@ -199,6 +199,7 @@ def fetch_to_file(
     dead_hosts: Optional[DeadHosts] = None,
     reject_pages: bool = False,
     session: Optional[requests.Session] = None,
+    headers: Optional[dict[str, str]] = None,
     link_timeout: tuple[float, float] = (30.0, 60.0),
     storage_timeout: tuple[float, float] = (10.0, 10.0),
     chunk_size: int = 1024 * 1024,
@@ -208,6 +209,10 @@ def fetch_to_file(
     `reject_pages=True` — для Безлимита и превью: если вместо файла пришёл
     HTML или JSON, это подмена (истёкшая сессия, капча, заглушка). У обычного
     Диска есть настоящие .html и .json, поэтому там проверка выключена.
+
+    `headers` добавляются только к первому запросу — к самой ссылке от API
+    (например, `Authorization: OAuth …` для превью). Редирект на сервер
+    хранения уже подписан, и токен туда не уходит.
     """
     own_session = session is None
     s = session or requests.Session()
@@ -225,13 +230,16 @@ def fetch_to_file(
                     "сервер хранения не отвечает — пропускаю без запроса",
                     host=hop_host,
                 )
+            req_headers = {"Accept": "*/*"}
+            if hop == 0 and headers:
+                req_headers.update(headers)
             try:
                 response = s.get(
                     url,
                     stream=True,
                     allow_redirects=False,
                     timeout=link_timeout if hop == 0 else storage_timeout,
-                    headers={"Accept": "*/*"},
+                    headers=req_headers,
                 )
             except requests.Timeout as e:
                 raise FetchFailure("timeout", f"таймаут соединения: {e}", host=hop_host) from e

@@ -2,21 +2,29 @@
 
 Если Яндекс не отдаёт оригинал (сервер хранения молчит), появляется
 уменьшенная копия снимка — по умолчанию в `<данные>/previews/` (на Windows это
-`%LOCALAPPDATA%\\YandexDiskBackup\\previews`, диск C). Раньше превью лежали в
-`_превью/` внутри папки выгрузки и терялись вместе со сменой диска; теперь папка
-одна на программу и задаётся настройкой `PREVIEWS_DIR`. База хранит путь превью,
-поэтому смена диска выгрузки их не трогает. Когда оригинал докачается, превью
-удаляется.
+`%LOCALAPPDATA%\\YandexDiskBackup\\previews`, диск C). Внутри — две плоские
+папки: `disk/` для обычного Диска и `unlim/` для Безлимита. Раньше превью
+лежали в `_превью/` внутри папки выгрузки и терялись вместе со сменой диска;
+теперь корень один на программу и задаётся настройкой `PREVIEWS_DIR`. База
+хранит путь превью, поэтому смена диска выгрузки их не трогает. Когда оригинал
+докачается, превью удаляется сразу.
+
+Ссылки превью Яндекс отдаёт только авторизованному клиенту: без токена или
+кук приходит 403 и HTML-заглушка. Поэтому Диск качает превью с заголовком
+`Authorization: OAuth <токен>`, а Безлимит — в уже авторизованной сессии с
+куками.
 
 Правила:
 * только фото — видео и документы превью не получают;
 * только отложенные файлы — для нормально скачанных превью не создаётся;
+* превью не меняет статус файла и не попадает в счётчики «скачано»;
 * запись атомарная: `.part` → `os.replace`, как у обычного скачивания;
 * путь превью хранится в БД (`preview_path`), чтобы его можно было убрать.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from typing import Optional
@@ -41,6 +49,9 @@ PHOTO_EXTS = frozenset(
 # Размеры превью Яндекса от большего к меньшему. XXXL — самое крупное (до 1280 px).
 PREVIEW_SIZES = ("XXXL", "XXL", "XL")
 
+# Плоские подпапки внутри корня превью: Диск и Безлимит не смешиваются.
+PREVIEW_KINDS = ("disk", "unlim")
+
 
 def is_photo(path: str) -> bool:
     return os.path.splitext(path or "")[1].lower() in PHOTO_EXTS
@@ -63,11 +74,36 @@ def preview_dir() -> str:
     return preview_root()
 
 
-def preview_path_for(remote_path: str) -> str:
-    """`disk:/Фото/2019/a.jpg` → `<папка превью>/Фото/2019/a.jpg`."""
-    rel = sanitize_remote_path(remote_path)
-    stem, _ext = os.path.splitext(rel)
-    return os.path.join(preview_root(), stem.replace("/", os.sep) + ".jpg")
+def preview_kind_dir(kind: str) -> str:
+    """Папка одного хранилища: `<корень>/disk` или `<корень>/unlim`."""
+    if kind not in PREVIEW_KINDS:
+        raise ValueError(f"неизвестный вид превью: {kind}")
+    return os.path.join(preview_root(), kind)
+
+
+def _flat_preview_name(source: str) -> str:
+    """Плоское имя файла превью без папок облака.
+
+    Одинаковые имена (`IMG_0001.JPG` в разных папках) не должны затирать друг
+    друга, поэтому к имени добавляется короткий хеш исходного пути.
+    `Фото/2019/a.jpg` → `a__9f3c1a2b.jpg`.
+    """
+    rel = sanitize_remote_path(source)
+    base = os.path.basename(rel) or "preview"
+    stem, _ext = os.path.splitext(base)
+    stem = stem[:80] or "preview"
+    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+    return f"{stem}__{digest}.jpg"
+
+
+def preview_path_for(kind: str, source: str) -> str:
+    """Путь превью в плоской папке: `disk`/`unlim`, без структуры облака.
+
+    `source` — удалённый путь Диска (`disk:/Фото/a.jpg`) или идентификатор
+    файла Безлимита (`/photounlim/…/a.jpg`). Хеш в имени делает путь
+    уникальным и стабильным.
+    """
+    return os.path.join(preview_kind_dir(kind), _flat_preview_name(source))
 
 
 def save_from_link(
@@ -76,8 +112,13 @@ def save_from_link(
     *,
     dead_hosts: Optional[DeadHosts] = None,
     session: Optional[requests.Session] = None,
+    headers: Optional[dict[str, str]] = None,
 ) -> str:
-    """Скачивает картинку в `dst` атомарно. Бросает FetchFailure как обычный fetch."""
+    """Скачивает картинку в `dst` атомарно. Бросает FetchFailure как обычный fetch.
+
+    `headers` уходят только в первый запрос — саму ссылку превью. Перенаправление
+    на сервер хранения уже подписано и в токене не нуждается.
+    """
     ensure_dir(to_long_path(os.path.dirname(dst) or "."))
     fetch_to_file(
         link,
@@ -85,6 +126,7 @@ def save_from_link(
         dead_hosts=dead_hosts,
         reject_pages=True,  # вместо картинки пришла HTML-заглушка — это ошибка
         session=session,
+        headers=headers,
         link_timeout=(15.0, 30.0),
         storage_timeout=(10.0, 10.0),
     )
@@ -108,15 +150,23 @@ def make_disk_preview(
     client,
     remote_path: str,
     *,
+    token: Optional[str] = None,
     dead_hosts: Optional[DeadHosts] = None,
     session: Optional[requests.Session] = None,
 ) -> Optional[str]:
     """Превью файла обычного Диска через поле `preview` метаданных.
 
+    Ссылка превью отдаётся только с авторизацией: без токена Яндекс отвечает
+    403 и HTML-заглушкой. Токен берётся из клиента, если не передан явно.
+
     Никогда не бросает исключений: превью — украшение, а не часть бэкапа.
     """
     if not is_photo(remote_path):
         return None
+    dst = preview_path_for("disk", remote_path)
+    # Превью уже лежит с прошлого прохода — не тратим запросы и не качаем заново.
+    if os.path.exists(to_long_path(dst)):
+        return dst
     link = None
     for size in PREVIEW_SIZES:
         try:
@@ -128,9 +178,12 @@ def make_disk_preview(
             break
     if not link:
         return None
-    dst = preview_path_for(remote_path)
+    auth = (token or getattr(client, "token", None) or "").strip()
+    headers = {"Authorization": f"OAuth {auth}"} if auth else None
     try:
-        return save_from_link(link, dst, dead_hosts=dead_hosts, session=session)
+        return save_from_link(
+            link, dst, dead_hosts=dead_hosts, session=session, headers=headers
+        )
     except Exception:  # noqa: BLE001
         return None
 

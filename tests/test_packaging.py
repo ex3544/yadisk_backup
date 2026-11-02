@@ -245,14 +245,14 @@ def test_backups_and_reset_buttons_explain_themselves_without_confirm():
 
 
 def test_watchdog_is_a_compact_strip_between_the_folders_and_token():
-    """Сторож — одна строка между «Папка для Безлимита» и «OAuth-токен»."""
+    """Сторож — одна строка между «Папки выгрузки» и «Доступ к Яндексу»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     setup = _panel_html(html, "setup")
 
-    unlim_pos = setup.index("Папка для Безлимита")
+    folders_pos = setup.index('id="export-dirs-card"')
     watchdog_pos = setup.index('id="watchdog-card"')
-    token_pos = setup.index("OAuth-токен")
-    assert unlim_pos < watchdog_pos < token_pos
+    access_pos = setup.index('id="access-card"')
+    assert folders_pos < watchdog_pos < access_pos
 
     # Компактная строка, а не карточка с абзацем описания.
     assert 'class="watchdog-line"' in setup
@@ -263,6 +263,37 @@ def test_watchdog_is_a_compact_strip_between_the_folders_and_token():
     assert 'class="setup-col"' in setup
     assert ".setup-col{display:flex;flex-direction:column;gap:12px}" in html
     assert 'data-panel="setup"] .card:nth-child(' not in html
+
+
+def test_settings_cards_are_merged_with_tabs():
+    """35.7.9: папки Диска/Безлимита и токен/куки — по одной карточке с вкладками."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    setup = _panel_html(html, "setup")
+
+    # Старые отдельные карточки убраны, новые — на месте.
+    for old in ("unlim-dir-card", "disk-dir-card", "token-card", "cookies-card"):
+        assert f'id="{old}"' not in setup, old
+    assert 'id="export-dirs-card"' in setup
+    assert 'id="access-card"' in setup
+
+    # Поля не задвоились при переносе.
+    for field_id in ("disk-dir-input", "unlim-dir-input", "token-input", "cookies-input"):
+        assert setup.count(f'id="{field_id}"') == 1, field_id
+
+    # Вкладки обеих карточек и переключение без путаницы с верхними .tab.
+    for tab in ('data-ctab="disk"', 'data-ctab="unlim"',
+                'data-ctab="token"', 'data-ctab="cookies"'):
+        assert tab in setup
+    assert setup.count('role="tab"') >= 4
+    assert "function switchCardTab(cardId, name){" in html
+    assert "card.querySelectorAll('.ctab-panel')" in html
+    assert ".ctab-panel.active{display:block" in html
+
+    # Плашки ведут на нужную вкладку, иначе поле окажется в скрытой панели.
+    assert "card:'access-card', tab:'token'" in html
+    assert "card:'access-card', tab:'cookies'" in html
+    assert "card:'export-dirs-card', tab:'unlim'" in html
+    assert "card:'export-dirs-card', tab:'disk'" in html
 
 
 def test_download_all_is_a_full_cycle_in_ui():
@@ -669,7 +700,7 @@ def test_header_pills_navigate_to_their_settings():
 
     assert "function showPanel(name)" in html
     assert "function revealTarget(panel, selector)" in html
-    assert "function gotoSetting(panel, selector)" in html
+    assert "function gotoSetting(panel, selector, cardId, tab)" in html
     assert "const PILL_TARGETS = {" in html
     for pill in ("active-tasks", "pill-token", "pill-cookies", "pill-watchdog",
                  "pill-speed", "pill-session", "pill-disk-session"):
@@ -832,7 +863,7 @@ def test_waiting_count_includes_in_progress_files():
 def test_cards_can_be_stretched_by_height():
     """Все перечисленные карточки тянутся по высоте без обёртки (не ломает сетку)."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    for card_id in ("unlim-dir-card", "token-card", "disk-dir-card",
+    for card_id in ("export-dirs-card", "access-card",
                     "previews-card", "cloud-card", "launch-all-card",
                     "launch-manual-card"):
         assert f'id="{card_id}"' in html
@@ -1340,9 +1371,9 @@ def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
     cards = [
         "home-unlim-card", "home-disk-card", "launch-all-card",
         "launch-manual-card", "pipeline-card", "organize-card", "backups-card",
-        "profiles-card", "unlim-dir-card", "watchdog-card", "token-card",
-        "disk-dir-card", "previews-card", "cloud-card", "picker-card",
-        "unlim-dates-card", "notify-card", "cookies-card", "diag-report-card",
+        "profiles-card", "export-dirs-card", "watchdog-card", "access-card",
+        "previews-card", "cloud-card", "picker-card",
+        "unlim-dates-card", "notify-card", "diag-report-card",
         "diag-key-card", "verify-card", "cloud-audit-card", "reports-card",
         "reset-queue-card", "db-card", "find-files-card", "snapshots-card",
         "update-card",

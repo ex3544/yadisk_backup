@@ -565,6 +565,7 @@ def _download_one(
                 # пропуск мгновенный, без сети.
                 preview = preview_mod.make_disk_preview(
                     client, job.remote_path,
+                    token=getattr(client, "token", None),
                     dead_hosts=dead_hosts, session=http_session,
                 )
             return DownloadResult(
@@ -953,7 +954,10 @@ def _apply_result(
 ) -> None:
     """Применяет результат скачивания к БД и счётчикам."""
     if res.status == "downloaded":
-        state.mark_downloaded(res.job.remote_path, res.local_path or "")
+        old_preview = state.mark_downloaded(res.job.remote_path, res.local_path or "")
+        # Оригинал на месте — уменьшенная копия больше не нужна.
+        if old_preview:
+            preview_mod.remove_preview(old_preview)
         counters["downloaded"] += 1
         counters["bytes"] += res.bytes_written
         byte_bar.update(res.bytes_written)
@@ -965,7 +969,9 @@ def _apply_result(
             res.job.remote_path,
         )
     elif res.status == "skipped":
-        state.mark_skipped(res.job.remote_path, res.local_path or "")
+        old_preview = state.mark_skipped(res.job.remote_path, res.local_path or "")
+        if old_preview:
+            preview_mod.remove_preview(old_preview)
         counters["skipped"] += 1
         if res.job.size:
             byte_bar.update(res.job.size)
