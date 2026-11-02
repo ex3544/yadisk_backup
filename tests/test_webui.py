@@ -1092,8 +1092,8 @@ def test_previews_open_creates_and_opens_the_folder(monkeypatch, tmp_path):
     root = tmp_path / "previews"
     monkeypatch.setattr(webui.previews, "preview_root", lambda: str(root))
     opened = {}
-    monkeypatch.setattr(webui.os, "startfile",
-                        lambda path: opened.update(path=path), raising=False)
+    monkeypatch.setattr(webui, "open_in_file_manager",
+                        lambda path: opened.update(path=str(path)))
 
     out = webui.api_previews_open()
 

@@ -2505,18 +2505,27 @@ def api_set_previews_dir(payload: PreviewsDirPayload):
             "moved": res["moved"], "updated": res["updated"]}
 
 
+def open_in_file_manager(folder) -> None:
+    """Открывает папку в системном файловом менеджере.
+
+    Отдельной функцией — чтобы тесты подменяли её целиком: на Linux
+    os.startfile нет, и проверять «открылось ли» по факту нельзя.
+    """
+    if os.name == "nt":
+        os.startfile(str(folder))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(folder)])
+    else:
+        subprocess.Popen(["xdg-open", str(folder)])
+
+
 @app.post("/api/previews/open")
 def api_previews_open():
     """Открывает папку превью в проводнике; пустую создаёт заранее."""
     try:
         folder = Path(previews.preview_root())
         folder.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            os.startfile(str(folder))  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(folder)])
-        else:
-            subprocess.Popen(["xdg-open", str(folder)])
+        open_in_file_manager(folder)
         return {"ok": True, "path": str(folder)}
     except Exception as e:  # noqa: BLE001 — причину показываем в окне
         return {"ok": False,
@@ -3666,12 +3675,7 @@ def api_backups_delete(backup_id: str):
 def api_backups_open():
     try:
         folder = backups.backups_dir(paths.DATA_DIR)
-        if os.name == "nt":
-            os.startfile(str(folder))  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(folder)])
-        else:
-            subprocess.Popen(["xdg-open", str(folder)])
+        open_in_file_manager(folder)
         return {"ok": True, "path": str(folder)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -4541,12 +4545,7 @@ def api_open_reports():
     """Открывает папку с отчётами в проводнике."""
     try:
         paths.REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            os.startfile(str(paths.REPORT_DIR))  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(paths.REPORT_DIR)])
-        else:
-            subprocess.Popen(["xdg-open", str(paths.REPORT_DIR)])
+        open_in_file_manager(paths.REPORT_DIR)
         return {"ok": True, "path": str(paths.REPORT_DIR)}
     except Exception as e:
         return {"ok": False, "error": str(e), "path": str(paths.REPORT_DIR)}
