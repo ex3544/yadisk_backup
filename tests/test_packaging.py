@@ -932,7 +932,27 @@ def test_profiles_card_lists_and_switches_users():
     py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
     assert '@app.get("/api/profiles")' in py
     assert '@app.post("/api/profiles/switch")' in py
+    assert '@app.post("/api/profiles/avatar")' in py
     assert "def write_profile_restart_helper(" in py
+
+
+def test_profile_avatars_live_in_the_header_and_profile_card():
+    """35.8.0: 15 своих SVG-аватарок, аватар слева от темы, клик ведёт в профиль."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    # Аватар стоит в ряду постоянных плашек перед кнопкой темы.
+    assert html.index('id="avatar-btn"') < html.index('id="theme-btn"')
+    assert "'avatar-btn':        {panel:'setup', selector:'#profiles-card'}" in html
+    assert 'id="avatar-grid"' in html
+    assert "async function chooseAvatar(" in html
+    assert "function applyAvatar(" in html
+    assert "function renderAvatarPicker(" in html
+
+    profiles_src = (PROJECT_DIR / "profiles.py").read_text(encoding="utf-8")
+    import profiles as profiles_mod
+    assert len(profiles_mod.AVATARS) == 15
+    for avatar in profiles_mod.AVATARS:
+        assert avatar in profiles_src
+        assert f'<symbol id="{avatar}"' in html, avatar
 
 
 def test_stop_button_is_available_in_the_quick_launch_card():
@@ -1156,21 +1176,28 @@ def test_profile_switch_waits_then_forces_only_if_stuck():
     assert chunk.index("WaitForExit(10000)") < chunk.index("Stop-Process")
 
 
-def test_database_snapshots_can_be_made_and_restored():
-    """35.7.2: «точка отсчёта» — снимки баз и откат к ним."""
+def test_database_snapshots_are_merged_into_backups():
+    """35.8.0: «снимки» и «резервные копии» — одно понятие и одна карточка."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    for marker in ('id="snapshots-card"', 'id="snapshots-list"',
-                   'id="snapshots-status"'):
-        assert marker in html
-    assert "async function makeSnapshot(" in html
-    assert "async function restoreSnapshot(" in html
+    # Отдельной карточки снимков больше нет.
+    assert 'id="snapshots-card"' not in html
+    assert "function makeSnapshot(" not in html
     py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
-    assert '@app.post("/api/db/snapshot")' in py
-    assert '@app.post("/api/db/restore")' in py
-    assert '@app.get("/api/db/snapshots")' in py
-    snap = (PROJECT_DIR / "dbsnapshots.py").read_text(encoding="utf-8")
-    assert "src.backup(dst)" in snap       # согласованная копия, а не copy файла
-    assert "before-restore" in py          # откат тоже обратим
+    assert '@app.post("/api/db/snapshot")' not in py
+    assert '@app.get("/api/db/snapshots")' not in py
+    assert "dbsnapshots" not in py
+    # Старые снимки переносятся в backups/ при запуске и при открытии списка.
+    assert "backups.migrate_snapshots(paths.DATA_DIR)" in py
+    mod = (PROJECT_DIR / "backups.py").read_text(encoding="utf-8")
+    assert "src_con.backup(dst_con)" in mod   # согласованная копия, а не copy файла
+    assert "def migrate_snapshots(" in mod
+    assert "AUTO_KEEP = 5" in mod
+    assert "before-sort" in mod and "before-rebuild" in mod
+
+    organize = _panel_html(html, "organize")
+    assert "Автоматических копий" in organize
+    assert 'id="backups-keep"' in organize
+    assert "b.reason_title" in html
 
 
 def test_unlim_calendar_card_is_in_the_window():
@@ -1375,8 +1402,7 @@ def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
         "previews-card", "cloud-card", "picker-card",
         "unlim-dates-card", "notify-card", "diag-report-card",
         "diag-key-card", "verify-card", "cloud-audit-card", "reports-card",
-        "reset-queue-card", "db-card", "find-files-card", "snapshots-card",
-        "update-card",
+        "reset-queue-card", "db-card", "find-files-card", "update-card",
     ]
     start = html.index("['home-unlim-card'")
     resize_list = html[start:html.index("].forEach", start)]

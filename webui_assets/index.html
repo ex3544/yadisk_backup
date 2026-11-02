@@ -506,6 +506,22 @@
   .profile-dir{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
   .profile-actions{display:flex;gap:6px;flex-wrap:wrap}
   .profile-actions button{padding:6px 10px;font-size:12.5px}
+  /* Аватар в шапке слева от темы и выбор аватарки в профиле (35.8.0). */
+  .avatar-btn{width:34px;height:34px;padding:0;border-radius:50%;overflow:hidden;
+    border:1px solid var(--hairline-strong);background:var(--surface2);cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .avatar-btn:hover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(10,132,255,.2)}
+  .avatar-svg{width:100%;height:100%;display:block}
+  .avatar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));
+    gap:9px;margin-top:8px}
+  .avatar-choice{width:52px;height:52px;padding:0;border-radius:50%;overflow:hidden;
+    border:2px solid transparent;background:var(--surface2);cursor:pointer;line-height:0;
+    transition:border-color .15s,box-shadow .15s}
+  .avatar-choice:hover{border-color:var(--hairline-strong)}
+  .avatar-choice.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(10,132,255,.18)}
+  .avatar-choice .avatar-svg{width:100%;height:100%}
+  .profile-avatar{width:30px;height:30px;border-radius:50%;overflow:hidden;
+    flex:0 0 auto;display:inline-flex}
 
   /* ── Progress ── */
   .progress{margin-top:14px}
@@ -860,14 +876,6 @@
   .uday.empty{opacity:.3;cursor:default;border-style:dashed}
   .uday.today .uday-num{text-decoration:underline}
   .udates-summary{font-size:12.5px;color:var(--text-tertiary);margin-top:8px;line-height:1.45}
-  /* Снимки баз: строки с датой, размером и кнопками. */
-  .snapshot-list{display:flex;flex-direction:column;gap:6px}
-  .snapshot-row{display:flex;align-items:center;gap:10px;padding:8px 10px;
-    background:var(--surface2);border-radius:9px;font-size:13px}
-  .snapshot-row .snap-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap}
-  .snapshot-row .snap-meta{font-size:11.5px;color:var(--text-tertiary);white-space:nowrap}
-  .snapshot-row button{padding:4px 10px;font-size:12px}
   .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center}
   .cycle-row{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;line-height:1.35}
   .modal-actions .primary{flex:1;justify-content:center;min-width:160px}
@@ -1051,6 +1059,147 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <symbol id="i-cookies" viewBox="0 0 24 24">
       <path fill="currentColor" d="M21.95 10.99c-.01 0-.01 0 0 0a3.49 3.49 0 0 1-3.45-3.94c.08-.55-.42-1-.96-.86a1.95 1.95 0 0 1-2.45-2.45 1 1 0 0 0-.85-1.27 1 1 0 0 0-.32 0c-5.66-.43-10.42 4.34-9.92 10.04A10 10 0 0 0 12.99 22a10 10 0 0 0 9.83-10.74 1 1 0 0 0-.87-.27zM10 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm7 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm2-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-7-3a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-3 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
     </symbol>
+
+    <!-- Аватарки профиля (35.8.0): свои, весёленькие, без внешних файлов. -->
+    <symbol id="av-girl-pink" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fce7f3"/>
+      <circle cx="32" cy="34" r="17" fill="#fcd5c4"/>
+      <path d="M15 34a17 17 0 0 1 34 0v-6a17 17 0 0 0-34 0z" fill="#8a5a44"/>
+      <circle cx="15" cy="35" r="6" fill="#8a5a44"/><circle cx="49" cy="35" r="6" fill="#8a5a44"/>
+      <circle cx="26" cy="34" r="2.2" fill="#3f2a22"/><circle cx="38" cy="34" r="2.2" fill="#3f2a22"/>
+      <path d="M27 41q5 4 10 0" stroke="#c2415c" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <circle cx="22" cy="39" r="3" fill="#f9a8b8" opacity=".55"/><circle cx="42" cy="39" r="3" fill="#f9a8b8" opacity=".55"/>
+    </symbol>
+    <symbol id="av-girl-purple" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ede9fe"/>
+      <circle cx="12" cy="26" r="8" fill="#5b3f8f"/><circle cx="52" cy="26" r="8" fill="#5b3f8f"/>
+      <circle cx="32" cy="34" r="17" fill="#f2c9ae"/>
+      <path d="M16 32a16 16 0 0 1 32 0q-8-9-16-7t-16 7z" fill="#5b3f8f"/>
+      <circle cx="26" cy="35" r="2.2" fill="#33234f"/><circle cx="38" cy="35" r="2.2" fill="#33234f"/>
+      <path d="M27 42q5 4 10 0" stroke="#b2386b" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <circle cx="43" cy="22" r="3" fill="#fbbf24"/>
+    </symbol>
+    <symbol id="av-girl-orange" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ffedd5"/>
+      <circle cx="17" cy="18" r="7" fill="#d97706"/><circle cx="47" cy="18" r="7" fill="#d97706"/>
+      <circle cx="32" cy="35" r="17" fill="#fbd0b0"/>
+      <path d="M17 33a15 15 0 0 1 30 0q-7-6-15-5t-15 5z" fill="#d97706"/>
+      <circle cx="26" cy="36" r="2.2" fill="#4a2b14"/><circle cx="38" cy="36" r="2.2" fill="#4a2b14"/>
+      <path d="M27 43q5 4 10 0" stroke="#c2410c" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-boy-blue" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dbeafe"/>
+      <circle cx="32" cy="36" r="17" fill="#f6cfa8"/>
+      <path d="M15 32a17 17 0 0 1 34 0v-5a17 17 0 0 0-34 0z" fill="#4b3621"/>
+      <circle cx="26" cy="36" r="2.2" fill="#2b2118"/><circle cx="38" cy="36" r="2.2" fill="#2b2118"/>
+      <path d="M27 43q5 4 10 0" stroke="#a15c3e" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M14 18h36l-4-8H18z" fill="#2563eb"/>
+    </symbol>
+    <symbol id="av-boy-green" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dcfce7"/>
+      <circle cx="32" cy="35" r="17" fill="#c98a5b"/>
+      <path d="M17 31a15 15 0 0 1 30 0q-3-4-7-4t-8 3-8-3-7 4z" fill="#3b2a1a"/>
+      <circle cx="19" cy="26" r="5" fill="#3b2a1a"/><circle cx="45" cy="26" r="5" fill="#3b2a1a"/>
+      <circle cx="26" cy="35" r="2.2" fill="#241a10"/><circle cx="38" cy="35" r="2.2" fill="#241a10"/>
+      <path d="M27 42q5 4 10 0" stroke="#7c3f24" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-fox" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ffedd5"/>
+      <path d="M12 26 18 8l12 10zM52 26 46 8 34 18z" fill="#ea580c"/>
+      <path d="M32 12c12 0 20 9 20 20 0 12-9 20-20 20S12 44 12 32c0-11 8-20 20-20z" fill="#f97316"/>
+      <path d="M32 34c7 0 12 5 12 9 0 4-5 7-12 7s-12-3-12-7c0-4 5-9 12-9z" fill="#fff7ed"/>
+      <circle cx="25" cy="31" r="2.5" fill="#3f2412"/><circle cx="39" cy="31" r="2.5" fill="#3f2412"/>
+      <circle cx="32" cy="40" r="2.8" fill="#3f2412"/>
+      <path d="M27 46q5 3 10 0" stroke="#3f2412" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-cat" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#f1f5f9"/>
+      <path d="M14 26 18 8l11 8zM50 26 46 8 35 16z" fill="#64748b"/>
+      <circle cx="32" cy="35" r="19" fill="#94a3b8"/>
+      <path d="M17 34a15 15 0 0 1 30 0q-7-5-15-4t-15 4z" fill="#64748b"/>
+      <circle cx="25" cy="34" r="2.6" fill="#1e293b"/><circle cx="39" cy="34" r="2.6" fill="#1e293b"/>
+      <path d="M29 41h6l-3 3z" fill="#f472b6"/>
+      <path d="M13 38h14M37 38h14" stroke="#475569" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M27 46q5 3 10 0" stroke="#475569" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-panda" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#e0f2fe"/>
+      <circle cx="17" cy="16" r="8" fill="#1f2937"/><circle cx="47" cy="16" r="8" fill="#1f2937"/>
+      <circle cx="32" cy="35" r="19" fill="#ffffff"/>
+      <ellipse cx="24" cy="33" rx="5" ry="6" fill="#1f2937" transform="rotate(-18 24 33)"/>
+      <ellipse cx="40" cy="33" rx="5" ry="6" fill="#1f2937" transform="rotate(18 40 33)"/>
+      <circle cx="25" cy="33" r="2.2" fill="#fff"/><circle cx="39" cy="33" r="2.2" fill="#fff"/>
+      <ellipse cx="32" cy="42" rx="2.8" ry="2" fill="#1f2937"/>
+      <path d="M27 47q5 3 10 0" stroke="#1f2937" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-bear" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef3c7"/>
+      <circle cx="16" cy="19" r="9" fill="#92400e"/><circle cx="48" cy="19" r="9" fill="#92400e"/>
+      <circle cx="32" cy="35" r="19" fill="#b45309"/>
+      <ellipse cx="32" cy="41" rx="10" ry="8" fill="#fde68a"/>
+      <circle cx="25" cy="32" r="2.6" fill="#3f1d06"/><circle cx="39" cy="32" r="2.6" fill="#3f1d06"/>
+      <ellipse cx="32" cy="39" rx="3.2" ry="2.4" fill="#3f1d06"/>
+      <path d="M28 45q4 3 8 0" stroke="#3f1d06" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-bunny" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fce7f3"/>
+      <ellipse cx="24" cy="14" rx="6" ry="13" fill="#f9a8d4"/>
+      <ellipse cx="40" cy="14" rx="6" ry="13" fill="#f9a8d4"/>
+      <ellipse cx="24" cy="15" rx="3" ry="9" fill="#fbcfe8"/>
+      <ellipse cx="40" cy="15" rx="3" ry="9" fill="#fbcfe8"/>
+      <circle cx="32" cy="37" r="18" fill="#fff1f5"/>
+      <circle cx="25" cy="35" r="2.4" fill="#4c1d2e"/><circle cx="39" cy="35" r="2.4" fill="#4c1d2e"/>
+      <path d="M29 41h6l-3 3z" fill="#ec4899"/>
+      <path d="M27 47q5 3 10 0" stroke="#9d174d" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-owl" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ede9fe"/>
+      <path d="M15 22 10 8l14 6zM49 22 54 8 40 14z" fill="#7c3aed"/>
+      <circle cx="32" cy="35" r="20" fill="#a78bfa"/>
+      <circle cx="24" cy="32" r="8" fill="#fff"/><circle cx="40" cy="32" r="8" fill="#fff"/>
+      <circle cx="24" cy="32" r="3.6" fill="#312e81"/><circle cx="40" cy="32" r="3.6" fill="#312e81"/>
+      <path d="M29 41h6l-3 6z" fill="#f59e0b"/>
+      <path d="M18 46q14 8 28 0" stroke="#6d28d9" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-frog" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dcfce7"/>
+      <circle cx="20" cy="20" r="10" fill="#4ade80"/><circle cx="44" cy="20" r="10" fill="#4ade80"/>
+      <circle cx="20" cy="20" r="6" fill="#fff"/><circle cx="44" cy="20" r="6" fill="#fff"/>
+      <circle cx="20" cy="20" r="2.8" fill="#14532d"/><circle cx="44" cy="20" r="2.8" fill="#14532d"/>
+      <path d="M12 38a20 20 0 0 1 40 0q0 14-20 14T12 38z" fill="#22c55e"/>
+      <path d="M22 43q10 8 20 0" stroke="#14532d" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <circle cx="21" cy="39" r="2.6" fill="#fda4af" opacity=".7"/>
+      <circle cx="43" cy="39" r="2.6" fill="#fda4af" opacity=".7"/>
+    </symbol>
+    <symbol id="av-penguin" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#e0f2fe"/>
+      <ellipse cx="32" cy="36" rx="19" ry="21" fill="#1e293b"/>
+      <ellipse cx="32" cy="39" rx="12" ry="15" fill="#fff"/>
+      <circle cx="26" cy="31" r="2.6" fill="#0f172a"/><circle cx="38" cy="31" r="2.6" fill="#0f172a"/>
+      <path d="M29 36h6l-3 5z" fill="#f59e0b"/>
+      <path d="M20 52l-6 6M44 52l6 6" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>
+      <path d="M27 45q5 3 10 0" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-dog" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef3c7"/>
+      <ellipse cx="13" cy="30" rx="7" ry="14" fill="#a16207" transform="rotate(12 13 30)"/>
+      <ellipse cx="51" cy="30" rx="7" ry="14" fill="#a16207" transform="rotate(-12 51 30)"/>
+      <circle cx="32" cy="34" r="18" fill="#d4a373"/>
+      <ellipse cx="32" cy="41" rx="8" ry="6" fill="#fef3c7"/>
+      <circle cx="26" cy="31" r="2.5" fill="#3f2412"/><circle cx="38" cy="31" r="2.5" fill="#3f2412"/>
+      <ellipse cx="32" cy="38" rx="3.4" ry="2.6" fill="#3f2412"/>
+      <path d="M29 45q3 5 6 0" fill="#ef4444"/>
+    </symbol>
+    <symbol id="av-hedgehog" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef9c3"/>
+      <path d="M8 34 14 16l8 10 4-14 9 10 4-14 8 12 8-6 4 20z" fill="#78350f"/>
+      <circle cx="32" cy="38" r="17" fill="#d6a06a"/>
+      <path d="M15 34a17 17 0 0 1 34 0q-8-6-17-5t-17 5z" fill="#8a5a2b"/>
+      <circle cx="26" cy="37" r="2.5" fill="#3f2412"/><circle cx="38" cy="37" r="2.5" fill="#3f2412"/>
+      <circle cx="32" cy="44" r="3.2" fill="#3f2412"/>
+      <circle cx="22" cy="42" r="3" fill="#fca5a5" opacity=".6"/>
+      <circle cx="42" cy="42" r="3" fill="#fca5a5" opacity=".6"/>
+    </symbol>
   </defs>
 </svg>
 </head>
@@ -1078,6 +1227,11 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </div>
   <!-- Постоянные плашки: тема, задачи, профиль, токен, куки, сторож. -->
   <div class="pills pills-main" id="pills-main">
+    <button id="avatar-btn" class="avatar-btn tipnode" type="button"
+      data-tip="Аватар профиля. Нажмите — откроет настройки пользователя."
+      aria-label="Аватар профиля">
+      <svg class="avatar-svg" aria-hidden="true"><use id="avatar-use" href="#av-fox"/></svg>
+    </button>
     <button id="theme-btn" class="ghost tipnode" onclick="toggleTheme()"
       data-tip="Светлая или тёмная тема. Выбор запоминается."
       aria-label="Переключить тему" aria-pressed="false"
@@ -1452,7 +1606,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="card" id="backups-card">
     <div class="card-title">Резервные копии баз</div>
-    <div class="card-sub">Статусы, ошибки и пути файлов. Сами файлы не копируются — диски могут быть отключены.</div>
+    <div class="card-sub">
+      Статусы, ошибки и пути файлов. Сами файлы не копируются — диски могут быть отключены.
+      Перед сортировкой, пересозданием базы, сбросом очереди и другими рискованными
+      действиями программа сохраняет копию автоматически. Автоматических копий
+      хранится <span id="backups-keep">5</span> на каждую базу, ручные не удаляются никогда.
+    </div>
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button id="backup-create-disk" class="tipnode" onclick="createBackup('disk')"
@@ -1516,6 +1675,13 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="card-title">Пользователь</div>
     <div class="card-sub">Профиль — отдельный набор данных: свои куки, токен, базы, логи, отчёты и папки выгрузки. При переключении программа перезапустится.</div>
     <div id="profiles-list" class="profile-list"></div>
+    <div style="margin-top:4px">
+      <div class="field-label">Аватар текущего профиля</div>
+      <div id="avatar-grid" class="avatar-grid" role="group" aria-label="Выбор аватарки"></div>
+      <div class="setup-hint" id="avatar-status" role="status" aria-live="polite">
+        Выберите весёленькую аватарку — она появится в шапке слева от кнопки темы.
+      </div>
+    </div>
     <div class="actions" style="margin-top:4px">
       <button class="ghost" onclick="openProfileCreate()">Создать профиль</button>
       <span class="setup-hint" id="profiles-status" role="status" aria-live="polite"></span>
@@ -2173,21 +2339,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card" id="snapshots-card">
-    <div class="card-title">Снимки баз</div>
-    <div class="card-sub">
-      Точка отсчёта: копия баз Диска и Безлимита на выбранный момент. Если что-то
-      пойдёт не так — базу можно вернуть к снимку. Хранятся последние 5 снимков
-      каждого вида; перед откатом текущее состояние сохраняется отдельно.
-    </div>
-    <div class="actions" style="margin-top:0">
-      <button onclick="makeSnapshot()">Сделать снимок</button>
-      <button class="ghost" onclick="loadSnapshots()">Обновить список</button>
-    </div>
-    <div id="snapshots-list" class="snapshot-list" style="margin-top:10px"></div>
-    <div id="snapshots-status" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
-
   <div class="card" id="update-card">
     <div class="card-title">Обновления</div>
     <div class="card-sub">Проверка последнего релиза и обновление прямо из программы. Установщик скачивается с GitHub, сверяется SHA-256 и запускается после закрытия приложения.</div>
@@ -2272,11 +2423,13 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <label class="field-label" for="profile-name">Имя профиля</label>
       <input type="text" id="profile-name" maxlength="40" placeholder="например: Клиент Пётр"
              onkeydown="if(event.key==='Enter') submitProfileModal()">
-      <label class="field-label" for="profile-disk-dir" style="margin-top:12px">Папка обычного Диска</label>
-      <input type="text" id="profile-disk-dir" placeholder="например: E:\Клиент\Disk">
-      <label class="field-label" for="profile-unlim-dir" style="margin-top:12px">Папка Безлимита</label>
-      <input type="text" id="profile-unlim-dir" placeholder="например: E:\Клиент\Unlim">
-      <div class="setup-hint">Пустой путь — папка «Клиенты\&lt;имя профиля&gt;» на диске выгрузки. Своя папка у каждого профиля важна: иначе файлы клиента лягут рядом с вашими.</div>
+      <div id="profile-dirs-fields">
+        <label class="field-label" for="profile-disk-dir" style="margin-top:12px">Папка обычного Диска</label>
+        <input type="text" id="profile-disk-dir" placeholder="например: E:\Клиент\Disk">
+        <label class="field-label" for="profile-unlim-dir" style="margin-top:12px">Папка Безлимита</label>
+        <input type="text" id="profile-unlim-dir" placeholder="например: E:\Клиент\Unlim">
+        <div class="setup-hint">Пустой путь — папка «Клиенты\&lt;имя профиля&gt;» на диске выгрузки. Своя папка у каждого профиля важна: иначе файлы клиента лягут рядом с вашими.</div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="ghost" onclick="closeProfileModal()">Отмена</button>
@@ -2514,6 +2667,7 @@ function gotoSetting(panel, selector, cardId, tab){
 // Куда ведёт клик по плашке в шапке: панель и поле, к которому прокрутить.
 const PILL_TARGETS = {
   'active-tasks':      {panel:'home',  selector:'#pipeline-card'},
+  'avatar-btn':        {panel:'setup', selector:'#profiles-card'},
   'pill-profile':      {panel:'setup', selector:'#profiles-card'},
   'pill-token':        {panel:'setup', selector:'#token-input',
                         card:'access-card', tab:'token'},
@@ -4648,6 +4802,7 @@ async function refresh(){
       pp.className = 'pill service ' + (s.profile.active ? 'ok' : '');
       const pn = document.getElementById('pill-profile-text');
       if(pn) pn.textContent = '👤 ' + (s.profile.name || 'профиль');
+      applyAvatar(s.profile.avatar);
     }
 
     const pSpeed = document.getElementById('pill-speed');
@@ -6300,6 +6455,8 @@ function renderBackups(data){
   _backupsBusy = !!data.busy;
   const count = document.getElementById('backups-count');
   if(count) count.textContent = _backups.length ? pluralCopies(_backups.length) : 'нет';
+  const keep = document.getElementById('backups-keep');
+  if(keep && data.auto_keep) keep.textContent = data.auto_keep;
   const busyNote = document.getElementById('backups-busy-note');
   if(busyNote) busyNote.style.display = (_backupsOpen && _backupsBusy) ? 'block' : 'none';
   const list = document.getElementById('backups-list');
@@ -6312,13 +6469,11 @@ function renderBackups(data){
     const c = b.counts || {};
     const dbs = (b.databases || [])
       .map(k => k === 'disk' ? 'Диск' : 'Безлимит').join(' + ') || '—';
-    const reason = b.reason === 'manual' ? 'ручная'
-      : b.reason === 'before-restore' ? 'перед восстановлением'
-      : b.reason === 'migration' ? 'перед обновлением схемы'
-      : b.legacy ? 'автоматическая' : esc(b.reason || 'копия');
+    const reason = esc(b.reason_title || (b.reason === 'manual' ? 'вручную' : b.reason || 'копия'));
+    const kind = b.auto ? '<span class="badge">авто</span>' : '<span class="badge">ручная</span>';
     return `<div class="backup-row">
       <div style="min-width:220px;flex:1">
-        <div><strong>${esc(b.scope_title)}</strong> · ${esc(fmtBackupDate(b.created_at))}${b.legacy ? ' <span class="badge">авто</span>' : ''}</div>
+        <div><strong>${esc(b.scope_title)}</strong> · ${esc(fmtBackupDate(b.created_at))} ${kind}</div>
         <div class="backup-meta">${esc(dbs)} · ${human(b.size_bytes)} · ${reason}${b.app_version ? ' · v' + esc(b.app_version) : ''}</div>
         <div class="backup-meta">скачано ${fmtNum(c.downloaded)} · пропущено ${fmtNum((c.skipped||0) + (c.failed||0))} · в очереди ${fmtNum(c.pending)} · всего ${fmtNum(c.total)}</div>
       </div>
@@ -6991,6 +7146,58 @@ function _profileAt(i){
   return (_profilesData.profiles || [])[i] || null;
 }
 
+function _avatarId(value){
+  // Только известные символы спрайта: чужое имя не должно ломать шапку.
+  const id = String(value || '');
+  return /^av-[a-z0-9-]+$/.test(id) ? id : 'av-fox';
+}
+
+function applyAvatar(avatar){
+  const use = document.getElementById('avatar-use');
+  if(use) use.setAttribute('href', '#' + _avatarId(avatar));
+}
+
+function renderAvatarPicker(d){
+  const box = document.getElementById('avatar-grid');
+  if(!box) return;
+  const cur = (d && d.current) || {};
+  const chosen = _avatarId(cur.avatar);
+  const list = (d && d.avatars) || [];
+  // Своя папка данных вне списка профилей: сохранять выбор некуда.
+  if(cur.custom){
+    box.innerHTML = '<div class="setup-hint">Аватар можно выбрать, когда программа работает из профиля.</div>';
+    return;
+  }
+  box.innerHTML = list.map(id=>`
+    <button type="button" class="avatar-choice${id === chosen ? ' active' : ''}"
+      data-avatar="${esc(id)}" onclick="chooseAvatar('${esc(id)}')"
+      aria-label="Аватар ${esc(id)}" aria-pressed="${id === chosen}">
+      <svg class="avatar-svg" aria-hidden="true"><use href="#${esc(id)}"/></svg>
+    </button>`).join('');
+}
+
+async function chooseAvatar(id){
+  const cur = (_profilesData && _profilesData.current) || {};
+  if(!cur.id){ return; }
+  const status = document.getElementById('avatar-status');
+  try{
+    const r = await fetch('/api/profiles/avatar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: cur.id, avatar: id})
+    });
+    const d = await r.json();
+    if(!d.ok){
+      if(status){ status.className = 'setup-hint err'; status.textContent = d.error || 'Не удалось сохранить аватар.'; }
+      return;
+    }
+    applyAvatar(id);
+    if(status){ status.className = 'setup-hint ok'; status.textContent = 'Аватар сохранён.'; }
+    await loadProfiles();
+  }catch(e){
+    if(status){ status.className = 'setup-hint err'; status.textContent = 'Нет связи с программой: ' + e.message; }
+  }
+}
+
 function renderProfiles(d){
   const box = document.getElementById('profiles-list');
   if(!box) return;
@@ -7002,13 +7209,14 @@ function renderProfiles(d){
     if(!isCur){
       actions.push(`<button onclick="switchProfile(${i})">Переключиться</button>`);
     }
-    if(!p.main){
-      actions.push(`<button class="ghost" onclick="openProfileRename(${i})">Переименовать</button>`);
-    }
+    // Основной профиль с 35.8.0 тоже можно переименовать; удалить — нет.
+    actions.push(`<button class="ghost" onclick="openProfileRename(${i})">Переименовать</button>`);
     if(!p.main && !isCur){
       actions.push(`<button class="ghost" onclick="deleteProfile(${i})">Удалить</button>`);
     }
+    const avatar = _avatarId(p.avatar);
     return `<div class="profile-row${isCur?' current':''}">
+      <div class="profile-avatar"><svg class="avatar-svg" aria-hidden="true"><use href="#${esc(avatar)}"/></svg></div>
       <div class="profile-main">
         <div class="profile-name">${esc(p.name)}${isCur?'<span class="badge">текущий</span>':''}</div>
         <div class="profile-dir">${esc(p.dir || '')}</div>
@@ -7019,6 +7227,8 @@ function renderProfiles(d){
   if(cur && cur.custom){
     box.innerHTML += '<div class="setup-hint" style="margin-top:8px">Программа запущена с папкой данных вне списка профилей. Управлять такой папкой из окна нельзя.</div>';
   }
+  applyAvatar(cur.avatar);
+  renderAvatarPicker(d);
 }
 
 async function switchProfile(i){
@@ -7081,6 +7291,8 @@ function openProfileCreate(){
   if(title) title.textContent = 'Новый профиль';
   if(sub) sub.textContent = 'У профиля будет своя папка данных: куки, токен, базы, логи и отчёты клиента.';
   if(fields) fields.style.display = '';
+  const dirs = document.getElementById('profile-dirs-fields');
+  if(dirs) dirs.style.display = '';
   if(ok) ok.textContent = 'Создать';
   if(name) name.value = '';
   if(disk) disk.value = '';
@@ -7101,7 +7313,9 @@ function openProfileRename(i){
   const name = document.getElementById('profile-name');
   if(title) title.textContent = 'Переименовать профиль';
   if(sub) sub.textContent = 'Имя меняется только в списке — папка данных остаётся прежней.';
-  if(fields) fields.style.display = 'none';
+  if(fields) fields.style.display = '';
+  const dirs = document.getElementById('profile-dirs-fields');
+  if(dirs) dirs.style.display = 'none';
   if(ok) ok.textContent = 'Сохранить';
   if(name) name.value = p.name || '';
   document.getElementById('profile-modal').classList.add('show');
@@ -7349,7 +7563,7 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
  'previews-card', 'cloud-card', 'picker-card', 'unlim-dates-card',
  'notify-card', 'diag-report-card', 'diag-key-card',
  'verify-card', 'cloud-audit-card', 'reports-card', 'reset-queue-card',
- 'db-card', 'find-files-card', 'snapshots-card', 'update-card'].forEach(id => {
+ 'db-card', 'find-files-card', 'update-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
 });
 
@@ -7802,119 +8016,6 @@ async function udatesDownload(){
   }
 }
 
-// ── снимки баз ─────────────────────────────────────────────────────────────
-
-function _snapLabel(name){
-  // state-20261030-031500.db → 30.10.2026 03:15
-  const m = /^(\w+)-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(name || '');
-  if(!m) return name;
-  return `${m[4]}.${m[3]}.${m[2]} ${m[5]}:${m[6]}`;
-}
-
-function _snapScope(kind){
-  return kind === 'unlim' ? 'Безлимит' : 'Диск';
-}
-
-function renderSnapshots(items){
-  const box = document.getElementById('snapshots-list');
-  if(!box) return;
-  box.innerHTML = '';
-  if(!items || !items.length){
-    const empty = document.createElement('div');
-    empty.className = 'setup-hint';
-    empty.textContent = 'Снимков пока нет.';
-    box.appendChild(empty);
-    return;
-  }
-  items.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'snapshot-row';
-    const name = document.createElement('span');
-    name.className = 'snap-name';
-    name.textContent = `${_snapScope(item.kind)} · ${_snapLabel(item.name)}`;
-    row.appendChild(name);
-    const meta = document.createElement('span');
-    meta.className = 'snap-meta';
-    meta.textContent = human(item.size || 0);
-    row.appendChild(meta);
-    const restore = document.createElement('button');
-    restore.type = 'button';
-    restore.textContent = 'Вернуть';
-    restore.onclick = () => restoreSnapshot(item.name);
-    row.appendChild(restore);
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'ghost';
-    del.textContent = 'Удалить';
-    del.onclick = () => deleteSnapshot(item.name);
-    row.appendChild(del);
-    box.appendChild(row);
-  });
-}
-
-async function loadSnapshots(){
-  try{
-    const r = await fetch('/api/db/snapshots');
-    const d = await r.json();
-    if(d.ok) renderSnapshots(d.snapshots);
-  }catch(e){ /* список не критичен для работы */ }
-}
-
-async function makeSnapshot(){
-  const st = document.getElementById('snapshots-status');
-  try{
-    const r = await fetch('/api/db/snapshot', {method: 'POST'});
-    const d = await r.json();
-    if(d.ok){
-      renderSnapshots(d.snapshots);
-      if(st){ st.className = 'setup-hint ok'; st.textContent = d.msg || 'Снимок готов'; }
-      toast(d.msg || 'Снимок готов', 'ok');
-    } else {
-      if(st){ st.className = 'setup-hint err'; st.textContent = d.msg || 'Не удалось'; }
-      toast(d.msg || 'Не удалось сделать снимок', 'err');
-    }
-  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
-}
-
-async function restoreSnapshot(name){
-  const ok = await askConfirm({
-    title: 'Вернуть базу из снимка?',
-    text: `База будет восстановлена из ${_snapLabel(name)}. Текущее состояние сначала сохраним отдельным снимком — откат тоже будет обратимым. Сначала остановите выгрузку.`
-  });
-  if(!ok) return;
-  const st = document.getElementById('snapshots-status');
-  try{
-    const r = await fetch('/api/db/restore', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name})
-    });
-    const d = await r.json();
-    if(d.ok){
-      renderSnapshots(d.snapshots);
-      if(st){ st.className = 'setup-hint ok'; st.textContent = d.msg || 'База восстановлена'; }
-      toast(d.msg || 'База восстановлена', 'ok');
-      refresh();
-    } else {
-      if(st){ st.className = 'setup-hint err'; st.textContent = d.msg || 'Не удалось'; }
-      toast(d.msg || 'Не удалось восстановить', 'err');
-    }
-  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
-}
-
-async function deleteSnapshot(name){
-  const ok = await askConfirm({title: 'Удалить снимок?', text: `Снимок ${_snapLabel(name)} будет удалён.`});
-  if(!ok) return;
-  try{
-    const r = await fetch('/api/db/snapshot/delete', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name})
-    });
-    const d = await r.json();
-    if(d.ok){ renderSnapshots(d.snapshots); toast(d.msg || 'Снимок удалён', 'ok'); }
-    else toast(d.msg || 'Не удалось удалить', 'err');
-  }catch(e){ toast('Нет связи с программой: ' + e.message, 'err'); }
-}
-
 initVersion();
 initSetup();
 initDiagnostics();
@@ -7922,7 +8023,6 @@ loadProfiles();
 pickerLoadSelection();
 loadUnlimCalendar();
 udatesLoadSelection();
-loadSnapshots();
 refresh();
 setInterval(refresh, 1500);
 // Автопроверка обновлений при запуске: окно по центру появится, только если

@@ -39,7 +39,6 @@ from pydantic import BaseModel, Field
 
 import backups
 import cloud_audit as cloud_audit_mod
-import dbsnapshots
 import diagnostics
 import guide
 import monitor
@@ -1988,6 +1987,11 @@ def start_background_services() -> None:
         migrate_legacy_previews()
     except Exception:  # noqa: BLE001 - превью не должны мешать запуску
         pass
+    # Старые «снимки баз» с 35.8.0 живут в общем списке резервных копий.
+    try:
+        backups.migrate_snapshots(paths.DATA_DIR)
+    except Exception:  # noqa: BLE001 - перенос копий не должен мешать запуску
+        pass
 
 
 class StartPayload(BaseModel):
@@ -2151,6 +2155,10 @@ def api_reset(payload: ResetPayload):
         # обнуляем — у файла снова три попытки.
         if _any_task_running(("disk", "unlim")):
             return {"ok": False, "msg": "Сначала остановите выгрузку"}
+        ok, item, err = _auto_backup("before-reset", ("disk", "unlim"))
+        if not ok:
+            return {"ok": False,
+                    "msg": f"Не удалось сохранить копию баз: {err}"}
         total = 0
         for db_file, table in ((DB_FILE, "files"), (UNLIM_DB_FILE, "unlim_files")):
             if not Path(db_file).exists():
@@ -2169,6 +2177,7 @@ def api_reset(payload: ResetPayload):
                 if con is not None:
                     con.close()
         return {"ok": True, "count": total,
+                "backup": item["id"] if item else "",
                 "msg": f"Сгоревших файлов возвращено в очередь: {total}"}
 
     if what == "disk_failed":
@@ -2199,12 +2208,20 @@ def api_reset(payload: ResetPayload):
     if not Path(db_file).exists():
         return {"ok": False, "msg": "База данных не найдена"}
 
+    scope = "disk" if what == "disk_failed" else "unlim"
+    ok, item, err = _auto_backup("before-reset", (scope,))
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
+
     con = None
     try:
         con = sqlite3.connect(str(db_file), timeout=30)
         with con:
             count = con.execute(sql).rowcount
-        return {"ok": True, "count": count, "msg": f"Сброшено {count}: {done}"}
+        return {"ok": True, "count": count,
+                "backup": item["id"] if item else "",
+                "msg": f"Сброшено {count}: {done}"}
     except sqlite3.Error as e:
         return {"ok": False, "msg": f"Ошибка БД: {e}"}
     finally:
@@ -2758,58 +2775,6 @@ def api_unlim_download_selection():
     return {"ok": ok, "msg": msg, "mode": "unlim"}
 
 
-# ── снимки баз ─────────────────────────────────────────────────────────────
-
-class SnapshotPayload(BaseModel):
-    name: str = ""
-
-
-@app.get("/api/db/snapshots")
-def api_snapshots_list():
-    return {"ok": True, "snapshots": dbsnapshots.list_snapshots(),
-            "keep": dbsnapshots.KEEP}
-
-
-@app.post("/api/db/snapshot")
-def api_snapshot_make():
-    try:
-        made = dbsnapshots.make_snapshot("manual")
-    except sqlite3.Error as e:
-        return {"ok": False, "msg": f"Не удалось сделать снимок: {e}"}
-    log_action("/api/db/snapshot")
-    if not made:
-        return {"ok": False, "msg": "Баз ещё нет — снимок делать нечего"}
-    return {"ok": True, "msg": f"Снимок готов: {len(made)}",
-            "made": made, "snapshots": dbsnapshots.list_snapshots()}
-
-
-@app.post("/api/db/restore")
-def api_snapshot_restore(payload: SnapshotPayload):
-    if _db_running("disk") or _db_running("unlim"):
-        return {"ok": False, "msg": "Сначала остановите выгрузку"}
-    try:
-        # Сначала снимок текущего состояния: сам откат тоже должен быть
-        # обратимым, если снимок окажется неудачным.
-        dbsnapshots.make_snapshot("before-restore")
-        target = dbsnapshots.restore(payload.name)
-    except (ValueError, sqlite3.Error) as e:
-        return {"ok": False, "msg": str(e)}
-    log_action("/api/db/restore", {"name": payload.name})
-    return {"ok": True, "msg": f"База восстановлена из {payload.name}",
-            "target": str(target), "snapshots": dbsnapshots.list_snapshots()}
-
-
-@app.post("/api/db/snapshot/delete")
-def api_snapshot_delete(payload: SnapshotPayload):
-    try:
-        dbsnapshots.delete(payload.name)
-    except ValueError as e:
-        return {"ok": False, "msg": str(e)}
-    log_action("/api/db/snapshot/delete", {"name": payload.name})
-    return {"ok": True, "msg": "Снимок удалён",
-            "snapshots": dbsnapshots.list_snapshots()}
-
-
 class BrowseDirPayload(BaseModel):
     initial: str = ""
 
@@ -3329,20 +3294,21 @@ def db_rebuild(payload: DbRebuildPayload):
     if not db_file.exists():
         return {"ok": False,
                 "msg": "Базы ещё нет — сначала нажмите «Обновить список файлов»"}
-    try:
-        backup = _copy_db(db_file)
-    except sqlite3.Error as e:
-        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {e}"}
+    ok, item, err = _auto_backup("before-rebuild", (scope,))
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
+    backup = item["id"] if item else ""
     log_action(f"db/rebuild/{scope}")
     if scope == "disk":
-        ok, msg = tm.start("disk", "main.py", ["scan", "--force"])
+        started, msg = tm.start("disk", "main.py", ["scan", "--force"])
         what = "Диска"
     else:
-        ok, msg = tm.start("unlim", "unlim_backup.py", ["--scan-only", "--force"])
+        started, msg = tm.start("unlim", "unlim_backup.py", ["--scan-only", "--force"])
         what = "Безлимита"
-    if not ok:
-        return {"ok": False, "msg": msg, "backup": str(backup)}
-    return {"ok": True, "msg": f"База {what} пересоздаётся", "backup": str(backup)}
+    if not started:
+        return {"ok": False, "msg": msg, "backup": backup}
+    return {"ok": True, "msg": f"База {what} пересоздаётся", "backup": backup}
 
 
 @app.post("/api/unlim/rebuild")
@@ -3388,16 +3354,16 @@ def db_relocate(payload: DbRelocatePayload):
         return {"ok": True, "preview": True, "plans": result,
                 "msg": "Предпросмотр готов — файлы не менялись"}
 
-    backups = {}
-    try:
-        for plan in plans:
-            if plan.updates:
-                backup = _copy_db(
-                    DB_FILE if plan.scope == "disk" else UNLIM_DB_FILE
-                )
-                backups[plan.scope] = str(backup)
-    except sqlite3.Error as exc:
-        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {exc}"}
+    saved = {}
+    for plan in plans:
+        if not plan.updates:
+            continue
+        ok, item, err = _auto_backup("before-relocate", (plan.scope,))
+        if not ok:
+            return {"ok": False,
+                    "msg": f"Не удалось сохранить копию базы: {err}"}
+        if item:
+            saved[plan.scope] = item["id"]
 
     moved = 0
     for plan in plans:
@@ -3405,7 +3371,7 @@ def db_relocate(payload: DbRelocatePayload):
             moved += relocate_mod.apply_relocate(plan)
         except sqlite3.Error as exc:
             return {"ok": False, "msg": f"Ошибка базы {plan.scope}: {exc}",
-                    "backup": backups}
+                    "backup": saved}
         # Папку в настройках меняем только когда выбрана одна база: при «обеих»
         # одна общая папка затёрла бы отдельные папки Диска и Безлимита.
         if scope != "both":
@@ -3416,7 +3382,7 @@ def db_relocate(payload: DbRelocatePayload):
         "preview": False,
         "plans": result,
         "moved": moved,
-        "backup": backups,
+        "backup": saved,
         "msg": f"Перепривязано {moved} файлов",
     }
 
@@ -3441,10 +3407,11 @@ def db_restore_cloud(payload: DbRestorePayload):
         log_action("db/restore_cloud/preview")
         return {"ok": True, "preview": True, "plan": plan.as_dict(),
                 "msg": "Предпросмотр готов — файлы не менялись"}
-    try:
-        backup = _copy_db(DB_FILE)
-    except sqlite3.Error as exc:
-        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {exc}"}
+    ok, item, err = _auto_backup("before-restore-cloud", ("disk",))
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
+    backup = item["id"] if item else ""
     done, errors = relocate_mod.apply_restore_cloud(plan)
     log_action("db/restore_cloud")
     return {
@@ -3474,10 +3441,11 @@ def db_redownload(payload: DbRedownloadPayload):
         return {"ok": False, "msg": "Сначала остановите выгрузку этой базы"}
     if not db_file.exists():
         return {"ok": False, "msg": "Базы ещё нет"}
-    try:
-        backup = _copy_db(db_file)
-    except sqlite3.Error as e:
-        return {"ok": False, "msg": f"Не удалось сохранить копию базы: {e}"}
+    ok, item, err = _auto_backup("before-redownload", (scope,))
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
+    backup = item["id"] if item else ""
     # У Диска есть downloaded_at, у Безлимита — attempts; обнуляем своё.
     extra = "downloaded_at = NULL" if scope == "disk" else "attempts = 0"
     try:
@@ -3516,6 +3484,27 @@ def _backup_sources() -> dict[str, Path]:
     return {"disk": DB_FILE, "unlim": UNLIM_DB_FILE}
 
 
+def _auto_backup(
+    reason: str, scopes: tuple[str, ...] | list[str]
+) -> tuple[bool, dict | None, str]:
+    """Копия перед рискованным действием: (получилось, копия, ошибка).
+
+    Если баз ещё нет, это не ошибка: делать копию нечего, действие можно
+    продолжать.
+    """
+    try:
+        item = backups.auto_backup(
+            paths.DATA_DIR,
+            list(scopes),
+            _backup_sources(),
+            version.APP_VERSION,
+            reason=reason,
+        )
+    except (backups.BackupError, OSError, sqlite3.Error) as e:
+        return False, None, str(e)
+    return True, item, ""
+
+
 def _tasks_busy() -> bool:
     with tm._lock:
         return any(t.alive() for t in tm._tasks.values())
@@ -3533,6 +3522,11 @@ class BackupRestorePayload(BaseModel):
 
 @app.get("/api/backups")
 def api_backups():
+    # На случай, если перенос старых снимков не успел при запуске.
+    try:
+        backups.migrate_snapshots(paths.DATA_DIR)
+    except OSError:
+        pass
     items = backups.list_backups(paths.DATA_DIR)
     sources = _backup_sources()
     return {
@@ -3700,6 +3694,18 @@ def organize(payload: OrganizePayload):
                    f"структуру облака. Подтвердите действие в окне.",
         }
 
+    # Сортировка с обновлением базы меняет пути у скачанных файлов — копия
+    # базы перед этим действием сохраняется автоматически.
+    backup_id = ""
+    if payload.action == "move" and payload.update_db:
+        sort_scope = "unlim" if is_unlim else ("disk" if is_disk else "")
+        if sort_scope:
+            ok, item, err = _auto_backup("before-sort", (sort_scope,))
+            if not ok:
+                return {"ok": False,
+                        "msg": f"Не удалось сохранить копию базы: {err}"}
+            backup_id = item["id"] if item else ""
+
     for old in (paths.ORGANIZE_REPORT_FILE, paths.ORGANIZE_PLAN_FILE):
         try:
             old.unlink()
@@ -3718,7 +3724,9 @@ def organize(payload: OrganizePayload):
             args += ["--db", str(UNLIM_DB_FILE), "--table", "unlim_files"]
         elif is_disk:
             args += ["--db", str(DB_FILE), "--table", "files"]
-    return _resp(tm.start("organize", "organize.py", args))
+    out = _resp(tm.start("organize", "organize.py", args))
+    out["backup"] = backup_id
+    return out
 
 
 @app.get("/api/organize/report")
@@ -3969,6 +3977,11 @@ class ProfileIdPayload(BaseModel):
     id: str = ""
 
 
+class ProfileAvatarPayload(BaseModel):
+    id: str = ""
+    avatar: str = ""
+
+
 @app.get("/api/profiles")
 def api_profiles():
     """Профили пользователей: у каждого свой каталог данных."""
@@ -3976,6 +3989,7 @@ def api_profiles():
         "ok": True,
         "profiles": profiles.list_profiles(),
         "current": profiles.current_profile(),
+        "avatars": list(profiles.AVATARS),
         "data_dir": str(paths.DATA_DIR),
     }
 
@@ -3999,6 +4013,17 @@ def api_profiles_rename(payload: ProfileRenamePayload):
     except (ValueError, OSError) as e:
         return {"ok": False, "error": str(e)}
     return {"ok": True, "profile": item}
+
+
+@app.post("/api/profiles/avatar")
+def api_profiles_avatar(payload: ProfileAvatarPayload):
+    """Запоминает выбранную аватарку профиля."""
+    log_action("/api/profiles/avatar", {"id": payload.id})
+    try:
+        item = profiles.set_avatar(payload.id, payload.avatar)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "profile": item, "avatars": list(profiles.AVATARS)}
 
 
 @app.post("/api/profiles/delete")
@@ -4128,6 +4153,10 @@ def api_verify_requeue_missing(payload: RequeueMissingPayload):
             if item.get("status") == "missing" and item.get("path")
         ]
     scopes = ["disk", "unlim"] if scope == "both" else [scope]
+    ok, item, err = _auto_backup("before-requeue", scopes)
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
     updated = 0
     try:
         for one in scopes:
@@ -4140,6 +4169,7 @@ def api_verify_requeue_missing(payload: RequeueMissingPayload):
     for one in (("disk", "unlim") if scope == "both" else (scope,)):
         reset_session_counters(one)
     return {"ok": True, "updated": updated,
+            "backup": item["id"] if item else "",
             "msg": f"Возвращено в очередь: {updated}"}
 
 
@@ -4196,6 +4226,12 @@ def api_cloud_audit_add_new():
     log_action("/api/cloud/audit/add_new")
     if _any_task_running(("disk", "unlim", "verify", "organize", "audit")):
         return {"ok": False, "msg": "Сначала остановите выгрузку и другие проверки"}
+    audited = str((cloud_audit_mod.read_status() or {}).get("scope") or "disk")
+    backup_scopes = ("disk", "unlim") if audited == "both" else (audited,)
+    ok, item, err = _auto_backup("before-add-new", backup_scopes)
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
     try:
         result = cloud_audit_mod.add_new()
     except cloud_audit_mod.AuditError as exc:
@@ -4213,7 +4249,8 @@ def api_cloud_audit_add_new():
     )
     if result["skipped"]:
         msg += f" · пропущено: {result['skipped']}"
-    return {"ok": True, "msg": msg, **result}
+    return {"ok": True, "msg": msg, "backup": item["id"] if item else "",
+            **result}
 
 
 @app.post("/api/cloud/audit/mark_gone")
@@ -4222,6 +4259,12 @@ def api_cloud_audit_mark_gone():
     log_action("/api/cloud/audit/mark_gone")
     if _any_task_running(("disk", "unlim", "verify", "organize", "audit")):
         return {"ok": False, "msg": "Сначала остановите выгрузку и другие проверки"}
+    audited = str((cloud_audit_mod.read_status() or {}).get("scope") or "disk")
+    backup_scopes = ("disk", "unlim") if audited == "both" else (audited,)
+    ok, item, err = _auto_backup("before-mark-gone", backup_scopes)
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
     try:
         result = cloud_audit_mod.mark_gone()
     except cloud_audit_mod.AuditError as exc:
@@ -4231,6 +4274,7 @@ def api_cloud_audit_mark_gone():
     return {
         "ok": True,
         "msg": f"Помечено «удалён из облака»: {result['marked']}",
+        "backup": item["id"] if item else "",
         **result,
     }
 

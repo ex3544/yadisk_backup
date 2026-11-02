@@ -4,6 +4,11 @@
 записаны. Файлы на дисках не читаются, поэтому отключённые диски, другие буквы
 и перенос на новую машину не мешают.
 
+С 35.8.0 здесь же живут бывшие «снимки баз» из `snapshots/`: одно понятие —
+резервная копия. Ручные копии не удаляются никогда, автоматические (перед
+сортировкой, пересозданием базы, сбросом очереди и т. п.) — хранятся
+последние `AUTO_KEEP` штук на каждую базу.
+
 Форматы:
   * одиночная копия — `backups/disk-20261027-153000-manual.db`;
   * общая копия — `backups/all-20261027-153000-manual.zip` с двумя базами и
@@ -19,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 import tempfile
 import zipfile
@@ -36,9 +42,29 @@ SCOPES = ("disk", "unlim")
 SCOPE_TITLES = {"disk": "Диск", "unlim": "Безлимит", "all": "Общая"}
 TABLES = {"disk": "files", "unlim": "unlim_files"}
 AUTO_KEEP = 5  # сколько автоматических копий хранить на каждую базу
+MANUAL = "manual"  # ручные копии не удаляются никогда
 
 NAME_RE = re.compile(r"^(disk|unlim|all)-(\d{8}-\d{6})-([a-z\-]+)\.(db|zip)$")
 LEGACY_PREFIXES = {"disk": "state.db.bak_", "unlim": "unlim_state.db.bak_"}
+# Старые снимки из snapshots/ назывались по внутреннему имени базы.
+SNAPSHOT_KINDS = {"state": "disk", "unlim": "unlim"}
+
+# Понятные подписи причин: в списке копий видно, зачем она сделана.
+REASON_TITLES = {
+    MANUAL: "вручную",
+    "before-restore": "перед восстановлением",
+    "before-rebuild": "перед пересозданием базы",
+    "before-redownload": "перед скачиванием заново",
+    "before-relocate": "перед поиском файлов",
+    "before-restore-cloud": "перед возвратом структуры облака",
+    "before-sort": "перед сортировкой",
+    "before-requeue": "перед возвратом пропавших в очередь",
+    "before-mark-gone": "перед пометкой пропавших",
+    "before-add-new": "перед добавлением новых в очередь",
+    "before-reset": "перед сбросом очереди",
+    "before-restore-snapshot": "перед откатом к копии",
+    "migration": "перед обновлением базы",
+}
 
 # Максимальная версия схемы, которую понимает текущая программа.
 TARGET_VERSIONS = {
@@ -49,6 +75,16 @@ TARGET_VERSIONS = {
 
 class BackupError(Exception):
     """Ошибка, которую можно показать пользователю как есть."""
+
+
+def reason_title(reason: str) -> str:
+    """Человеческая подпись причины копии."""
+    return REASON_TITLES.get(reason or "", reason or "")
+
+
+def is_manual(reason: str) -> bool:
+    """Ручную копию не трогает автоматическая ротация."""
+    return (reason or MANUAL) == MANUAL
 
 
 # ── снимки ───────────────────────────────────────────────────────────────────
@@ -191,6 +227,73 @@ def create_backup(
     return _item_from_meta(path, meta)
 
 
+def auto_backup(
+    data_dir: Path,
+    scopes: tuple[str, ...] | list[str],
+    sources: dict[str, Path],
+    app_version: str,
+    reason: str,
+) -> dict | None:
+    """Автоматическая копия перед рискованным действием.
+
+    Возвращает описание копии или None, если баз для неё ещё нет. Ошибки
+    копирования не глотаем: вызывающий сам решает, продолжать ли действие.
+    """
+    wanted = tuple(s for s in scopes if s in SCOPES)
+    present = {
+        key: Path(src)
+        for key, src in sources.items()
+        if key in wanted and Path(src).is_file() and Path(src).stat().st_size > 0
+    }
+    if not present:
+        return None
+    scope = "all" if len(present) > 1 else next(iter(present))
+    return create_backup(data_dir, scope, present, app_version, reason=reason)
+
+
+def migrate_snapshots(data_dir: Path) -> int:
+    """Переносит старые снимки из `snapshots/` в общий список копий.
+
+    Возвращает число перенесённых файлов. Имена приводятся к общему виду:
+    `state-20261030-031500.db` → `disk-20261030-031500-migration.db`.
+    """
+    data_dir = Path(data_dir)
+    legacy = data_dir / "snapshots"
+    if not legacy.is_dir():
+        return 0
+    folder = backups_dir(data_dir)
+    moved = 0
+    for path in sorted(legacy.glob("*.db")):
+        if not path.is_file():
+            continue
+        kind, _, tail = path.name.partition("-")
+        target_scope = SNAPSHOT_KINDS.get(kind)
+        if target_scope is None:
+            continue
+        m = re.match(r"(\d{8}-\d{6})", tail)
+        if m:
+            stamp = m.group(1)
+        else:
+            stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime(
+                "%Y%m%d-%H%M%S"
+            )
+        target = _unique(folder / f"{target_scope}-{stamp}-migration.db")
+        try:
+            path.replace(target)
+        except OSError:
+            try:
+                shutil.copy2(path, target)
+                path.unlink()
+            except OSError:
+                continue
+        moved += 1
+    try:
+        legacy.rmdir()
+    except OSError:
+        pass
+    return moved
+
+
 # ── список ──────────────────────────────────────────────────────────────────
 
 
@@ -201,11 +304,14 @@ def _item_from_meta(path: Path, meta: dict) -> dict:
     for info in dbs.values():
         for name, value in (info.get("counts") or {}).items():
             counts[name] = counts.get(name, 0) + value
+    reason = meta.get("reason") or MANUAL
     return {
         "id": path.name,
         "scope": meta.get("scope") or "all",
         "scope_title": SCOPE_TITLES.get(meta.get("scope") or "all", "Копия"),
-        "reason": meta.get("reason") or "manual",
+        "reason": reason,
+        "reason_title": reason_title(reason),
+        "auto": not is_manual(reason),
         "created_at": meta.get("created_at") or "",
         "app_version": meta.get("app_version"),
         "size_bytes": path.stat().st_size,
@@ -491,13 +597,17 @@ def delete_backup(data_dir: Path, backup_id: str) -> None:
 
 
 def _prune_auto(data_dir: Path, keep: int = AUTO_KEEP) -> None:
+    """Оставляет последние `keep` автоматических копий на каждую базу.
+
+    Ручные копии (`-manual`) не удаляются никогда.
+    """
     folder = Path(data_dir) / "backups"
     if not folder.exists():
         return
     groups: dict[str, list[Path]] = {}
     for path in folder.iterdir():
         m = NAME_RE.match(path.name)
-        if not m or m.group(3) != "before-restore":
+        if not m or is_manual(m.group(3)):
             continue
         groups.setdefault(m.group(1), []).append(path)
     for paths in groups.values():

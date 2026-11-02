@@ -66,8 +66,42 @@ def test_rename_keeps_the_folder(base):
     renamed = profiles.rename_profile(created["id"], "Новое имя")
     assert renamed["name"] == "Новое имя"
     assert renamed["dir"] == created["dir"]
+
+
+def test_main_profile_can_be_renamed_but_not_deleted(base):
+    """35.8.0: у основного профиля своё имя, удалить его по-прежнему нельзя."""
+    renamed = profiles.rename_profile(profiles.MAIN_ID, "Сергей")
+    assert renamed["name"] == "Сергей"
+    assert profiles.current_profile()["name"] == "Сергей"
+    # Имя переживает повторное чтение реестра.
+    items = profiles.list_profiles()
+    assert items[0]["id"] == profiles.MAIN_ID
+    assert items[0]["name"] == "Сергей"
     with pytest.raises(ValueError):
-        profiles.rename_profile(profiles.MAIN_ID, "Что угодно")
+        profiles.delete_profile(profiles.MAIN_ID)
+
+
+def test_avatar_is_remembered_for_main_and_other_profiles(base):
+    created = profiles.create_profile("Клиент")
+    assert created["avatar"] in profiles.AVATARS
+
+    changed = profiles.set_avatar(profiles.MAIN_ID, "av-panda")
+    assert changed["avatar"] == "av-panda"
+    assert profiles.current_profile()["avatar"] == "av-panda"
+
+    profiles.set_avatar(created["id"], "av-hedgehog")
+    listed = {p["id"]: p for p in profiles.list_profiles()}
+    assert listed[created["id"]]["avatar"] == "av-hedgehog"
+    assert listed[profiles.MAIN_ID]["avatar"] == "av-panda"
+
+    # Неизвестная аватарка не ломает шапку — берём стандартную.
+    assert profiles.set_avatar(profiles.MAIN_ID, "<script>")["avatar"] == profiles.DEFAULT_AVATAR
+
+
+def test_rename_main_keeps_avatar(base):
+    profiles.set_avatar(profiles.MAIN_ID, "av-owl")
+    profiles.rename_profile(profiles.MAIN_ID, "Сергей")
+    assert profiles.current_profile()["avatar"] == "av-owl"
 
 
 def test_delete_removes_only_foreign_profiles(base):

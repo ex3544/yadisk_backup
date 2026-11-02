@@ -223,6 +223,7 @@ def test_rebuild_saves_backup_and_forces_rescan(monkeypatch, tmp_path):
     db = tmp_path / "unlim_state.db"
     _make_unlim_db(db)
     monkeypatch.setattr(webui, "UNLIM_DB_FILE", db)
+    monkeypatch.setattr(webui.paths, "DATA_DIR", tmp_path)
     started = []
     monkeypatch.setattr(webui.tm, "start",
                         lambda *a, **k: started.append(a) or (True, "ok"))
@@ -231,10 +232,11 @@ def test_rebuild_saves_backup_and_forces_rescan(monkeypatch, tmp_path):
 
     assert out["ok"] is True
     assert started == [("unlim", "unlim_backup.py", ["--scan-only", "--force"])]
-    backups = list(tmp_path.glob("unlim_state.bak-*.db"))
-    assert len(backups) == 1
-    assert out["backup"] == str(backups[0])
-    con = sqlite3.connect(backups[0])
+    # 35.8.0: копия перед пересозданием лежит в общем списке backups/.
+    saved = list((tmp_path / "backups").glob("unlim-*-before-rebuild.db"))
+    assert len(saved) == 1
+    assert out["backup"] == saved[0].name
+    con = sqlite3.connect(saved[0])
     rows = con.execute("SELECT file_id FROM unlim_files").fetchall()
     con.close()
     assert rows == [("f1",)]
@@ -260,7 +262,7 @@ def test_rebuild_refuses_when_unlim_running(monkeypatch, tmp_path):
 
     assert out["ok"] is False
     assert started == []
-    assert list(tmp_path.glob("unlim_state.bak-*.db")) == []
+    assert list((tmp_path / "backups").glob("*.db")) == []
 
 
 # ── резервные копии баз ─────────────────────────────────────────────────────
@@ -1309,51 +1311,6 @@ def test_cloud_parent_is_computed_correctly():
     assert webui._cloud_parent("disk:/Фото/2024") == "disk:/Фото"
 
 
-# ── снимки баз (35.7.2) ─────────────────────────────────────────────────────
-
-@pytest.fixture()
-def snap_env(tmp_path, monkeypatch):
-    root = tmp_path / "data"
-    root.mkdir()
-    disk = root / "state.db"
-    con = sqlite3.connect(disk)
-    con.execute("CREATE TABLE files (remote_path TEXT PRIMARY KEY, status TEXT)")
-    con.execute("INSERT INTO files VALUES ('disk:/a.jpg', 'pending')")
-    con.commit()
-    con.close()
-    monkeypatch.setattr(webui.paths, "DATA_DIR", root)
-    monkeypatch.setattr(webui.paths, "DB_FILE", disk)
-    monkeypatch.setattr(webui.paths, "UNLIM_DB_FILE", root / "unlim_state.db")
-    monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
-    return root
-
-
-def test_snapshot_endpoints_make_list_restore_and_delete(snap_env):
-    made = webui.api_snapshot_make()
-    assert made["ok"] is True
-    names = [item["name"] for item in made["snapshots"]]
-    assert any(name.startswith("state-") for name in names)
-
-    restored = webui.api_snapshot_restore(webui.SnapshotPayload(
-        name=next(n for n in names if n.startswith("state-"))))
-    assert restored["ok"] is True
-    # Перед откатом программа сохранила текущее состояние отдельным снимком.
-    assert len([i for i in restored["snapshots"] if i["kind"] == "state"]) >= 2
-
-    deleted = webui.api_snapshot_delete(webui.SnapshotPayload(name=names[0]))
-    assert deleted["ok"] is True
-    assert names[0] not in [item["name"] for item in deleted["snapshots"]]
-
-
-def test_snapshot_restore_refuses_while_downloading(snap_env, monkeypatch):
-    made = webui.api_snapshot_make()
-    name = made["snapshots"][0]["name"]
-    monkeypatch.setattr(webui, "_db_running", lambda _scope: True)
-    result = webui.api_snapshot_restore(webui.SnapshotPayload(name=name))
-    assert result["ok"] is False
-    assert "остановите" in result["msg"].lower()
-
-
 # ── календарь дат Безлимита (35.7.3) ───────────────────────────────────────
 
 def _cluster(year, month, day, hour=10):
@@ -1509,6 +1466,8 @@ def _relocate_env(tmp_path, monkeypatch):
     for mod in (paths_mod, webui):
         monkeypatch.setattr(mod, "DB_FILE", disk_db)
         monkeypatch.setattr(mod, "UNLIM_DB_FILE", udb)
+    # Автоматические копии перед рискованными действиями тоже в tmp.
+    monkeypatch.setattr(paths_mod, "DATA_DIR", tmp_path)
     monkeypatch.setattr(webui, "_scope_dir_setting", lambda scope: "")
     monkeypatch.setattr(webui, "_write_dir_setting", lambda scope, new_dir: None)
     monkeypatch.setattr(webui, "_db_running", lambda scope: False)
@@ -1610,8 +1569,12 @@ def test_requeue_missing_returns_explicit_keys(tmp_path, monkeypatch):
     out = webui.api_verify_requeue_missing(
         webui.RequeueMissingPayload(scope="disk", keys=["disk:/a.jpg"])
     )
-    assert out == {"ok": True, "updated": 1,
-                   "msg": "Возвращено в очередь: 1"}
+    assert out["ok"] is True
+    assert out["updated"] == 1
+    assert out["msg"] == "Возвращено в очередь: 1"
+    # 35.8.0: перед возвратом в очередь сохраняется копия базы.
+    assert out["backup"].endswith("-before-requeue.db")
+    assert out["backup"] in {p.name for p in (tmp_path / "backups").iterdir()}
     con = sqlite3.connect(disk_db)
     try:
         assert con.execute("SELECT status FROM files").fetchone()[0] == "pending"
@@ -1683,6 +1646,8 @@ def test_cloud_audit_add_new_reports_counts(monkeypatch):
     })
     monkeypatch.setattr(webui.cloud_audit_mod, "read_status",
                         lambda: {"scope": "disk"})
+    # Копию базы проверяет отдельный тест; здесь не трогаем настоящие базы.
+    monkeypatch.setattr(webui, "_auto_backup", lambda *a: (True, None, ""))
     reset = []
     monkeypatch.setattr(webui, "reset_session_counters", reset.append)
 
@@ -1695,6 +1660,7 @@ def test_cloud_audit_add_new_reports_counts(monkeypatch):
 def test_cloud_audit_mark_gone_reports_count(monkeypatch):
     monkeypatch.setattr(webui, "log_action", lambda *a, **kw: None)
     monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+    monkeypatch.setattr(webui, "_auto_backup", lambda *a: (True, None, ""))
     monkeypatch.setattr(webui.cloud_audit_mod, "mark_gone", lambda: {
         "marked": 3, "errors": [],
     })

@@ -249,6 +249,66 @@ def test_legacy_migration_backup_is_listed(tmp_path):
     ])
 
 
+def test_old_snapshots_are_moved_into_backups(tmp_path):
+    """35.8.0: «снимки баз» — это те же резервные копии, одно понятие."""
+    legacy = tmp_path / "snapshots"
+    legacy.mkdir()
+    _make_disk_db(legacy / "state-20261030-031500.db")
+    _make_unlim_db(legacy / "unlim-20261030-031500.db")
+
+    assert backups.migrate_snapshots(tmp_path) == 2
+    assert not legacy.exists()
+
+    items = backups.list_backups(tmp_path)
+    assert sorted(i["id"] for i in items) == [
+        "disk-20261030-031500-migration.db",
+        "unlim-20261030-031500-migration.db",
+    ]
+    assert all(i["auto"] for i in items)
+    # Перенос повторять нечего — второй вызов ничего не делает.
+    assert backups.migrate_snapshots(tmp_path) == 0
+
+
+def test_auto_backup_combines_present_databases(tmp_path):
+    disk = tmp_path / "state.db"
+    unlim = tmp_path / "unlim_state.db"
+    _make_disk_db(disk)
+    _make_unlim_db(unlim)
+
+    item = backups.auto_backup(
+        tmp_path, ("disk", "unlim"), {"disk": disk, "unlim": unlim},
+        "35.8.0", reason="before-sort",
+    )
+
+    assert item["scope"] == "all"
+    assert item["auto"] is True
+    assert item["reason"] == "before-sort"
+    assert item["reason_title"] == "перед сортировкой"
+    # Без единой базы копию делать нечего — это не ошибка.
+    assert backups.auto_backup(
+        tmp_path, ("disk",), {"disk": tmp_path / "нет.db"}, "35.8.0", "before-rebuild"
+    ) is None
+
+
+def test_prune_counts_all_automatic_reasons_together(tmp_path):
+    folder = tmp_path / "backups"
+    folder.mkdir()
+    reasons = ["before-sort", "before-rebuild", "before-reset",
+               "before-add-new", "before-mark-gone", "before-relocate"]
+    for i, reason in enumerate(reasons):
+        (folder / f"disk-2026102{i}-120000-{reason}.db").write_bytes(b"x")
+    (folder / "unlim-20261020-120000-before-sort.db").write_bytes(b"x")
+    (folder / "disk-20261020-120000-manual.db").write_bytes(b"x")
+
+    backups._prune_auto(tmp_path, keep=5)
+
+    disk_auto = [p for p in folder.iterdir()
+                 if p.name.startswith("disk-") and "manual" not in p.name]
+    assert len(disk_auto) == 5
+    assert (folder / "disk-20261020-120000-manual.db").exists()
+    assert (folder / "unlim-20261020-120000-before-sort.db").exists()
+
+
 def test_delete_removes_only_known_backup(tmp_path):
     disk = tmp_path / "state.db"
     _make_disk_db(disk)

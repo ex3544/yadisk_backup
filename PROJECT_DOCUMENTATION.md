@@ -2053,3 +2053,79 @@ UI: окно `#guide-modal` с прокруткой и лёгким разбор
 есть `switchCardTab` и вкладки у обеих карточек, плашки ведут на вкладку.
 Живая проверка 02.11: превью Диска — 243 КБ JPEG в `disk`, Безлимита —
 602 КБ JPEG в `unlim`.
+
+---
+
+## 42. Ноябрь 2026: копии баз одним понятием, авто-копии, профиль и аватарки (v35.8.0)
+
+### Одна карточка вместо двух
+
+Снимки баз (`dbsnapshots.py`, папка `snapshots/`, карточка `#snapshots-card`)
+и резервные копии (`backups.py`, папка `backups/`, карточка `#backups-card`)
+делали по сути одно и то же, и клиенту было непонятно, чем они отличаются.
+В 35.8.0 осталось одно понятие — «резервные копии баз»:
+
+- `dbsnapshots.py` и `tests/test_dbsnapshots.py` удалены; эндпоинты
+  `/api/db/snapshots`, `/api/db/snapshot`, `/api/db/restore`,
+  `/api/db/snapshot/delete` и весь JS снимков убраны;
+- `backups.migrate_snapshots(data_dir)` при старте и перед показом списка
+  переносит старые `snapshots/*.db` в `backups/` именами
+  `{disk|unlim}-{stamp}-migration.db` (пустая папка `snapshots/` удаляется);
+- в ответе `/api/backups` у каждой копии есть `reason`, `reason_title` и
+  `auto`; в списке видно «ручная» или «авто» и зачем копия сделана.
+
+### Автоматические копии перед рискованными действиями
+
+`backups.auto_backup(data_dir, scopes, sources, app_version, reason)` создаёт
+копию только для существующих непустых баз; если затронуты обе — одна общая
+копия (`scope="all"`). Помощник `webui._auto_backup()` возвращает
+`(ok, item, error)` и при ошибке действие не продолжается.
+
+Причины (`REASON_TITLES`): `manual` — «вручную», `before-restore`,
+`before-rebuild`, `before-redownload`, `before-relocate`,
+`before-restore-cloud`, `before-sort`, `before-requeue`, `before-mark-gone`,
+`before-add-new`, `before-reset`, `before-restore-snapshot`, `migration`.
+
+Копии делаются автоматически в `organize` (сортировка с обновлением базы),
+`db_rebuild`, `db_redownload`, `db_relocate`, `db_restore_cloud`,
+`api_reset` (сброс очереди и `lost`), `api_verify_requeue_missing`,
+`api_cloud_audit_add_new`, `api_cloud_audit_mark_gone`. Ответы этих
+эндпоинтов содержат `"backup": "<id>"`.
+
+### Ротация
+
+`AUTO_KEEP = 5`. `_prune_auto` удаляет только автоматические копии сверх пяти
+на каждую группу `scope`; ручные (`manual`) не удаляются никогда. В
+`#backups-card` подзаголовок объясняет это клиенту, число берётся из
+`auto_keep`, в `INSTRUCTION.md` раздел «Резервные копии баз» переписан
+понятным языком: что такое база, зачем копия, чем ручная отличается от
+автоматической.
+
+### Профили и аватарки
+
+- `profiles.rename_profile` разрешает переименование основного профиля
+  (`data["main"]["name"]`); удаление основного по-прежнему запрещено.
+- `profiles.AVATARS` — 15 идентификаторов (`av-girl-pink`, `av-boy-blue`,
+  `av-fox`, `av-cat`, `av-panda`, `av-bear`, `av-bunny`, `av-owl`, `av-frog`,
+  `av-penguin`, `av-dog`, `av-hedgehog` и другие), `DEFAULT_AVATAR = "av-fox"`.
+  Реестр `profiles.json` хранит `"main": {"name", "avatar"}` и `avatar` у
+  каждого профиля; неизвестное значение заменяется на `av-fox`.
+- `profiles.set_avatar(pid, avatar)` и `POST /api/profiles/avatar`; `/api/profiles`
+  отдаёт список `avatars`.
+- SVG-символы `#av-*` лежат в спрайте `index.html`; в шапке перед кнопкой
+  смены темы — `#avatar-btn` с `<use id="avatar-use">`, клик открывает
+  настройки пользователя (`PILL_TARGETS['avatar-btn']`). В карточке профиля —
+  сетка `#avatar-grid`, мини-аватары у каждого профиля, `applyAvatar()` и
+  `renderAvatarPicker()`. Аватар запоминается в профиле и переживает
+  перезапуск.
+
+### Тесты
+
+`tests/test_backups.py`: перенос старых снимков, объединение баз в одну
+автокопию, общая ротация для всех автоматических причин при сохранении ручных.
+`tests/test_profiles.py`: переименование основного профиля, сохранение
+аватара у основного и обычного профиля, неизвестный id.
+`tests/test_packaging.py`: карточки снимков больше нет, `migrate_snapshots`
+вызывается, в карточке копий есть «Автоматических копий» и `#backups-keep`,
+аватар в шапке стоит перед темой и открывает профиль, все 15 символов на
+месте. Всего 632 теста; `ruff --select F,E9` и `node --check` чисто.

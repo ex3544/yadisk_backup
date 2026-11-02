@@ -36,6 +36,15 @@ MAIN_ID = "main"
 MAIN_NAME = "Основной"
 REGISTRY_VERSION = 1
 NAME_LIMIT = 40
+# Собственные SVG-аватарки (35.8.0). Идентификатор совпадает с id символа
+# в SVG-спрайте index.html: `av-fox` → `#av-fox`.
+AVATARS = (
+    "av-girl-pink", "av-girl-purple", "av-girl-orange",
+    "av-boy-blue", "av-boy-green",
+    "av-fox", "av-cat", "av-panda", "av-bear", "av-bunny",
+    "av-owl", "av-frog", "av-penguin", "av-dog", "av-hedgehog",
+)
+DEFAULT_AVATAR = "av-fox"
 # Символы, недопустимые в имени профиля: имя попадает в списки и файлы,
 # поэтому управляющие символы и разделители путей запрещены.
 _BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -51,13 +60,29 @@ def registry_file() -> Path:
 
 # ── реестр ──────────────────────────────────────────────────────────────────
 
-def _main_profile() -> dict:
+def _empty_registry() -> dict:
+    return {
+        "version": REGISTRY_VERSION,
+        "main": {"name": MAIN_NAME, "avatar": DEFAULT_AVATAR},
+        "profiles": [],
+    }
+
+
+def _avatar_of(value) -> str:
+    """Только известные аватарки: чужое значение не ломает шапку."""
+    text = str(value or "").strip()
+    return text if text in AVATARS else DEFAULT_AVATAR
+
+
+def _main_profile(data: dict | None = None) -> dict:
+    meta = (data or {}).get("main") or {}
     return {
         "id": MAIN_ID,
-        "name": MAIN_NAME,
+        "name": str(meta.get("name") or MAIN_NAME),
         "dir": str(paths.BASE_DATA_DIR),
         "created": "",
         "main": True,
+        "avatar": _avatar_of(meta.get("avatar")),
     }
 
 
@@ -67,10 +92,18 @@ def _read_registry() -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"version": REGISTRY_VERSION, "profiles": []}
+        return _empty_registry()
     if not isinstance(data, dict) or not isinstance(data.get("profiles"), list):
-        return {"version": REGISTRY_VERSION, "profiles": []}
-    out = {"version": REGISTRY_VERSION, "profiles": []}
+        return _empty_registry()
+    main_raw = data.get("main") if isinstance(data.get("main"), dict) else {}
+    out = {
+        "version": REGISTRY_VERSION,
+        "main": {
+            "name": str(main_raw.get("name") or MAIN_NAME).strip() or MAIN_NAME,
+            "avatar": _avatar_of(main_raw.get("avatar")),
+        },
+        "profiles": [],
+    }
     for item in data["profiles"]:
         if not isinstance(item, dict):
             continue
@@ -84,6 +117,7 @@ def _read_registry() -> dict:
             "name": name,
             "dir": pdir,
             "created": str(item.get("created") or ""),
+            "avatar": _avatar_of(item.get("avatar")),
         })
     return out
 
@@ -97,7 +131,7 @@ def _write_registry(data: dict) -> None:
 
 
 def _all_entries(data: dict) -> list[dict]:
-    return [_main_profile(), *data["profiles"]]
+    return [_main_profile(data), *data["profiles"]]
 
 
 def _find(data: dict, pid: str) -> dict | None:
@@ -158,6 +192,7 @@ def current_profile() -> dict:
         "dir": str(cur),
         "created": "",
         "main": False,
+        "avatar": DEFAULT_AVATAR,
         "active": True,
         "custom": True,
         "exists": True,
@@ -202,6 +237,7 @@ def create_profile(name: str, disk_dir: str = "", unlim_dir: str = "") -> dict:
         "name": clean,
         "dir": str(target),
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "avatar": DEFAULT_AVATAR,
     }
     data["profiles"].append(entry)
     _write_registry(data)
@@ -209,18 +245,44 @@ def create_profile(name: str, disk_dir: str = "", unlim_dir: str = "") -> dict:
 
 
 def rename_profile(pid: str, name: str) -> dict:
+    """Переименовывает профиль, в том числе основной (35.8.0).
+
+    Основной профиль нельзя удалить, но имя у него своё: «Основной» —
+    только начальное значение.
+    """
     data = _read_registry()
     item = _find(data, pid)
     if item is None:
         raise ValueError("Профиль не найден.")
-    if item.get("main"):
-        raise ValueError("Основной профиль переименовать нельзя.")
     clean = validate_name(name)
     if _name_taken(clean, skip_id=pid):
         raise ValueError("Профиль с таким именем уже есть.")
-    item["name"] = clean
+    if item.get("main"):
+        data["main"]["name"] = clean
+        _write_registry(data)
+        return {**item, "name": clean}
+    for entry in data["profiles"]:
+        if entry["id"] == pid:
+            entry["name"] = clean
     _write_registry(data)
-    return item
+    return {**item, "name": clean}
+
+
+def set_avatar(pid: str, avatar: str) -> dict:
+    """Запоминает выбранную аватарку профиля."""
+    data = _read_registry()
+    item = _find(data, pid)
+    if item is None:
+        raise ValueError("Профиль не найден.")
+    chosen = _avatar_of(avatar)
+    if item.get("main"):
+        data["main"]["avatar"] = chosen
+    else:
+        for entry in data["profiles"]:
+            if entry["id"] == pid:
+                entry["avatar"] = chosen
+    _write_registry(data)
+    return {**item, "avatar": chosen}
 
 
 def delete_profile(pid: str) -> dict:
