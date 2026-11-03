@@ -597,6 +597,21 @@ def test_session_pills_do_not_show_previous_session_numbers():
     assert "live-speed-badge" not in html
 
 
+def test_scans_and_beast_strategy_changes_do_not_reset_pills():
+    """С 35.8.9 сессию ведут только выгрузки, а «Зверь» копит итог по линиям."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    webui_src = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+
+    assert "def task_kind(" in webui_src
+    assert 'str(task.get("kind") or "download") == "download"' in webui_src
+    assert '"gained_by_kind"' in webui_src
+    assert '"beast": True' in webui_src
+    # Подсказка плашки во время «Зверя» — про круги, а не проходы.
+    assert "Круг ${d.round || 1}" in html
+    # Имена качающихся файлов: лог «Зверя» + хвосты линий.
+    assert "const beastLines" in html
+
+
 def test_service_pills_look_different_from_download_totals():
     """Токен, куки и сторож отделены от зелёных итоговых плашек."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
@@ -1573,7 +1588,11 @@ def test_beast_mode_is_wired_end_to_end():
     assert py.count("beast.is_running()") >= 3
     # Пока он работает, ручные кнопки заблокированы, а журнал — его.
     assert "#launch-manual-card.beast-locked button" in html
-    assert r"setConsole('pipeline-console', (b.log || []).join('\n'));" in html
+    # Журнал «Зверя» дополняется хвостами линий: иначе имя качающегося файла
+    # терялось за строками тактик.
+    assert "const beastLines = (b.log || []).slice();" in html
+    assert "── ${title} ──" in html
+    assert "log_tail" in html
 
     # Heartbeat: статусные файлы пишутся только по завершении файла, поэтому
     # признак «данные идут» воркеры ставят на каждом чанке.

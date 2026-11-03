@@ -708,10 +708,10 @@ def test_task_is_dead_once_stdout_ends():
 
 
 def _build_session(fc=None, tasks=None, unlim_st=None, disk_st=None,
-                   disk_db=None, unlim_db=None, retry=None):
+                   disk_db=None, unlim_db=None, retry=None, beast_st=None):
     return webui.build_session(
         fc or {}, tasks or {}, unlim_st or {}, disk_st or {},
-        disk_db or {}, unlim_db or {}, retry or {},
+        disk_db or {}, unlim_db or {}, retry or {}, beast_st or {},
     )
 
 
@@ -839,6 +839,114 @@ def test_session_remaining_bytes_without_retry_is_pending_only():
     )
 
     assert sess["disk"]["remaining_bytes"] == 1000
+
+
+# ── 35.8.9: сканирование не сбрасывает плашки ───────────────────────────────
+
+
+def test_task_kind_separates_scans_from_downloads():
+    assert webui.task_kind("main.py", ["scan"]) == "other"
+    assert webui.task_kind("main.py", ["scan", "--force"]) == "other"
+    assert webui.task_kind("main.py", ["verify"]) == "other"
+    assert webui.task_kind("main.py", ["retry-failed"]) == "download"
+    assert webui.task_kind("main.py", ["download", "--no-scan"]) == "download"
+    assert webui.task_kind("unlim_backup.py", ["--scan-only"]) == "scan"
+    assert webui.task_kind("unlim_backup.py", ["--target", "all"]) == "download"
+    assert webui.task_kind("unlim_download.py", ["--collect"]) == "scan"
+
+
+def test_scan_in_the_disk_slot_does_not_create_a_session():
+    """Скан живёт в том же слоте, но нулевые цифры плашку не подменяют."""
+    sess = _build_session(
+        tasks={"disk": {"running": True, "kind": "scan",
+                        "started_at": 100.0, "exit_code": None}},
+        disk_st={"started_at": 10.0, "updated_at": 20.0, "downloaded": 58},
+        disk_db={"pending": 10, "failed": 2},
+    )
+    assert sess["disk"] is None
+
+
+def test_scan_after_download_keeps_saved_session(monkeypatch, tmp_path):
+    """Итог выгрузки переживает скан: last_session.json не перезаписывается."""
+    monkeypatch.setattr(webui.paths, "LAST_SESSION_FILE",
+                        tmp_path / "last_session.json")
+    saved = {"started_at": 100.0, "success": 12, "pass": 0, "passes": 0,
+             "mode": "all", "total": 0}
+    webui._save_last_sessions({"disk": saved})
+    sess = _build_session(
+        tasks={"disk": {"running": True, "kind": "scan",
+                        "started_at": 900.0, "exit_code": None}},
+        disk_db={"pending": 3, "failed": 1},
+    )
+    webui.remember_sessions(sess)
+    sess = webui.restore_sessions(sess, {"pending": 3, "failed": 1}, {})
+    assert sess["disk"]["success"] == 12
+    assert sess["disk"]["restored"] is True
+
+
+# ── 35.8.9: «Зверь» копит итог по линиям ────────────────────────────────────
+
+
+def _beast_st(**over):
+    st = {"started_at": 100.0, "finished_at": None, "running": True,
+          "round": 3, "strategy": "меньше потоков",
+          "gained_by_kind": {"disk": 7, "unlim": 2}}
+    st.update(over)
+    return st
+
+
+def test_beast_session_adds_current_round_to_accumulated_total():
+    sess = _build_session(
+        tasks={"disk": {"running": True, "kind": "download",
+                        "started_at": 300.0, "exit_code": None}},
+        disk_st={"started_at": 300.0, "updated_at": 400.0, "downloaded": 3},
+        disk_db={"pending": 5, "failed": 1, "bytes_by_status": {"pending": 900}},
+        unlim_db={"pending": 2, "skipped": 4},
+        beast_st=_beast_st(),
+    )
+    assert sess["disk"]["success"] == 10       # 7 прошлых кругов + 3 живых
+    assert sess["disk"]["beast"] is True
+    assert sess["disk"]["round"] == 3
+    assert sess["disk"]["strategy"] == "меньше потоков"
+    assert sess["unlim"]["success"] == 2
+    assert sess["disk"]["remaining"] == 5 + 1
+
+
+def test_beast_session_stays_after_stop():
+    sess = _build_session(
+        tasks={"disk": {"running": False, "kind": "download",
+                        "started_at": 300.0, "exit_code": 0}},
+        disk_db={"pending": 1, "failed": 2},
+        unlim_db={"pending": 0, "skipped": 0},
+        beast_st=_beast_st(running=False, finished_at=500.0),
+    )
+    assert sess["disk"]["success"] == 7
+    assert sess["disk"]["running"] is False
+
+
+def test_manual_download_after_beast_is_a_new_session():
+    sess = _build_session(
+        tasks={"disk": {"running": True, "kind": "download",
+                        "started_at": 600.0, "exit_code": None}},
+        disk_st={"started_at": 600.0, "updated_at": 700.0, "downloaded": 4},
+        disk_db={"pending": 2, "failed": 1},
+        beast_st=_beast_st(running=False, finished_at=500.0),
+    )
+    assert sess["disk"]["success"] == 4
+    assert sess["disk"].get("beast") is None
+    assert sess["disk"]["started_at"] == 600.0
+
+
+def test_beast_started_after_cycle_owns_the_session():
+    """Цикл остановлен «Зверем»: плашка не показывает старые проходы цикла."""
+    sess = _build_session(
+        fc={"started_at": 50.0, "finished_at": 90.0, "running": False,
+            "lanes": {"disk": _lane({"state": "готово", "downloaded": 63})}},
+        disk_db={"pending": 1, "failed": 0},
+        beast_st=_beast_st(),
+    )
+    assert sess["disk"]["success"] == 7
+    assert sess["disk"]["beast"] is True
 
 
 # ── базы: общие помощники пересоздания и перепривязки ───────────────────────

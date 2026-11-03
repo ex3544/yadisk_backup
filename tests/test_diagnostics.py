@@ -537,3 +537,24 @@ def test_logs_info_reads_paths_at_call_time(temp_paths, monkeypatch):
     info = diagnostics.logs_info()
     assert info["files"]["backup.log"]["exists"] is True
     assert any("late binding" in e["line"] for e in info["errors"])
+
+
+def test_changelog_section_includes_current_and_previous(tmp_path, monkeypatch):
+    """В отчёт попадают изменения и этой, и прошлой версии (с 35.8.9)."""
+    text = (
+        "# История изменений\n\n"
+        "## [2.0.0] - 2026-11-03\n\n- новая функция\n\n"
+        "## [1.0.0] - 2026-11-02\n\n- старая функция\n\n"
+        "## [0.9.0] - 2026-11-01\n\n- совсем старая\n"
+    )
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(diagnostics, "_changelog_path", lambda: path)
+
+    section = diagnostics.changelog_section("2.0.0")
+    assert "## [2.0.0]" in section
+    assert "## [1.0.0]" in section
+    assert "новая функция" in section
+    assert "старая функция" in section
+    assert "совсем старая" not in section
+    assert diagnostics.changelog_section("9.9.9") == ""

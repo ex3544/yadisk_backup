@@ -51,44 +51,66 @@ def test_human_span():
 # ── мелкие файлы ────────────────────────────────────────────────────────────
 
 
-def test_small_file_prints_only_the_result_line():
-    p, lines, clock = make("photo.jpg", 5 * MB)
+def test_tiny_file_prints_only_the_result_line():
+    p, lines, clock = make("icon.png", 512 * 1024)
     p.start()
     clock.tick(0.4)
-    p.update(5 * MB, "downloader.disk.yandex.ru")
+    p.update(512 * 1024, "downloader.disk.yandex.ru")
     assert lines == []
-    p.done(5 * MB, "downloader.disk.yandex.ru")
-    assert lines == ["✅ photo.jpg · 5,0 МБ · 0,4 с · downloader.disk.yandex.ru"]
+    p.done(512 * 1024, "downloader.disk.yandex.ru")
+    assert lines == ["✅ icon.png · 512 КБ · 0,4 с · downloader.disk.yandex.ru"]
 
 
-def test_unknown_small_file_never_shows_progress():
+def test_file_from_one_megabyte_announces_its_name():
+    """Имя качающегося файла видно с первой секунды, а не только в итоге."""
+    p, lines, _ = make("photo.jpg", 5 * MB)
+    p.start()
+    assert lines == ["⬇ photo.jpg · 5,0 МБ · начинаю"]
+
+
+def test_unknown_tiny_file_never_shows_progress():
     p, lines, clock = make("файл.zip", None)
     p.start()
     clock.tick(5)
-    p.update(3 * MB, "h")
+    p.update(512 * 1024, "h")
     p.done()
-    assert lines == ["✅ файл.zip · 3,0 МБ · 5 с · h"]
+    assert lines == ["✅ файл.zip · 512 КБ · 5 с · h"]
 
 
-def test_unknown_size_shows_megabytes_once_it_grows_past_the_threshold():
-    """У Безлимита вес неизвестен, но крупное видео не должно молчать."""
+def test_unknown_size_announces_when_it_passes_one_megabyte():
     p, lines, clock = make("video.mp4", None)
     p.start()
-    assert lines == []                    # мелкие фото по-прежнему без шума
+    assert lines == []
+    clock.tick(1)
+    p.update(512 * 1024)
+    assert lines == []
+    clock.tick(1)
+    p.update(2 * MB, "h")
+    assert lines == ["⬇ video.mp4 · 2,0 МБ · начинаю · вес неизвестен"]
 
-    clock.tick(5)
-    p.update(99 * MB, "h")
-    assert lines == []                    # ещё не дотянул до порога
 
-    clock.tick(5)
-    p.update(120 * MB, "h")
-    assert lines[-1].startswith("⬇ video.mp4 · 120 МБ · ")
-    assert "12,0 МБ/с" in lines[-1]
-    assert lines[-1].endswith("· h · вес неизвестен")
+def test_unknown_size_updates_its_progress_from_ten_megabytes():
+    """У Безлимита вес неизвестен, но с 10 МБ видно, что файл растёт."""
+    p, lines, clock = make("video.mp4", None)
+    p.start()
+    assert lines == []
+
+    clock.tick(1)
+    p.update(1 * MB, "h")
+    assert lines == ["⬇ video.mp4 · 1,0 МБ · начинаю · вес неизвестен"]
+
+    clock.tick(4)
+    p.update(5 * MB, "h")
+    assert len(lines) == 1                # ниже 10 МБ промежуточных строк нет
+
+    clock.tick(6)
+    p.update(12 * MB, "h")
+    assert lines[-1].startswith("⬇ video.mp4 · 12,0 МБ · ")
+    assert "· h · вес неизвестен" in lines[-1]
 
     clock.tick(10)
-    p.update(150 * MB, "h")
-    assert lines[-1].startswith("⬇ video.mp4 · 150 МБ · ")
+    p.update(20 * MB, "h")
+    assert lines[-1].startswith("⬇ video.mp4 · 20,0 МБ · ")
 
 
 def test_unknown_size_stopped_shows_downloaded_bytes():
@@ -188,8 +210,8 @@ def test_stopped_without_a_single_byte_says_server_did_not_send():
     )
 
 
-def test_stopped_without_a_single_byte_is_silent_for_small_files():
-    p, lines, _ = make("photo.jpg", 5 * MB)
+def test_stopped_without_a_single_byte_is_silent_for_tiny_files():
+    p, lines, _ = make("icon.png", 512 * 1024)
     p.start()
     p.stopped("timeout")
     assert lines == []
@@ -219,14 +241,14 @@ def test_resumed_without_known_size_shows_downloaded_bytes():
     assert lines == ["↻ video.mp4 · продолжаю с 300 МБ"]
 
 
-def test_resumed_small_file_is_silent_until_the_result():
+def test_resumed_file_from_one_megabyte_announces_the_place():
     p, lines, clock = make("photo.jpg", 5 * MB)
     p.resumed(2 * MB)
     p.start()
-    assert lines == []
+    assert lines == ["↻ photo.jpg · продолжаю с 40% · 2,0 МБ из 5,0 МБ"]
     clock.tick(1)
     p.done(5 * MB)
-    assert lines[0].startswith("✅ photo.jpg · 5,0 МБ · ")
+    assert lines[-1].startswith("✅ photo.jpg · 5,0 МБ · ")
 
 
 def test_restart_from_zero_after_resume_resets_the_base():

@@ -259,10 +259,31 @@ def reset_session_counters(kind: str) -> None:
 
 
 
+def task_kind(script: str, args: list[str]) -> str:
+    """Что делает задача: выгрузка, сканирование или служебное.
+
+    От этого зависит, считается ли она новой сессией для плашек. Сканирование
+    и проверка используют те же слоты `disk`/`unlim`, но файлов не качают:
+    раньше их нулевой статус затирал итог последней сессии.
+    """
+    name = os.path.basename(str(script or "")).lower()
+    argv = [str(a) for a in (args or [])]
+    if name.startswith("unlim_backup"):
+        return "scan" if "--scan-only" in argv else "download"
+    if name.startswith("main"):
+        cmd = next((a for a in argv if not a.startswith("-")), "")
+        # retry-failed сбрасывает сбойные и сразу качает их тем же проходом.
+        return "download" if cmd in ("download", "retry-failed") else "other"
+    if name.startswith("unlim_download"):
+        return "scan"  # сбор списка Безлимита
+    return "other"
+
+
 class Task:
-    def __init__(self, name: str, proc: subprocess.Popen):
+    def __init__(self, name: str, proc: subprocess.Popen, kind: str = "download"):
         self.name = name
         self.proc = proc
+        self.kind = kind
         self.started_at = time.time()
         self.log: deque[str] = deque(maxlen=2000)
         # Процесс закончил писать (EOF в stdout). Нужен, потому что poll() иногда
@@ -360,7 +381,7 @@ class TaskManager:
                 text=True, encoding="utf-8", errors="replace",
                 env=env,
             )
-            self._tasks[slot] = Task(slot, proc)
+            self._tasks[slot] = Task(slot, proc, task_kind(script, args))
             return True, f"Запущено: {slot}"
 
     def stop(self, slot: str) -> tuple[bool, str]:
@@ -386,6 +407,7 @@ class TaskManager:
             for slot, t in self._tasks.items():
                 out[slot] = {
                     "running": t.alive(),
+                    "kind": t.kind,
                     "started_at": t.started_at,
                     "elapsed": time.time() - t.started_at,
                     "exit_code": t.proc.poll(),
@@ -1025,6 +1047,10 @@ class Beast:
         self.strategy = ""
         self.gained = 0
         self.gained_round = 0
+        # Накопительный итог по линиям за всю сессию «Зверя». `gained` —
+        # общий, а плашкам Диска и Безлимита нужен свой счётчик: так он не
+        # сбрасывается при смене тактики и не смешивает линии.
+        self.gained_by_kind = {"disk": 0, "unlim": 0}
         self.message = ""
         self.log: deque[str] = deque(maxlen=self.MAX_LOG)
         self.remaining = {"disk": 0, "unlim": 0}
@@ -1049,6 +1075,7 @@ class Beast:
             "elapsed": elapsed,
             "gained": self.gained,
             "gained_round": self.gained_round,
+            "gained_by_kind": dict(self.gained_by_kind),
             "message": self.message,
             "remaining": dict(self.remaining),
             "log": list(self.log)[-200:],
@@ -1123,6 +1150,7 @@ class Beast:
             self.strategy = ""
             self.gained = 0
             self.gained_round = 0
+            self.gained_by_kind = {"disk": 0, "unlim": 0}
             self.message = ""
             self.log.clear()
             self.remaining = {"disk": self._remaining("disk"),
@@ -1400,6 +1428,8 @@ class Beast:
 
         healthy = self._watch(started_kinds, strategy)
         after = {k: self._progress(k) for k in ("disk", "unlim")}
+        for kind in ("disk", "unlim"):
+            self.gained_by_kind[kind] += max(0, after[kind][0] - before[kind][0])
         gained = sum(max(0, after[k][0] - before[k][0]) for k in ("disk", "unlim"))
         self.gained_round = gained
         self._refresh_remaining()
@@ -2533,24 +2563,42 @@ def _status_fresh(st: dict, started_at: float | None) -> bool:
 
 def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
                   disk_db: dict, unlim_db: dict,
-                  retry: dict[str, bool] | None = None) -> dict:
+                  retry: dict[str, bool] | None = None,
+                  beast_st: dict | None = None) -> dict:
     """Сводка сессии для плашек и таймера: {disk: {...}|None, unlim: {...}|None}."""
     retry = retry or {}
+    beast_st = beast_st or {}
     out: dict = {}
     cycle_started = fc.get("started_at")
+    beast_started = beast_st.get("started_at")
+    beast_finished = beast_st.get("finished_at")
+    beast_running = bool(beast_st.get("running"))
+    gained_by_kind = beast_st.get("gained_by_kind") or {}
     for kind in ("disk", "unlim"):
         task = tasks.get(kind) or {}
+        # Сканирование и проверка живут в тех же слотах, что и выгрузка, но
+        # сессией не являются: их нулевой статус не должен затирать итог.
+        task_is_download = str(task.get("kind") or "download") == "download"
         st = unlim_st if kind == "unlim" else disk_st
         db = unlim_db if kind == "unlim" else disk_db
         failed_key = _SESSION_KEYS[kind][1]
-        task_started = task.get("started_at")
+        task_started = task.get("started_at") if task_is_download else None
         # Отдельная выгрузка, запущенная после завершения цикла, — новая сессия:
         # старые линии к ней уже не относятся.
         takeover = bool(cycle_started) and not fc.get("running") and task_started \
             and task_started > (fc.get("finished_at") or cycle_started)
         use_cycle = bool(cycle_started) and not takeover
+        # «Зверь» владеет сессией, если стартовал позже цикла. После остановки
+        # итог остаётся, пока не начнётся ручная выгрузка: её задача стартует
+        # позже finished_at. Задачи-линии «Зверя» стартуют уже внутри сессии и
+        # владельца не меняют.
+        beast_owns = bool(beast_started) and (
+            not use_cycle or beast_started > (cycle_started or 0))
+        if beast_owns and not beast_running and task_started \
+                and task_started > (beast_finished or beast_started or 0):
+            beast_owns = False
         session = None
-        if use_cycle:
+        if use_cycle and not beast_owns:
             lane = (fc.get("lanes") or {}).get(kind) or {}
             started = fc.get("running") or lane.get("state") not in (None, "ожидание")
             if started:
@@ -2558,7 +2606,8 @@ def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
                 # Пока дочерний процесс прохода жив, к итогу линии прибавляем его
                 # живые цифры: иначе плашка «замирает» между проходами.
                 success = int(lane.get("downloaded") or 0)
-                if task.get("running") and _status_fresh(st, task_started):
+                if task_is_download and task.get("running") \
+                        and _status_fresh(st, task_started):
                     success += int(st.get(_SESSION_KEYS[kind][0]) or 0)
                 session = {
                     "started_at": cycle_started,
@@ -2569,7 +2618,30 @@ def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
                     "passes": int(lane.get("passes") or 0),
                     "retry_failed": True,
                 }
-        elif task and (task.get("running") or task.get("exit_code") is not None):
+        elif beast_owns:
+            running = beast_running
+            success = int(gained_by_kind.get(kind) or 0)
+            # Прошлые круги уже в накопительном счётчике, а скачанное текущей
+            # линией лежит в её файле статуса, пока процесс идёт.
+            live = task_is_download and bool(task.get("running")) \
+                and _status_fresh(st, task_started)
+            if live:
+                success += int(st.get(_SESSION_KEYS[kind][0]) or 0)
+            round_no = int(beast_st.get("round") or 0)
+            session = {
+                "started_at": beast_started,
+                "running": running,
+                "preparing": running and not live and round_no <= 0,
+                "success": success,
+                "pass": round_no,
+                "passes": 0,
+                "beast": True,
+                "round": round_no,
+                "strategy": str(beast_st.get("strategy") or ""),
+                "retry_failed": True,
+            }
+        elif task_is_download and (
+                task.get("running") or task.get("exit_code") is not None):
             running = bool(task.get("running"))
             fresh = _status_fresh(st, task_started)
             session = {
@@ -2636,6 +2708,7 @@ def api_status():
     unlim_db = db_stats(UNLIM_DB_FILE, "unlim_files", "file_id")
     tasks = tm.status()
     cycle = full_cycle.status()
+    beast_info = beast.status()
 
     # Файл статуса мог остаться «активным» после аварийного закрытия задачи.
     # Показывать «11 МБ/с» при мёртвом процессе нельзя.
@@ -2646,7 +2719,7 @@ def api_status():
         disk_status, _lane_tasks_running(tasks, "disk"), now)
 
     session = build_session(cycle, tasks, download_status, disk_status,
-                            disk_db, unlim_db, _session_retry)
+                            disk_db, unlim_db, _session_retry, beast_info)
     # После перезапуска задач нет — показываем итог последней сессии.
     session = restore_sessions(session, disk_db, unlim_db)
     remember_sessions(session)
@@ -2680,7 +2753,7 @@ def api_status():
         "ram": ram_info(),
         "full_cycle": cycle,
         # Режим «Зверь»: кнопка в шапке запуска и журнал тактик.
-        "beast": beast.status(),
+        "beast": beast_info,
         "update": update_manager.status(),
         # Сохранённая последняя проверка: плашка в шапке должна знать о новой
         # версии сразу, не дожидаясь ответа GitHub и не создавая второго запроса.

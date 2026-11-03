@@ -4,10 +4,11 @@
 читает stdout дочернего процесса, а диагностика — файл. Поэтому одна и та же
 строка видна и в «Главной», и в logs/backup.log.
 
-Мелкие файлы дают только итоговую строку — проценты по ним мелькают быстрее,
-чем человек успевает прочитать. Крупные дополнительно обновляются раз в
-`STEP_SEC` секунд, чтобы было видно, что загрузка жива: на одном 20-гигабайтном
-файле иначе Journal молчит четверть часа.
+Файлы от 1 МБ объявляют себя строкой «начинаю»: видно, что именно качается
+сейчас. Совсем мелочь даёт только итоговую строку — проценты по ней мелькают
+быстрее, чем человек успевает прочитать. Крупные дополнительно обновляются
+раз в `STEP_SEC` секунд, чтобы было видно, что загрузка жива: на одном
+20-гигабайтном файле иначе журнал молчит четверть часа.
 """
 
 from __future__ import annotations
@@ -23,8 +24,14 @@ KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
 
-# Файлы меньше этого показывают только итог: проценты по ним не нужны.
+# С этого веса пишем строку «начинаю»: даже у мелкого файла видно, что именно
+# качается прямо сейчас. Совсем мелочь (иконки, документы) остаётся с итогом.
+START_BYTES = 1 * MB
+# Известный вес: промежуточные строки нужны только крупным файлам.
 BIG_BYTES = 100 * MB
+# Неизвестный вес (Безлимит): процентов нет, но рост в мегабайтах полезен уже
+# с 10 МБ — иначе видео молчит до сотни мегабайт.
+UNKNOWN_BYTES = 10 * MB
 # Как часто обновлять строку крупного файла.
 STEP_SEC = 10.0
 
@@ -96,7 +103,9 @@ class FileProgress:
         size: Optional[int] = None,
         *,
         emit: Optional[Callable[[str], None]] = None,
+        start_bytes: int = START_BYTES,
         big_bytes: int = BIG_BYTES,
+        unknown_bytes: int = UNKNOWN_BYTES,
         step_sec: float = STEP_SEC,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -105,7 +114,9 @@ class FileProgress:
         self.size = int(size) if size else None
         self.host: Optional[str] = None
         self._emit = emit or _emit_line
+        self._start_bytes = start_bytes
         self._big_bytes = big_bytes
+        self._unknown_bytes = unknown_bytes
         self._step_sec = step_sec
         self._clock = clock
         self._t0: Optional[float] = None
@@ -115,15 +126,24 @@ class FileProgress:
         # только по новым байтам: иначе докачка с 90% мгновенно показала бы
         # «5 ГБ/с».
         self._base = 0
+        # Строка «начинаю» для файла без известного веса появляется не в
+        # start(), а когда скачано достаточно байт, — и только один раз.
+        self._started_line = False
 
     @property
     def is_big(self) -> bool:
+        """Заметный ли файл: от 1 МБ у него есть строка «начинаю»."""
+        if self.size is not None:
+            return self.size >= self._start_bytes
+        # У Безлимита вес неизвестен: судим по уже скачанному.
+        return self._written >= self._start_bytes
+
+    @property
+    def _show_updates(self) -> bool:
+        """Пора ли печатать промежуточные строки (проценты/мегабайты)."""
         if self.size is not None:
             return self.size >= self._big_bytes
-        # У Безлимита Яндекс не сообщает вес файла. Считаем его крупным, когда
-        # уже скачано больше порога: проценты и «осталось» посчитать не из чего,
-        # но показывать рост в мегабайтах всё равно полезно.
-        return self._written >= self._big_bytes
+        return self._written >= self._unknown_bytes
 
     def resumed(self, written: int) -> None:
         """Файл продолжается с недокачанного `.part`, а не качается заново.
@@ -134,24 +154,28 @@ class FileProgress:
         self._base = int(written or 0)
         self._written = self._base
 
-    def start(self) -> None:
-        """Первая строка. Для мелких файлов молчит — у них будет только итог."""
-        now = self._clock()
-        if self._t0 is None:
-            self._t0 = now
-        if not self.is_big:
-            return
+    def _start_line(self) -> str:
         if self._base > 0:
             if self.size:
                 pct = min(100, int(self._base * 100 / self.size))
-                self._emit(
-                    f"↻ {self.name} · продолжаю с {pct}% · "
-                    f"{human_size(self._base)} из {human_size(self.size)}"
-                )
-            else:
-                self._emit(f"↻ {self.name} · продолжаю с {human_size(self._base)}")
+                return (f"↻ {self.name} · продолжаю с {pct}% · "
+                        f"{human_size(self._base)} из {human_size(self.size)}")
+            return f"↻ {self.name} · продолжаю с {human_size(self._base)}"
+        if self.size is not None:
+            return f"⬇ {self.name} · {human_size(self.size)} · начинаю"
+        # Вес не сообщили: показываем, сколько уже скачано.
+        return (f"⬇ {self.name} · {human_size(self._written)} · начинаю · "
+                f"вес неизвестен")
+
+    def start(self) -> None:
+        """Первая строка. Совсем мелкие файлы молчат — у них будет только итог."""
+        now = self._clock()
+        if self._t0 is None:
+            self._t0 = now
+        if self._started_line or not self.is_big:
             return
-        self._emit(f"⬇ {self.name} · {human_size(self.size)} · начинаю")
+        self._started_line = True
+        self._emit(self._start_line())
 
     def update(
         self,
@@ -175,7 +199,14 @@ class FileProgress:
             self._last_line = 0.0
             self._base = 0
         self._written = written
-        if not self.is_big:
+        if not self._started_line and self.is_big:
+            # Вес был неизвестен на старте — объявляем файл, как только он
+            # перешагнул порог. Строку прогресса в эту же секунду не пишем.
+            self._started_line = True
+            self._emit(self._start_line())
+            self._last_line = now
+            return
+        if not self._show_updates:
             return
         if self._last_line and (now - self._last_line) < self._step_sec:
             return

@@ -255,8 +255,11 @@ def _changelog_path() -> Path | None:
     return None
 
 
-def changelog_section(version_text: str | None = None) -> str:
-    """Раздел CHANGELOG.md про текущую версию — для ZIP-отчёта.
+def changelog_section(version_text: str | None = None, limit: int = 2) -> str:
+    """Разделы CHANGELOG.md для ZIP-отчёта: текущая версия и предыдущая.
+
+    Новые функции попадают в отчёт автоматически: раздел этой версии пишется
+    в CHANGELOG, а предыдущий нужен, чтобы было видно, с чего человек пришёл.
 
     В сборке CHANGELOG.md лежит рядом, а не внутри exe, поэтому ищем его в
     каталоге ресурсов, рядом с программой и рядом с этим файлом.
@@ -273,8 +276,12 @@ def changelog_section(version_text: str | None = None) -> str:
     if not start:
         return ""
     rest = text[start.start():]
-    nxt = re.search(r"^##\s", rest[3:], re.MULTILINE)
-    section = rest if nxt is None else rest[: nxt.start() + 3]
+    # Первое совпадение — сам раздел текущей версии; обрезаем по началу
+    # раздела, который идёт после `limit`-го.
+    heads = [m.start() for m in re.finditer(r"^##\s", rest, re.MULTILINE)]
+    count = max(1, int(limit))
+    end = heads[count] if len(heads) > count else None
+    section = rest if end is None else rest[:end]
     return section.strip() + "\n"
 
 

@@ -268,6 +268,40 @@ def test_beast_counts_remaining_and_progress(monkeypatch, tmp_path):
 # ── «Зверь»: сценарии ──────────────────────────────────────────────────────
 
 
+def test_beast_accumulates_gained_per_lane_across_rounds(monkeypatch):
+    """Итог «Зверя» по линиям не сбрасывается при смене тактики."""
+    b = webui.Beast()
+    monkeypatch.setattr(b, "_reset_lost", lambda: 0)
+    monkeypatch.setattr(b, "_refresh_remaining", lambda: None)
+    monkeypatch.setattr(b, "_remaining", lambda kind: 1)
+    monkeypatch.setattr(b, "_remaining_total", lambda: 2)
+    monkeypatch.setattr(b, "_start_lane", lambda kind, strategy: (True, ""))
+    monkeypatch.setattr(b, "_fatal_reason", lambda: "")
+    progress = {"disk": (10, 0), "unlim": (5, 0)}
+    monkeypatch.setattr(b, "_progress", lambda kind: progress[kind])
+
+    def fake_watch(kinds, strategy):
+        progress["disk"] = (13, 0)
+        progress["unlim"] = (6, 0)
+        return True
+
+    monkeypatch.setattr(b, "_watch", fake_watch)
+    gained, _, _ = b._run_round({"key": "reset"})
+    assert gained == 4
+    assert b.gained_by_kind == {"disk": 3, "unlim": 1}
+
+    # Следующий круг: файлы уже скачаны в прошлом — счётчик продолжает расти.
+    def fake_watch2(kinds, strategy):
+        progress["disk"] = (15, 0)
+        progress["unlim"] = (9, 0)
+        return True
+
+    monkeypatch.setattr(b, "_watch", fake_watch2)
+    gained, _, _ = b._run_round({"key": "few"})
+    assert gained == 5
+    assert b.gained_by_kind == {"disk": 5, "unlim": 4}
+
+
 def test_beast_rotates_strategy_when_nothing_downloads(monkeypatch):
     """Нет новых файлов — тактика меняется; файлы пошли — остаётся на ней."""
     b = webui.Beast()
@@ -365,8 +399,8 @@ def test_beast_status_is_json_ready():
     b = webui.Beast()
     st = b.status()
     for key in ("state", "running", "round", "strategy", "started_at",
-                "finished_at", "elapsed", "gained", "message", "remaining",
-                "log"):
+                "finished_at", "elapsed", "gained", "gained_by_kind",
+                "message", "remaining", "log"):
         assert key in st
     assert st["running"] is False
     assert st["state"] == "idle"

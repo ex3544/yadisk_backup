@@ -4296,7 +4296,10 @@ function renderSessionPill(id, textId, d, label, kind, db){
   let value = '✅ ' + (+d.success || 0).toLocaleString('ru');
   if(d.failed) value += ' · ⚠ ' + (+d.failed).toLocaleString('ru');
   setText(text, value);
-  const pass = d.passes > 1 ? ` Проход ${d.pass || 1} из ${d.passes}.` : '';
+  // У «Зверя» нет проходов — есть круги с меняющейся тактикой, так и пишем.
+  const pass = d.beast
+    ? ` Круг ${d.round || 1}${d.strategy ? ` · тактика «${d.strategy}»` : ''}.`
+    : (d.passes > 1 ? ` Проход ${d.pass || 1} из ${d.passes}.` : '');
   const title = d.restored ? `Итог прошлой сессии ${label}` : `Итог сессии ${label}`;
   el.dataset.tip = `${title}: скачано за все проходы / сбойных сейчас.${pass} `
     + `Осталось докачать: ${leftText}. `
@@ -5443,7 +5446,21 @@ async function refresh(){
       }
       setText(pStep, `🐾 круг ${b.round || 1} · тактика «${b.strategy || '…'}» · +${b.gained || 0}`);
       setText(pTime, dur(b.elapsed));
-      setConsole('pipeline-console', (b.log || []).join('\n'));
+      // Журнал «Зверя» — его тактики плюс хвосты обеих линий: имя файла,
+      // вес и скорость печатает дочерний процесс, и раньше они терялись,
+      // потому что лог «Зверя» целиком заменял вывод задач.
+      const beastLines = (b.log || []).slice();
+      [['Диск', 'disk'], ['Безлимит', 'unlim']].forEach(([title, slot]) => {
+        const t = (tasks && tasks[slot]) || {};
+        // Только задачи этой сессии «Зверя»: старый ручной запуск в том же
+        // слоте к текущим кругам не относится.
+        if (!t.log_tail || (t.started_at && b.started_at && t.started_at < b.started_at - 1)) return;
+        const tail = t.log_tail || [];
+        if (!tail.length) return;
+        beastLines.push(`── ${title} ──`);
+        Array.prototype.push.apply(beastLines, tail.slice(-160));
+      });
+      setConsole('pipeline-console', beastLines.join('\n'));
     }
 
     // Disk Stats
