@@ -259,3 +259,31 @@ def test_deferred_failure_carries_host(tmp_path):
     with pytest.raises(FetchFailure) as ei:
         fetch_to_file("https://storage.yandex.net/f", dst, session=sess)
     assert ei.value.host == "storage.yandex.net"
+
+
+# ── отметка «данные идут» ───────────────────────────────────────────────────
+
+
+def test_heartbeat_fires_for_every_received_chunk(tmp_path):
+    """«Зверь» по heartbeat видит прогресс большого файла до записи статуса."""
+    dst = str(tmp_path / "f.bin")
+    beats = []
+    sess = _Session(
+        _Resp(302, location="https://storage.yandex.net/f"),
+        _Resp(200, body=b"x" * 2500),
+    )
+    fetch_to_file(
+        "https://cloud-api.yandex.net/x", dst, session=sess,
+        chunk_size=1000, heartbeat=lambda: beats.append(1),
+    )
+    assert len(beats) == 3
+    assert open(dst, "rb").read() == b"x" * 2500
+
+
+def test_heartbeat_is_not_called_on_failed_download(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    beats = []
+    sess = _Session(_Resp(503))
+    with pytest.raises(FetchFailure):
+        fetch_to_file("https://h/f", dst, session=sess, heartbeat=beats.append)
+    assert beats == []

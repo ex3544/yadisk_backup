@@ -106,6 +106,14 @@ UNLIM_COLLECT_LOG = LOG_DIR / "unlim.log"
 UNLIM_DIRECT_LOG = LOG_DIR / "unlim_direct.log"
 DISK_STATUS_FILE = LOG_DIR / "disk_download_status.json"
 UNLIM_STATUS_FILE = LOG_DIR / "download_status.json"
+# Итог последней сессии выгрузки: плашки в шапке показывают его и после
+# перезапуска приложения, пока не начнётся новая сессия.
+LAST_SESSION_FILE = LOG_DIR / "last_session.json"
+# Признак живого скачивания: воркер касается файла при каждом принятом куске
+# данных. «Зверь» по нему отличает большую загрузку (файл качается минутами)
+# от настоящего зависания.
+DISK_HEARTBEAT_FILE = LOG_DIR / "disk_heartbeat"
+UNLIM_HEARTBEAT_FILE = LOG_DIR / "unlim_heartbeat"
 COOKIES_FETCH_STATUS = LOG_DIR / "cookies_fetch_status.json"
 TOKEN_FETCH_STATUS = LOG_DIR / "token_fetch_status.json"
 # Последняя проверка обновлений: версия, описание «что нового» и когда проверяли.

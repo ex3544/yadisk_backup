@@ -433,6 +433,14 @@ def check_free_space(path: str, required_bytes: int = 0) -> bool:
         return True
 
 
+def _touch_heartbeat() -> None:
+    """Отметка «данные идут». Обновляет время файла, не трогая его содержимое."""
+    try:
+        paths.DISK_HEARTBEAT_FILE.touch(exist_ok=True)
+    except OSError:
+        pass
+
+
 def _transfer(
     client: yadisk.Client,
     job: DownloadJob,
@@ -468,6 +476,7 @@ def _transfer(
                 expected_md5=job.md5,
                 dead_hosts=dead_hosts,
                 session=http_session,
+                heartbeat=_touch_heartbeat,
             )
         except FetchFailure as e:
             if e.kind == "server_50x" and attempt < SERVER_5XX_RETRIES:

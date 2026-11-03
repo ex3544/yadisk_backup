@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -203,6 +203,7 @@ def fetch_to_file(
     link_timeout: tuple[float, float] = (30.0, 60.0),
     storage_timeout: tuple[float, float] = (10.0, 10.0),
     chunk_size: int = 1024 * 1024,
+    heartbeat: Optional[Callable[[], None]] = None,
 ) -> FetchResult:
     """Скачивает ссылку в `dst` атомарно: временный файл → os.replace.
 
@@ -283,6 +284,10 @@ def fetch_to_file(
                     written += len(chunk)
                     if hasher is not None:
                         hasher.update(chunk)
+                    # «Зверь» по этому признаку видит, что файл действительно
+                    # качается, даже если он большой и статус ещё не обновился.
+                    if heartbeat is not None:
+                        heartbeat()
         except OSError as e:
             _remove_quiet(part)
             raise FetchFailure(classify_local_error(e), str(e), host=host) from e

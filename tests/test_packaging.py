@@ -745,7 +745,9 @@ def test_pills_show_remaining_queue_and_report_is_collapsible():
     # Плашка видна всегда: в покое — сколько осталось докачать (файлы и объём).
     assert "function queueLeft(db, kind)" in html
     assert "if(!d){" in html
-    assert "⚠ ${leftText}" in html
+    # Нет сессии — в самой плашке «—», а остаток докачки в подсказке.
+    assert "const leftText = left.bytes > 0" in html
+    assert "Осталось докачать: ${leftText}." in html
     # Остаток в байтах считает сервер, а не UI.
     assert '"bytes_by_status"' in py
     assert 'session["remaining_bytes"]' in py
@@ -1536,3 +1538,61 @@ def test_feedback_form_lives_in_report_card_and_explains_privacy():
     # Публичный маршрут стоит до проверки ключа: иначе клиент без ключа
     # не сможет написать разработчику.
     assert worker.index('url.pathname === "/feedback"') < worker.index("if (!authorized(")
+
+
+def test_beast_mode_is_wired_end_to_end():
+    """Кнопка «зверь»: разметка, запросы к серверу и защита от параллельных задач."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    dl = (PROJECT_DIR / "downloader.py").read_text(encoding="utf-8")
+    unlim = (PROJECT_DIR / "unlim_backup.py").read_text(encoding="utf-8")
+    paths_src = (PROJECT_DIR / "paths.py").read_text(encoding="utf-8")
+
+    assert 'id="beast-btn"' in html
+    assert "function toggleBeast()" in html
+    assert "function renderBeast(b)" in html
+    assert "renderBeast(s.beast)" in html
+    assert "BEAST_TIP" in html
+    assert "/api/beast/start" in html and "/api/beast/stop" in html
+    assert 'app.post("/api/beast/start")' in py
+    assert 'app.post("/api/beast/stop")' in py
+    assert "class Beast:" in py
+    # Обычные кнопки не запускают второй процесс поверх «Зверя».
+    assert py.count("beast.is_running()") >= 3
+    # Пока он работает, ручные кнопки заблокированы, а журнал — его.
+    assert "#launch-manual-card.beast-locked button" in html
+    assert r"setConsole('pipeline-console', (b.log || []).join('\n'));" in html
+
+    # Heartbeat: статусные файлы пишутся только по завершении файла, поэтому
+    # признак «данные идут» воркеры ставят на каждом чанке.
+    assert "heartbeat=_touch_heartbeat" in dl
+    assert "_touch_heartbeat()" in unlim
+    assert "DISK_HEARTBEAT_FILE" in paths_src
+    assert "UNLIM_HEARTBEAT_FILE" in paths_src
+
+
+def test_last_session_is_saved_and_restored_in_ui():
+    """Плашки после перезапуска берут итог прошлой сессии, а не показывают ноль."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
+    paths_src = (PROJECT_DIR / "paths.py").read_text(encoding="utf-8")
+
+    assert "LAST_SESSION_FILE" in paths_src
+    assert "def remember_sessions(" in py
+    assert "def restore_sessions(" in py
+    assert "session = restore_sessions(session, disk_db, unlim_db)" in py
+    assert "remember_sessions(session)" in py
+    # Нет сессии — прочерк и подсказка, в которой видно остаток докачки.
+    assert "setText(text, '—')" in html
+    assert "сессия ещё не запускалась" in html
+    assert "d.restored" in html
+
+
+def test_settext_helpers_keep_selection_alive():
+    """Обновление статуса не переписывает DOM без изменений — выделение живёт."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "function setText(el, value)" in html
+    assert "function setSafeHTML(el, html)" in html
+    assert "if(el.textContent !== v) el.textContent = v;" in html
+    assert "if(el._lastHTML === v) return;" in html

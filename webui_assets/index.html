@@ -403,6 +403,35 @@
   .big-btn.ghost:hover:not(:disabled){background:var(--surface2);box-shadow:none}
   .big-btn.ghost:disabled{background:transparent;color:var(--text-tertiary)}
 
+  /* Режим «Зверь»: маленькая квадратная кнопка рядом с «Скачать всё».
+     Серо-буро-малиновая, белый шрифт, чёрная окантовка. Пока режим включён —
+     пульсирует; нажатие той же кнопки останавливает. */
+  .beast-btn{
+    flex:0 0 34px;width:34px;height:34px;padding:0;border-radius:7px;
+    background:#8a4f5e;color:#fff;border:1.5px solid #111;
+    font-size:9.5px;font-weight:700;line-height:1;letter-spacing:.1px;
+    text-transform:lowercase;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;
+    transition:background .15s,box-shadow .2s,transform .15s;
+    box-shadow:0 3px 10px rgba(0,0,0,.35);
+    align-self:stretch;
+  }
+  .beast-btn:hover{background:#9d5a6c;transform:translateY(-1px)}
+  .beast-btn.on{
+    background:#b0445f;
+    box-shadow:0 0 0 0 rgba(176,68,95,.55),0 4px 14px rgba(0,0,0,.4);
+    animation:beastPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes beastPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(176,68,95,.0),0 4px 14px rgba(0,0,0,.4)}
+    50%{box-shadow:0 0 0 4px rgba(176,68,95,.45),0 4px 14px rgba(0,0,0,.4)}
+  }
+  .beast-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  /* Пока «Зверь» работает, ручные кнопки пошагового режима недоступны. */
+  #launch-manual-card.beast-locked button{
+    opacity:.45;pointer-events:none;cursor:not-allowed;
+  }
+
   /* ── Режимы запуска: «скачать всё» и «пошаговый» — разные блоки ── */
   .home-control{display:flex;flex-direction:column;gap:12px}
   .home-control > .card{margin-bottom:0}
@@ -1451,10 +1480,14 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
             <span id="all-runs-status" style="font-size:12px;color:var(--text-secondary)"></span>
           </div>
         </div>
-        <div id="ctrl-all-wrap" class="launch-action" style="flex:0 0 auto;min-width:210px">
-          <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()">
-            <svg class="ico"><use href="#i-play"/></svg>Скачать всё
-          </button>
+        <div id="ctrl-all-wrap" class="launch-action" style="flex:0 0 auto;min-width:250px">
+          <div style="display:flex;gap:8px;align-items:center;width:100%">
+            <button id="ctrl-all-btn" class="big-btn" onclick="startDownloadAll()" style="flex:1">
+              <svg class="ico"><use href="#i-play"/></svg>Скачать всё
+            </button>
+            <button id="beast-btn" class="beast-btn tipnode tip-right" onclick="toggleBeast()"
+              data-tip="Режим «Зверь». Крутит выгрузку сам: возвращает сгоревшие, обнуляет счётчики, меняет число потоков, таймауты и порядок файлов. Пока файлы качаются — ничего не трогает; как только перестали — сразу меняет тактику и пробует снова. Остановится только тогда, когда все файлы Диска и Безлимита окажутся на компьютере. Нажмите, чтобы включить; нажмите ещё раз, чтобы остановить.">зверь</button>
+          </div>
           <button id="ctrl-all-stop" class="big-btn danger" onclick="stopCustomDownload()" style="display:none">
             <svg class="ico"><use href="#i-stop"/></svg>Остановить
           </button>
@@ -3307,6 +3340,44 @@ function toggleModeOpts(){
   updateDbStatusBanner(window._lastStatus);
 }
 
+const BEAST_TIP = 'Режим «Зверь». Крутит выгрузку сам: возвращает сгоревшие, '
+  + 'обнуляет счётчики, меняет число потоков, таймауты и порядок файлов. '
+  + 'Пока файлы качаются — ничего не трогает; как только перестали — сразу '
+  + 'меняет тактику и пробует снова. Остановится только тогда, когда все файлы '
+  + 'Диска и Безлимита окажутся на компьютере. Нажмите, чтобы включить; '
+  + 'нажмите ещё раз, чтобы остановить.';
+
+function renderBeast(b){
+  const btn = document.getElementById('beast-btn');
+  if(!btn) return;
+  const on = !!(b && b.running);
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.dataset.tip = on
+    ? `Режим «Зверь» работает: круг ${b.round || 1}`
+      + (b.strategy ? `, тактика «${b.strategy}»` : '')
+      + (b.gained ? `, скачано +${b.gained}` : '')
+      + '. Нажмите, чтобы остановить.'
+    : BEAST_TIP;
+}
+
+async function toggleBeast(){
+  const running = !!(window._lastStatus && window._lastStatus.beast
+                     && window._lastStatus.beast.running);
+  const btn = document.getElementById('beast-btn');
+  if(btn) btn.disabled = true;
+  try {
+    const r = await fetch(running ? '/api/beast/stop' : '/api/beast/start', {method: 'POST'});
+    const d = await r.json();
+    toast(d.msg || (d.ok ? 'Готово' : 'Не удалось'), d.ok ? 'ok' : 'err');
+  } catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+  refresh();
+}
+
 async function startDownloadAll(){
   const sort_after = document.getElementById('all-sort-after').checked;
   const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
@@ -3701,6 +3772,24 @@ function setConsole(id, text){
   }
 }
 
+// ── Бережные обновления текста ──
+// refresh() идёт каждые 1,5 секунды и раньше безусловно переписывал textContent
+// и innerHTML. Из-за этого у выделенного текста (итоги, статус, карточки)
+// пропадал маркер: DOM-узел заменялся. Пишем только когда значение изменилось.
+function setText(el, value){
+  if(!el) return;
+  const v = (value == null) ? '' : String(value);
+  if(el.textContent !== v) el.textContent = v;
+}
+
+function setSafeHTML(el, html){
+  if(!el) return;
+  const v = (html == null) ? '' : String(html);
+  if(el._lastHTML === v) return;
+  el._lastHTML = v;
+  el.innerHTML = v;
+}
+
 // Отслеживание состояний задач — для авто-refreshPreview когда scan закончится
 let _prevTaskStates = {};
 
@@ -3954,14 +4043,14 @@ function renderLeftLine(el, count, bytes, approx){
   if (!el) return;
   const n = +count || 0;
   if (n <= 0) {
-    el.textContent = '✓ получено всё';
+    setText(el, '✓ получено всё');
     el.classList.add('none');
     return;
   }
   el.classList.remove('none');
   let out = 'не получено ' + n.toLocaleString('ru') + ' ' + _pluralFiles(n);
   if (bytes > 0) out += ' · ' + (approx ? '≈ ' : '') + _fmtGb(bytes);
-  el.textContent = out;
+  setText(el, out);
 }
 
 // Очередь и место: средний размер файла берём по уже скачанным. Для Безлимита
@@ -4130,7 +4219,7 @@ function renderRunSummary(s){
   });
   if(!lanes.length){
     box.style.display = 'none';
-    box.innerHTML = '';
+    setSafeHTML(box, '');
     return;
   }
   const ru = v => (+v || 0).toLocaleString('ru');
@@ -4150,17 +4239,30 @@ function renderRunSummary(s){
     if(n.waiting) items.push(_runItem('wait', `🕓 ждут Яндекса ${ru(n.waiting)}`));
     if(n.lost) items.push(_runItem('bad', `🔥 сгорело ${ru(n.lost)}`));
   });
-  box.innerHTML = items.join('');
+  setSafeHTML(box, items.join(''));
   box.style.display = 'flex';
 }
 
-// Сколько ещё не скачано: новые + сбойные (у Безлимита сбойные — это skipped).
+// Сколько ещё не получено: новые + зависшие + сбойные + сгоревшие. Раньше
+// здесь были только очередь и сбойные, и подсказка врала: 174 не полученных
+// файла выглядели как «всё скачано». Размеров нескачанных у Безлимита в базе
+// нет — тогда средний размер уже скачанного, поэтому «≈».
 function queueLeft(db, kind){
   const failedKey = kind === 'unlim' ? 'skipped' : 'failed';
-  const pending = +((db||{}).pending || 0);
-  const failed = +((db||{})[failedKey] || 0);
+  const keys = ['pending', 'in_progress', failedKey, 'lost'];
   const by = (db||{}).bytes_by_status || {};
-  return {count: pending + failed, bytes: (+by.pending || 0) + (+by[failedKey] || 0)};
+  let count = 0, bytes = 0;
+  keys.forEach(k => {
+    count += +((db||{})[k] || 0);
+    bytes += +(by[k] || 0);
+  });
+  const downloaded = +((db||{}).downloaded || 0);
+  const avg = downloaded > 0
+    ? ((+by.downloaded || +((db||{}).bytes_done || 0)) / downloaded)
+    : 0;
+  const estimated = bytes <= 0 && count > 0 && avg > 0;
+  if(estimated) bytes = count * avg;
+  return {count, bytes, estimated};
 }
 
 function renderSessionPill(id, textId, d, label, kind, db){
@@ -4169,33 +4271,37 @@ function renderSessionPill(id, textId, d, label, kind, db){
   const text = document.getElementById(textId);
   const left = queueLeft(db, kind);
   const leftText = left.bytes > 0
-    ? `${left.count.toLocaleString('ru')} · ${human(left.bytes)}`
+    ? `${left.count.toLocaleString('ru')} · ${left.estimated ? '≈ ' : ''}${human(left.bytes)}`
     : `${left.count.toLocaleString('ru')}`;
-  // Плашка видна всегда: в покое — сколько осталось докачать, во время
-  // работы — итог сессии и остаток в подсказке.
+  // Плашка видна всегда: в покое — «—» (сессии ещё не было), после сессии —
+  // её итог, а остаток докачки — в подсказке.
   el.style.display = 'inline-flex';
   if(d && d.preparing){
     el.className = 'pill clickable';
-    if(text) text.textContent = `⏳ ${label}: подготовка…`;
+    setText(text, `⏳ ${label}: подготовка…`);
     el.dataset.tip = `Сбор списка файлов ${label}. Нажмите — откроет папку выгрузки.`;
     return;
   }
   if(!d){
-    el.className = left.count ? 'pill clickable' : 'pill ok clickable';
-    if(text) text.textContent = left.count ? `⚠ ${leftText}` : '✅ всё скачано';
+    el.className = 'pill clickable';
+    setText(text, '—');
     el.dataset.tip = left.count
-      ? `Не докачано ${label}: ${left.count.toLocaleString('ru')} файлов`
-        + (left.bytes ? ` (${human(left.bytes)})` : '')
-        + '. Это новые и сбойные вместе. Нажмите — откроет папку выгрузки.'
-      : `${label}: всё скачано. Нажмите — откроет папку выгрузки.`;
+      ? `Сессия ещё не запускалась. Не получено ${label}: `
+        + `${left.count.toLocaleString('ru')} ${_pluralFiles(left.count)}`
+        + (left.bytes ? ` (${left.estimated ? '≈ ' : ''}${human(left.bytes)})` : '')
+        + '. Это новые, зависшие, сбойные и сгоревшие вместе. '
+        + 'Нажмите — откроет папку выгрузки.'
+      : `${label}: сессия ещё не запускалась, всё скачано. `
+        + 'Нажмите — откроет папку выгрузки.';
     return;
   }
   el.className = 'pill ok clickable';
   let value = '✅ ' + (+d.success || 0).toLocaleString('ru');
   if(d.failed) value += ' · ⚠ ' + (+d.failed).toLocaleString('ru');
-  if(text) text.textContent = value;
+  setText(text, value);
   const pass = d.passes > 1 ? ` Проход ${d.pass || 1} из ${d.passes}.` : '';
-  el.dataset.tip = `Итог сессии ${label}: скачано за все проходы / сбойных сейчас.${pass} `
+  const title = d.restored ? `Итог прошлой сессии ${label}` : `Итог сессии ${label}`;
+  el.dataset.tip = `${title}: скачано за все проходы / сбойных сейчас.${pass} `
     + `Осталось докачать: ${leftText}. `
     + (kind === 'unlim' ? 'Нажмите — откроет папку выгрузки Безлимита.'
                         : 'Нажмите — откроет папку выгрузки Диска.');
@@ -4296,7 +4402,7 @@ function renderEta(s){
   const longest = lines.reduce((a, b) => (b.sec > a.sec ? b : a));
   box.style.display = 'block';
   box.className = 'tipnode';
-  txt.textContent = fmtEta(longest.sec);
+  setText(txt, fmtEta(longest.sec));
   const basis = 'Считается по успешным скачиваниям за последние 3 минуты; '
     + 'если ничего не скачивается, цифры нет. Оценка приблизительная.';
   box.dataset.tip = lines.length === 1
@@ -4967,6 +5073,14 @@ async function refresh(){
     const r=await fetch('/api/status');
     const s=await r.json();
     window._lastStatus = s;
+    renderBeast(s.beast);
+    // Итог режима «Зверь» показываем один раз: переход «работал → встал».
+    if (s.beast && s.beast.running) window._beastWasRunning = true;
+    else if (window._beastWasRunning) {
+      window._beastWasRunning = false;
+      toast((s.beast && s.beast.message) || 'Зверь остановлен',
+            (s.beast && s.beast.state === 'failed') ? 'err' : 'ok');
+    }
     renderRamHint(s.ram);
     renderFullCycle(s.full_cycle);
     renderUpdate(s.update);
@@ -4993,17 +5107,17 @@ async function refresh(){
     const pt=document.getElementById('pill-token');
     // Класс service сохраняем: он отличает служебные плашки от итогов выгрузки.
     pt.className = 'pill service '+(s.token.ok?'ok':'err');
-    document.getElementById('pill-token-text').textContent = s.token.ok ? `токен · ${s.token.login}` : 'нет токена';
+    setText(document.getElementById('pill-token-text'), s.token.ok ? `токен · ${s.token.login}` : 'нет токена');
 
     const pc=document.getElementById('pill-cookies');
     pc.className = 'pill service '+(s.cookies.ok?'ok':'err');
-    document.getElementById('pill-cookies-text').textContent = s.cookies.ok ? 'cookies · OK' : 'нет cookies';
+    setText(document.getElementById('pill-cookies-text'), s.cookies.ok ? 'cookies · OK' : 'нет cookies');
 
     const pp = document.getElementById('pill-profile');
     if(pp && s.profile){
       pp.className = 'pill service ' + (s.profile.active ? 'ok' : '');
       const pn = document.getElementById('pill-profile-text');
-      if(pn) pn.textContent = s.profile.name || 'профиль';
+      setText(pn, s.profile.name || 'профиль');
       applyAvatar(s.profile.avatar);
     }
 
@@ -5012,7 +5126,7 @@ async function refresh(){
     const unlimLive = !!(s.tasks && s.tasks.unlim && s.tasks.unlim.running);
     if (pSpeed && sp.active && sp.speed_mb !== undefined && unlimLive) {
       pSpeed.style.display = 'inline-flex';
-      document.getElementById('pill-speed-text').textContent = `⚡ ${sp.speed_mb} МБ/с (${sp.speed_mbit} Мбит/с)`;
+      setText(document.getElementById('pill-speed-text'), `⚡ ${sp.speed_mb} МБ/с (${sp.speed_mbit} Мбит/с)`);
     } else if (pSpeed) {
       pSpeed.style.display = 'none';
     }
@@ -5037,7 +5151,7 @@ async function refresh(){
       legacyBanner.style.display = legacyPath ? 'block' : 'none';
       if (legacyPath) {
         const legacyPathEl = document.getElementById('legacy-install-path');
-        if (legacyPathEl) legacyPathEl.textContent = legacyPath;
+        setText(legacyPathEl, legacyPath);
       }
     }
 
@@ -5048,12 +5162,12 @@ async function refresh(){
       const lostNow = lostTotal(s);
       waitBanner.style.display = (waitingNow + lostNow) > 0 ? 'flex' : 'none';
       const waitCount = document.getElementById('waiting-banner-count');
-      if (waitCount) waitCount.textContent = waitingNow.toLocaleString('ru');
+      setText(waitCount, waitingNow.toLocaleString('ru'));
       const waitLost = document.getElementById('waiting-banner-lost');
       if (waitLost) {
-        waitLost.textContent = lostNow
+        setText(waitLost, lostNow
           ? ' · 🔥 ' + lostNow.toLocaleString('ru') + ' сгорели'
-          : '';
+          : '');
       }
       // Имя молчащего сервера — чтобы было видно, чей это сбой. Если линии
       // разные, показываем тот, у кого отложенных больше.
@@ -5064,7 +5178,7 @@ async function refresh(){
         const dN = +((((s.disk || {}).db) || {}).waiting || 0);
         const uN = +((((s.unlim || {}).db) || {}).waiting || 0);
         const host = uN >= dN ? (uHost || dHost) : (dHost || uHost);
-        waitHost.textContent = host ? ' · ' + host : '';
+        setText(waitHost, host ? ' · ' + host : '');
       }
     }
     renderQueueEstimate(s);
@@ -5200,12 +5314,12 @@ async function refresh(){
       if (scanWrap) scanWrap.style.display = 'none';
       if (allWrap) allWrap.style.display = 'flex';
       if (stopWrap) stopWrap.style.display = 'flex';
-      if (ps) { ps.textContent = runningSlots.length > 1 ? `идёт ${runningSlots.length} процесса` : 'идёт процесс'; ps.className = 'badge run'; }
+      if (ps) { setText(ps, runningSlots.length > 1 ? `идёт ${runningSlots.length} процесса` : 'идёт процесс'); ps.className = 'badge run'; }
 
       if (runningSlots.length > 0) {
         const labels = runningSlots.map(s => `${taskLabel(s)} · ${taskKind(s, tasks[s].log_tail)}`);
-        if (pStep) pStep.textContent = labels.join('   +   ');
-        if (pTime) pTime.textContent = dur(Math.max(...runningSlots.map(s => tasks[s].elapsed || 0)));
+        setText(pStep, labels.join('   +   '));
+        setText(pTime, dur(Math.max(...runningSlots.map(s => tasks[s].elapsed || 0))));
         const body = runningSlots.map(s => {
           const t = tasks[s];
           const log = (t.log_tail || []).slice(-200).join('\n');
@@ -5213,8 +5327,8 @@ async function refresh(){
         }).join('\n\n');
         setConsole('pipeline-console', body);
       } else if (isPipeRunning) {
-        if (pStep) pStep.textContent = pl.step || 'Пайплайн';
-        if (pTime) pTime.textContent = dur(pl.elapsed);
+        setText(pStep, pl.step || 'Пайплайн');
+        setText(pTime, dur(pl.elapsed));
         setConsole('pipeline-console', (pl.log || []).join('\n'));
       }
     } else {
@@ -5237,9 +5351,9 @@ async function refresh(){
         // лог последней задачи: он затирал результат Диска.
         if (card) card.style.display = 'block';
         const partial = fcst.state !== 'done';
-        if (ps) { ps.textContent = partial ? 'с ошибками' : 'готово'; ps.className = partial ? 'badge warn' : 'badge ok'; }
-        if (pStep) pStep.textContent = 'Полный цикл: Диск + Безлимит';
-        if (pTime) pTime.textContent = dur((fcst.summary || {}).duration);
+        if (ps) { setText(ps, partial ? 'с ошибками' : 'готово'); ps.className = partial ? 'badge warn' : 'badge ok'; }
+        setText(pStep, 'Полный цикл: Диск + Безлимит');
+        setText(pTime, dur((fcst.summary || {}).duration));
         const fcLog = ['🏁 Полный цикл', cycleLaneText('disk', fcst), cycleLaneText('unlim', fcst)];
         if (fcst.log && fcst.log.length) fcLog.push('', ...fcst.log.slice(-300));
         setConsole('pipeline-console', fcLog.join('\n'));
@@ -5265,41 +5379,68 @@ async function refresh(){
           : 'скачивание завершено';
         if (ps) {
           if (isDone) {
-            ps.textContent = isScanTask ? 'база готова'
-              : isSelection ? 'выгрузка завершена' : 'скачивание завершено';
+            setText(ps, isScanTask ? 'база готова'
+              : isSelection ? 'выгрузка завершена' : 'скачивание завершено');
             ps.className = 'badge ok';
           }
-          else if (isPartial) { ps.textContent = 'с ошибками'; ps.className = 'badge warn'; }
-          else if (isUserStop) { ps.textContent = 'остановлено пользователем'; ps.className = 'badge stop'; }
-          else { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
+          else if (isPartial) { setText(ps, 'с ошибками'); ps.className = 'badge warn'; }
+          else if (isUserStop) { setText(ps, 'остановлено пользователем'); ps.className = 'badge stop'; }
+          else { setText(ps, 'ошибка'); ps.className = 'badge err'; }
         }
-        if (pStep) pStep.textContent = (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (
+        setText(pStep, (lastTask === unlimTask ? 'Безлимит: ' : 'Диск: ') + (
           isDone ? doneLabel
             : isPartial ? `завершено с ошибками (${diskFailed.toLocaleString('ru')} файлов)`
             : isUserStop ? 'остановлено'
-            : `ошибка (код ${lastTask.exit_code})`);
-        if (pTime) pTime.textContent = dur(lastTask.elapsed);
+            : `ошибка (код ${lastTask.exit_code})`));
+        setText(pTime, dur(lastTask.elapsed));
         setConsole('pipeline-console', (lastTask.log_tail || []).join('\n'));
       } else if (s.last_unlim_log && s.last_unlim_log.length > 0 && s.unlim?.summary?.is_ready) {
         // Показываем последний успешный лог даже после обновления страницы (F5)
         if (card) card.style.display = 'block';
-        if (ps) { ps.textContent = 'база готова'; ps.className = 'badge ok'; }
-        if (pStep) pStep.textContent = `Безлимит: база данных полностью собрана (${(s.unlim.summary.total_files || 0).toLocaleString('ru')} файлов в базе)`;
-        if (pTime) pTime.textContent = 'завершено';
+        if (ps) { setText(ps, 'база готова'); ps.className = 'badge ok'; }
+        setText(pStep, `Безлимит: база данных полностью собрана (${(s.unlim.summary.total_files || 0).toLocaleString('ru')} файлов в базе)`);
+        setText(pTime, 'завершено');
         setConsole('pipeline-console', s.last_unlim_log.join('\n'));
       } else if (pl.state === 'done' || pl.state === 'failed' || pl.state === 'stopped') {
         if (card) card.style.display = 'block';
         if (ps) {
-          if (pl.state === 'done') { ps.textContent = 'готово'; ps.className = 'badge ok'; }
-          else if (pl.state === 'failed') { ps.textContent = 'ошибка'; ps.className = 'badge err'; }
-          else { ps.textContent = 'остановлено пользователем'; ps.className = 'badge stop'; }
+          if (pl.state === 'done') { setText(ps, 'готово'); ps.className = 'badge ok'; }
+          else if (pl.state === 'failed') { setText(ps, 'ошибка'); ps.className = 'badge err'; }
+          else { setText(ps, 'остановлено пользователем'); ps.className = 'badge stop'; }
         }
-        if (pStep) pStep.textContent = pl.step || 'Завершено';
-        if (pTime) pTime.textContent = dur(pl.elapsed);
+        setText(pStep, pl.step || 'Завершено');
+        setText(pTime, dur(pl.elapsed));
         setConsole('pipeline-console', (pl.log || []).join('\n'));
       } else {
         if (card) card.style.display = 'block';
       }
+    }
+
+    // Режим «Зверь»: пока он работает, журнал показывает его тактики, а
+    // ручные кнопки выгрузки недоступны — чтобы не запустить второй процесс.
+    const b = s.beast || {};
+    const newestTaskStart = Object.values(tasks || {}).reduce(
+      (a, t) => Math.max(a, (t && t.started_at) || 0), 0);
+    const beastShown = b.running || (b.finished_at && !isRunning
+      && b.finished_at > newestTaskStart && b.state !== 'idle');
+    if (b.running) {
+      if (allStopBtn) allStopBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'none';
+    }
+    const manualCard = document.getElementById('launch-manual-card');
+    if (manualCard) manualCard.classList.toggle('beast-locked', !!b.running);
+    if (beastShown) {
+      if (card) card.style.display = 'block';
+      if (ps) {
+        setText(ps, b.running ? 'зверь работает'
+          : b.state === 'done' ? 'зверь: всё скачано'
+          : b.state === 'failed' ? 'зверь: ошибка' : 'зверь остановлен');
+        ps.className = 'badge ' + (b.running ? 'run'
+          : b.state === 'done' ? 'ok' : b.state === 'failed' ? 'err' : 'stop');
+      }
+      setText(pStep, `🐾 круг ${b.round || 1} · тактика «${b.strategy || '…'}» · +${b.gained || 0}`);
+      setText(pTime, dur(b.elapsed));
+      setConsole('pipeline-console', (b.log || []).join('\n'));
     }
 
     // Disk Stats
@@ -5311,21 +5452,21 @@ async function refresh(){
 
     if (diskDoneEl) {
       if (isDiskScanning) {
-        diskDoneEl.innerHTML = `<span style="font-size:18px;color:var(--accent)">🔍 Найдено: ${totalDisk.toLocaleString('ru')} файлов</span>`;
+        setSafeHTML(diskDoneEl, `<span style="font-size:18px;color:var(--accent)">🔍 Найдено: ${totalDisk.toLocaleString('ru')} файлов</span>`);
       } else if (diskDone === 0 && totalDisk > 0) {
-        diskDoneEl.innerHTML = `<span style="font-size:20px;color:var(--green)">✓ ${totalDisk.toLocaleString('ru')} в базе</span>`;
+        setSafeHTML(diskDoneEl, `<span style="font-size:20px;color:var(--green)">✓ ${totalDisk.toLocaleString('ru')} в базе</span>`);
       } else {
-        diskDoneEl.textContent = (dd.downloaded || 0).toLocaleString('ru') + (totalDisk ? ` / ${totalDisk.toLocaleString('ru')}` : '');
+        setText(diskDoneEl, (dd.downloaded || 0).toLocaleString('ru') + (totalDisk ? ` / ${totalDisk.toLocaleString('ru')}` : ''));
       }
     }
     const diskInfoEl = document.getElementById('home-disk-info');
     if (diskInfoEl) {
       if (isDiskScanning) {
-        diskInfoEl.textContent = 'сканирование дерева каталогов…';
+        setText(diskInfoEl, 'сканирование дерева каталогов…');
       } else if (diskDone === 0 && totalDisk > 0) {
-        diskInfoEl.innerHTML = `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`;
+        setSafeHTML(diskInfoEl, `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`);
       } else {
-        diskInfoEl.textContent = `${human(dd.bytes_done || 0)} из ${human(dd.bytes_total || 0)}`;
+        setText(diskInfoEl, `${human(dd.bytes_done || 0)} из ${human(dd.bytes_total || 0)}`);
       }
     }
     const diskBarEl = document.getElementById('home-disk-bar');
@@ -5368,24 +5509,37 @@ async function refresh(){
     const unlimDoneEl = document.getElementById('home-unlim-done');
     const totalUnlim = uSum.total_files || ud.total || 0;
     const unlimDownloaded = ud.downloaded || 0;
+    // «Не получено» для Безлимита: всё, кроме downloaded (skipped здесь —
+    // это сбойные файлы, а не скачанные). Размеров нескачанных в базе нет,
+    // поэтому вес оценочный — по среднему размеру уже скачанного файла.
+    const uBys = ud.bytes_by_status || {};
+    const unlimLeft = (ud.pending || 0) + (ud.in_progress || 0) +
+                      (ud.skipped || 0) + (ud.lost || 0);
+    const uAvg = unlimDownloaded > 0 ? (+ud.bytes_done || 0) / unlimDownloaded : 0;
+    const unlimExact = ['pending', 'in_progress', 'skipped', 'lost']
+      .reduce((a, k) => a + (+uBys[k] || 0), 0);
+    const unlimEstimated = uAvg > 0 && (unlimExact <= 0 || unlimLeft * uAvg > unlimExact);
+    const unlimLeftBytes = unlimEstimated ? unlimLeft * uAvg : unlimExact;
 
     if (unlimDoneEl) {
       if (isUnlimScanning) {
-        unlimDoneEl.innerHTML = `<span style="font-size:18px;color:var(--purple)">🔍 В базе: ${totalUnlim.toLocaleString('ru')} файлов</span>`;
+        setSafeHTML(unlimDoneEl, `<span style="font-size:18px;color:var(--purple)">🔍 В базе: ${totalUnlim.toLocaleString('ru')} файлов</span>`);
       } else if (unlimDownloaded === 0 && totalUnlim > 0) {
-        unlimDoneEl.innerHTML = `<span style="font-size:20px;color:var(--green)">✓ ${totalUnlim.toLocaleString('ru')} в базе</span>`;
+        setSafeHTML(unlimDoneEl, `<span style="font-size:20px;color:var(--green)">✓ ${totalUnlim.toLocaleString('ru')} в базе</span>`);
       } else {
-        unlimDoneEl.textContent = unlimDownloaded.toLocaleString('ru') + (totalUnlim ? ` / ${totalUnlim.toLocaleString('ru')}` : '');
+        setText(unlimDoneEl, unlimDownloaded.toLocaleString('ru') + (totalUnlim ? ` / ${totalUnlim.toLocaleString('ru')}` : ''));
       }
     }
     const unlimInfoEl = document.getElementById('home-unlim-info');
     if (unlimInfoEl) {
       if (isUnlimScanning) {
-        unlimInfoEl.textContent = 'сканирование кластеров Безлимита…';
+        setText(unlimInfoEl, 'сканирование кластеров Безлимита…');
       } else if (unlimDownloaded === 0 && totalUnlim > 0) {
-        unlimInfoEl.innerHTML = `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`;
+        setSafeHTML(unlimInfoEl, `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`);
       } else {
-        unlimInfoEl.textContent = `${human(ud.bytes_done || 0)} из ${human(ud.bytes_total || 0)}`;
+        // Честный объём: сумма размеров скачанного, а не «X из X», когда
+        // 174 файла на самом деле не получены. Остаток — строкой ниже.
+        setText(unlimInfoEl, `${human(ud.bytes_done || 0)} скачано`);
       }
     }
     const unlimBarEl = document.getElementById('home-unlim-bar');
@@ -5404,24 +5558,13 @@ async function refresh(){
         unlimBarEl.style.width = Math.min(100, hupct) + '%';
       }
     }
-    // «Не получено» для Безлимита: всё, кроме downloaded (skipped здесь —
-    // это сбойные файлы, а не скачанные). Размеров нескачанных в базе нет,
-    // поэтому вес оценочный — по среднему размеру уже скачанного файла.
     const unlimLeftEl = document.getElementById('home-unlim-left');
     if (unlimLeftEl) {
       if (isUnlimScanning) {
         unlimLeftEl.style.display = 'none';
       } else {
-        const uBys = ud.bytes_by_status || {};
-        const unlimLeft = (ud.pending || 0) + (ud.in_progress || 0) +
-                          (ud.skipped || 0) + (ud.lost || 0);
-        const uAvg = unlimDownloaded > 0 ? (+ud.bytes_done || 0) / unlimDownloaded : 0;
-        const exact = ['pending', 'in_progress', 'skipped', 'lost']
-          .reduce((a, k) => a + (+uBys[k] || 0), 0);
-        const estimated = uAvg > 0 && (exact <= 0 || unlimLeft * uAvg > exact);
-        const unlimLeftBytes = estimated ? unlimLeft * uAvg : exact;
         unlimLeftEl.style.display = '';
-        renderLeftLine(unlimLeftEl, unlimLeft, unlimLeftBytes, estimated);
+        renderLeftLine(unlimLeftEl, unlimLeft, unlimLeftBytes, unlimEstimated);
       }
     }
 

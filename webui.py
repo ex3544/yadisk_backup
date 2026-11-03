@@ -989,6 +989,585 @@ class FullCycle:
 full_cycle = FullCycle()
 
 
+# ── Режим «Зверь» ────────────────────────────────────────────────────────────
+#
+# Одна кнопка вместо ручного «Скачать сгоревшие» → «Скачать всё». Пока файлы
+# качаются, режим ничего не трогает. Как только прогресс встал (нет новых
+# файлов и нет байт 90 секунд), он меняет тактику: возвращает сгоревшие,
+# обнуляет счётчики, меняет число потоков/таймаут/порядок. Так до тех пор,
+# пока в базах не останется ни одного нескачанного файла.
+#
+# Почему это работает: сгоревший файл после трёх ответов 5xx ждёт 30 минут, а
+# автовозврат не обнуляет `server_fails` — первый же новый 500 снова сжигает
+# файл. «Попробовать» обнуляет счётчики, поэтому ручное чередование кнопок и
+# давало +15…35 файлов. Здесь то же самое делает каждая смена тактики.
+
+class Beast:
+    TICK = 2.0
+    # Нет ни новых файлов, ни байт (heartbeat) — считаем, что встало.
+    STALL_SEC = 90.0
+    # Сколько ждать первого файла после старта тактики (авторизация, сборка
+    # списка). Сканирование облака может идти минутами — для него свой запас.
+    GRACE_SEC = 120.0
+    SCAN_GRACE_SEC = 900.0
+    # Паузы между полными кругами без единого скачанного файла.
+    EMPTY_PAUSES = (60.0, 300.0, 900.0)
+    MAX_LOG = 400
+
+    STRATEGIES = (
+        {"key": "reset", "title": "свежие попытки", "disk_workers": 0,
+         "workers": 10, "timeout": 7.0, "from_end": False, "scan": False},
+        {"key": "few", "title": "меньше потоков", "disk_workers": 3,
+         "workers": 4, "timeout": 15.0, "from_end": False, "scan": False},
+        {"key": "many", "title": "больше потоков", "disk_workers": 5,
+         "workers": 14, "timeout": 7.0, "from_end": False, "scan": False},
+        {"key": "end", "title": "с конца списка", "disk_workers": 4,
+         "workers": 10, "timeout": 7.0, "from_end": True, "scan": False},
+        {"key": "long", "title": "долгий таймаут", "disk_workers": 4,
+         "workers": 6, "timeout": 30.0, "from_end": False, "scan": False},
+        {"key": "short", "title": "короткий таймаут", "disk_workers": 4,
+         "workers": 6, "timeout": 4.0, "from_end": False, "scan": False},
+        {"key": "refresh", "title": "пересобрать список", "disk_workers": 5,
+         "workers": 10, "timeout": 7.0, "from_end": False, "scan": True},
+    )
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._stop = False
+        self.state = "idle"  # idle | running | done | stopped | failed
+        self.started_at: Optional[float] = None
+        self.finished_at: Optional[float] = None
+        self.round = 0
+        self.strategy_index = 0
+        self.strategy = ""
+        self.gained = 0
+        self.gained_round = 0
+        self.message = ""
+        self.log: deque[str] = deque(maxlen=self.MAX_LOG)
+        self.remaining = {"disk": 0, "unlim": 0}
+
+    def _log(self, msg: str) -> None:
+        self.log.append(f"{time.strftime('%H:%M:%S')}  {msg}")
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def status(self) -> dict:
+        elapsed = None
+        if self.started_at:
+            elapsed = (self.finished_at or time.time()) - self.started_at
+        return {
+            "state": self.state,
+            "running": self.is_running(),
+            "round": self.round,
+            "strategy": self.strategy,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "elapsed": elapsed,
+            "gained": self.gained,
+            "gained_round": self.gained_round,
+            "message": self.message,
+            "remaining": dict(self.remaining),
+            "log": list(self.log)[-200:],
+        }
+
+    # ── запуск и остановка ──────────────────────────────────────────────
+
+    @staticmethod
+    def _slot_running(slot: str) -> bool:
+        with tm._lock:
+            task = tm._tasks.get(slot)
+            return bool(task and task.alive())
+
+    def _stop_slots(self, slots: tuple[str, ...], wait: float = 12.0) -> None:
+        for slot in slots:
+            try:
+                tm.stop(slot)
+            except Exception:  # noqa: BLE001 — остановка не должна мешать запуску
+                pass
+        end = time.time() + wait
+        while time.time() < end:
+            if not any(self._slot_running(s) for s in slots):
+                return
+            time.sleep(0.2)
+
+    def start(self) -> tuple[bool, str]:
+        with self._lock:
+            if self.is_running():
+                return False, "Зверь уже работает"
+            busy = []
+            with tm._lock:
+                for slot, task in tm._tasks.items():
+                    if task.alive() and slot not in (
+                        "disk", "unlim", "unlim_collect"
+                    ):
+                        busy.append(slot)
+            if busy:
+                return False, f"Сначала дождитесь: {', '.join(sorted(busy))}"
+
+            cfg = get_config()
+            for folder in (
+                cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR),
+                cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR),
+            ):
+                problem = check_target_dir(folder)
+                if problem:
+                    return False, problem
+            cookies = check_cookies()
+            if not cookies.get("ok"):
+                return False, (f"Куки: {cookies.get('msg')}. Обновите cookies "
+                               f"и включите «Зверя» снова.")
+            if not (cfg.get("token") or "").strip():
+                return False, "Нет OAuth-токена для обычного Диска."
+
+            # Кнопка забирает управление: останавливаем то, что уже идёт.
+            try:
+                full_cycle.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                pipeline.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._stop_slots(("disk", "unlim", "unlim_collect"))
+
+            self._stop = False
+            self.state = "running"
+            self.started_at = time.time()
+            self.finished_at = None
+            self.round = 0
+            self.strategy_index = 0
+            self.strategy = ""
+            self.gained = 0
+            self.gained_round = 0
+            self.message = ""
+            self.log.clear()
+            self.remaining = {"disk": self._remaining("disk"),
+                              "unlim": self._remaining("unlim")}
+            self._log("🐾 Зверь включён. Пока файлы качаются — не трогаю; "
+                      "встало — меняю тактику.")
+            thread = threading.Thread(target=self._run, daemon=True)
+            self._thread = thread
+        thread.start()
+        return True, "Зверь запущен"
+
+    def stop(self) -> tuple[bool, str]:
+        if not self.is_running():
+            return False, "Зверь не работает"
+        self._stop = True
+        self._log("⏹ остановка…")
+        self._stop_slots(("disk", "unlim", "unlim_collect"), wait=8.0)
+        return True, "Зверь остановлен"
+
+    # ── база ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _db_pair(kind: str) -> tuple[Path, str]:
+        return (DB_FILE, "files") if kind == "disk" else (UNLIM_DB_FILE, "unlim_files")
+
+    def _remaining(self, kind: str) -> int:
+        db_file, table = self._db_pair(kind)
+        if not Path(db_file).exists():
+            return 0
+        statuses = ("pending", "in_progress", "lost", "failed") \
+            if kind == "disk" else ("pending", "in_progress", "lost", "skipped")
+        marks = ",".join("?" for _ in statuses)
+        try:
+            con = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=15)
+            try:
+                row = con.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE status IN ({marks})",
+                    statuses,
+                ).fetchone()
+                return int(row[0] or 0)
+            finally:
+                con.close()
+        except sqlite3.Error:
+            return 0
+
+    def _refresh_remaining(self) -> None:
+        self.remaining = {"disk": self._remaining("disk"),
+                          "unlim": self._remaining("unlim")}
+
+    def _remaining_total(self) -> int:
+        return int(self.remaining.get("disk") or 0) + int(self.remaining.get("unlim") or 0)
+
+    def _progress(self, kind: str) -> tuple[int, int]:
+        """Сколько файлов скачано и сколько байт — для детектора прогресса."""
+        db_file, table = self._db_pair(kind)
+        if not Path(db_file).exists():
+            return 0, 0
+        try:
+            con = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=15)
+            try:
+                row = con.execute(
+                    f"SELECT COUNT(*), COALESCE(SUM(size), 0) FROM {table} "
+                    f"WHERE status='downloaded'"
+                ).fetchone()
+                return int(row[0] or 0), int(row[1] or 0)
+            finally:
+                con.close()
+        except sqlite3.Error:
+            return 0, 0
+
+    @staticmethod
+    def _heartbeat_mtime(kind: str) -> float:
+        path = paths.DISK_HEARTBEAT_FILE if kind == "disk" else paths.UNLIM_HEARTBEAT_FILE
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    @staticmethod
+    def _clear_heartbeat(kind: str) -> None:
+        path = paths.DISK_HEARTBEAT_FILE if kind == "disk" else paths.UNLIM_HEARTBEAT_FILE
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _mark_unavailable(self) -> None:
+        """Помечает «недоступен» файл, который точно не появится.
+
+        404/403 после трёх попыток — файл удалён из облака или закрыт правами.
+        Без этого «Зверь» крутил бы его вечно.
+        """
+        total = 0
+        jobs = (
+            (DB_FILE, "files", "status='failed' AND (error LIKE '%PathNotFound%' "
+                              "OR error LIKE '%404%' OR error LIKE '%403%')"),
+            (UNLIM_DB_FILE, "unlim_files",
+             "status='skipped' AND (error LIKE '%404%' OR error LIKE '%403%' "
+             "OR error LIKE '%Ссылка не найдена%')"),
+        )
+        for db_file, table, cond in jobs:
+            if not Path(db_file).exists():
+                continue
+            try:
+                con = sqlite3.connect(str(db_file), timeout=30)
+                try:
+                    with con:
+                        n = con.execute(
+                            f"UPDATE {table} SET status='deleted' "
+                            f"WHERE {cond} AND COALESCE(attempts, 0) >= 3"
+                        ).rowcount
+                        total += n
+                finally:
+                    con.close()
+            except sqlite3.Error:
+                pass
+        if total:
+            self._log(f"   {total} файлов недоступны (удалены из облака или нет прав) — "
+                      f"больше не считаю их остатком")
+
+    def _reset_lost(self) -> int:
+        """Возвращает всё нескачанное в очередь и обнуляет счётчики 5xx."""
+        total = 0
+        jobs = (
+            (DB_FILE, (
+                ("UPDATE files SET status='pending', error=NULL, "
+                 "server_fails=0, retry_after=NULL WHERE status='lost'", True),
+                # Зависшие после закрытия процесса — тоже в очередь.
+                ("UPDATE files SET status='pending' "
+                 "WHERE status='in_progress'", True),
+                # Файлы «ждут Яндекса»: паузу снимаем, попытки не тратим.
+                ("UPDATE files SET retry_after=NULL WHERE status='pending'", False),
+            )),
+            (UNLIM_DB_FILE, (
+                ("UPDATE unlim_files SET status='pending', error=NULL, "
+                 "server_fails=0, retry_after=NULL, assigned_at=NULL "
+                 "WHERE status='lost'", True),
+                ("UPDATE unlim_files SET status='pending', assigned_at=NULL "
+                 "WHERE status='in_progress'", True),
+                ("UPDATE unlim_files SET retry_after=NULL WHERE status='pending'",
+                 False),
+                # Пропущенные Безлимита повторяем в каждом круге, но счётчик
+                # попыток не обнуляем: по нему видно, какие файлы уже точно
+                # недоступны.
+                ("UPDATE unlim_files SET status='pending', error=NULL, "
+                 "retry_after=NULL, assigned_at=NULL WHERE status='skipped'", True),
+            )),
+        )
+        for db_file, queries in jobs:
+            if not Path(db_file).exists():
+                continue
+            try:
+                con = sqlite3.connect(str(db_file), timeout=30)
+                try:
+                    with con:
+                        for sql, counted in queries:
+                            n = con.execute(sql).rowcount
+                            if counted:
+                                total += n
+                finally:
+                    con.close()
+            except sqlite3.Error as e:
+                self._log(f"   сброс базы {Path(db_file).name}: {e}")
+        return total
+
+    # ── тактики ─────────────────────────────────────────────────────────
+
+    def _scan_all(self) -> None:
+        """Пересобирает списки Диска и Безлимита перед тактикой «refresh»."""
+        self._log("🔍 обновляю списки облака…")
+        self._clear_heartbeat("disk")
+        ok, msg = tm.start("disk", "main.py", ["scan"])
+        if ok:
+            self._wait_slot("disk", self.SCAN_GRACE_SEC)
+        else:
+            self._log(f"   Диск: скан не запущен: {msg}")
+        ok, msg = tm.start("unlim_collect", "unlim_download.py", ["--collect"])
+        if ok:
+            self._wait_slot("unlim_collect", self.SCAN_GRACE_SEC)
+        else:
+            self._log(f"   Безлимит: сбор списка не запущен: {msg}")
+
+    def _wait_slot(self, slot: str, limit: float) -> None:
+        end = time.time() + limit
+        while not self._stop and time.time() < end:
+            if not self._slot_running(slot):
+                return
+            time.sleep(1.0)
+        if self._stop:
+            return
+        self._log(f"   {slot}: дольше {int(limit)} с — останавливаю")
+        tm.stop(slot)
+
+    def _start_lane(self, kind: str, strategy: dict) -> tuple[bool, str]:
+        cfg = get_config()
+        if kind == "disk":
+            workers = int(strategy.get("disk_workers") or 0) or auto_workers()
+            workers = max(1, min(workers, 5))
+            args = ["download", "--workers", str(workers),
+                    "--no-scan", "--retry"]
+            script = "main.py"
+        else:
+            workers = int(strategy.get("workers") or 10)
+            timeout = float(strategy.get("timeout") or 7.0)
+            out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+            args = [
+                "--out-dir", out_dir,
+                "--media", cfg.get("unlim_media") or "all",
+                "--target", "all",
+                "--workers", str(workers),
+                "--timeout", f"{timeout:g}",
+            ]
+            if strategy.get("from_end"):
+                args.append("--from-end")
+            if not cfg.get("previews", True):
+                args.append("--no-previews")
+            script = "unlim_backup.py"
+        self._clear_heartbeat(kind)
+        reset_session_counters(kind)
+        return tm.start(kind, script, args)
+
+    def _run_round(self, strategy: dict) -> tuple[int, bool, str]:
+        """Один круг: сброс счётчиков, запуск линий, наблюдение.
+
+        Возвращает (сколько скачано, была ли остановка по застою, фатальная
+        ошибка или пустая строка).
+        """
+        self._log("   возвращаю сгоревшие и обнуляю счётчики…")
+        returned = self._reset_lost()
+        if returned:
+            self._log(f"   в очередь возвращено: {returned}")
+        self._refresh_remaining()
+        if self._remaining_total() == 0:
+            return 0, False, ""
+
+        if strategy.get("scan"):
+            self._scan_all()
+            if self._stop:
+                return 0, False, ""
+            self._mark_unavailable()
+            self._reset_lost()
+            self._refresh_remaining()
+            if self._remaining_total() == 0:
+                return 0, False, ""
+
+        before = {k: self._progress(k) for k in ("disk", "unlim")}
+        started_kinds = []
+        for kind in ("disk", "unlim"):
+            if self._remaining(kind) <= 0:
+                continue
+            ok, msg = self._start_lane(kind, strategy)
+            if ok:
+                started_kinds.append(kind)
+            else:
+                self._log(f"   {self._lane_title(kind)}: не запущено — {msg}")
+        if not started_kinds:
+            return 0, False, ""
+
+        healthy = self._watch(started_kinds, strategy)
+        after = {k: self._progress(k) for k in ("disk", "unlim")}
+        gained = sum(max(0, after[k][0] - before[k][0]) for k in ("disk", "unlim"))
+        self.gained_round = gained
+        self._refresh_remaining()
+
+        fatal = self._fatal_reason()
+        return gained, not healthy, fatal
+
+    @staticmethod
+    def _lane_title(kind: str) -> str:
+        return "Диск" if kind == "disk" else "Безлимит"
+
+    def _watch(self, kinds: list[str], strategy: dict) -> bool:
+        """Ждёт завершения линий. False — если пришлось остановить по застою."""
+        grace = self.SCAN_GRACE_SEC if strategy.get("scan") else self.GRACE_SEC
+        started = time.time()
+        last_gain = started
+        prev = {k: self._progress(k) for k in kinds}
+        last_hb = {k: self._heartbeat_mtime(k) for k in kinds}
+        while not self._stop:
+            time.sleep(self.TICK)
+            now = time.time()
+            for kind in kinds:
+                cur = self._progress(kind)
+                if cur > prev[kind]:
+                    last_gain = now
+                prev[kind] = cur
+                hb = self._heartbeat_mtime(kind)
+                if hb > last_hb[kind]:
+                    last_gain = now
+                    last_hb[kind] = hb
+            running = [k for k in kinds if self._slot_running(k)]
+            if not running:
+                return True
+            if now - started > grace and now - last_gain > self.STALL_SEC:
+                self._log(
+                    f"   нет прогресса {int(now - last_gain)} с — останавливаю "
+                    f"линии и меняю тактику"
+                )
+                for kind in running:
+                    tm.stop(kind)
+                # Даём процессам выйти: иначе следующий круг начнётся, пока
+                # прошлый ещё держит файлы в in_progress и пишет статус.
+                end = time.time() + 8.0
+                while time.time() < end and any(
+                    self._slot_running(k) for k in running
+                ):
+                    time.sleep(0.2)
+                return False
+        return True
+
+    def _fatal_reason(self) -> str:
+        """Причина, по которой крутить дальше бессмысленно."""
+        try:
+            unlim_st = json.loads(paths.UNLIM_STATUS_FILE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            unlim_st = {}
+        err = unlim_st.get("error")
+        if err == "cookies_expired":
+            return "Сессия Яндекса истекла — обновите cookies"
+        if err == "disk_full":
+            return "Недостаточно места на диске Безлимита"
+        try:
+            disk_st = json.loads(paths.DISK_STATUS_FILE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            disk_st = {}
+        if disk_st.get("state") == "disk_full":
+            return "Недостаточно места на диске Диска"
+        if disk_st.get("state") == "disk_offline":
+            return "Диск отключён — подключите его и включите «Зверя» снова"
+        # Код 2 у main.py — токен не принят: смена тактики не поможет.
+        with tm._lock:
+            disk_task = tm._tasks.get("disk")
+            code = disk_task.proc.poll() if disk_task else None
+            tail = list(disk_task.log)[-30:] if disk_task else []
+        if code == 2:
+            return "Обычный Диск: токен не принят — получите новый токен"
+        if code not in (None, 0, 1, -15):
+            return f"Обычный Диск остановился с кодом {code}"
+        # Безлимит без статуса и с ошибкой в журнале — обычно куки/сессия.
+        if not unlim_st and any(
+            ("куки" in line.lower() or "cookies" in line.lower()
+             or "сессия" in line.lower())
+            for line in tail
+        ):
+            return "Безлимит: проверьте cookies (сессия Яндекса)"
+        return ""
+
+    def _pause(self, seconds: float) -> None:
+        end = time.time() + seconds
+        while not self._stop and time.time() < end:
+            time.sleep(0.5)
+
+    # ── основной цикл ───────────────────────────────────────────────────
+
+    def _run(self) -> None:
+        try:
+            self._log("💾 сохраняю копию баз перед работой…")
+            ok, item, err = _auto_backup("beast", ("disk", "unlim"))
+            if ok and item:
+                self._log(f"   копия баз: {item.get('id') or item.get('name') or 'готова'}")
+            elif not ok:
+                self._log(f"   копию баз сделать не удалось: {err}")
+            empty_streak = 0
+            while not self._stop:
+                self._mark_unavailable()
+                self._refresh_remaining()
+                if self._remaining_total() == 0:
+                    self._finish("done", f"Зверь: всё скачано, {self.gained} файлов")
+                    return
+                strategy = self.STRATEGIES[self.strategy_index % len(self.STRATEGIES)]
+                self.strategy = strategy["title"]
+                self.round += 1
+                self._log(f"🐾 круг {self.round}, тактика «{self.strategy}»")
+                gained, stalled, fatal = self._run_round(strategy)
+                self.gained += gained
+                if self._stop:
+                    self.state = "stopped"
+                    self.message = "Зверь остановлен"
+                    self._log("⏹ остановлено пользователем")
+                    return
+                if fatal:
+                    self._finish("failed", fatal)
+                    return
+                if self._remaining_total() == 0:
+                    self._finish("done", f"Зверь: всё скачано, {self.gained} файлов")
+                    return
+                if gained > 0:
+                    empty_streak = 0
+                    self._log(f"   +{gained} файлов — тактика работает, "
+                              f"остаюсь на ней; осталось {self._remaining_total()}")
+                    self._pause(3.0)
+                    continue
+                empty_streak += 1
+                self.strategy_index += 1
+                nxt = self.STRATEGIES[self.strategy_index % len(self.STRATEGIES)]
+                self._log(f"   новых файлов нет — следующая тактика: «{nxt['title']}»")
+                if empty_streak >= len(self.STRATEGIES):
+                    idx = min(empty_streak - len(self.STRATEGIES),
+                              len(self.EMPTY_PAUSES) - 1)
+                    pause = self.EMPTY_PAUSES[idx]
+                    self._log(f"   полный круг без файлов — пауза {int(pause / 60)} мин")
+                    self._pause(pause)
+                else:
+                    self._pause(3.0)
+            self.state = "stopped"
+            self.message = "Зверь остановлен"
+        except Exception as e:  # noqa: BLE001 — режим не должен ронять сервер
+            self.state = "failed"
+            self.message = f"Зверь: ошибка — {e}"
+            self._log(f"❌ {e}")
+        finally:
+            self.finished_at = time.time()
+
+    def _finish(self, state: str, message: str) -> None:
+        self.state = state
+        self.message = message
+        self._log(("🎉 " if state == "done" else "❌ ") + message)
+        for slot in ("disk", "unlim", "unlim_collect"):
+            try:
+                tm.stop(slot)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+beast = Beast()
+
+
 # ── Обновление программы ─────────────────────────────────────────────────────
 
 # Ключ удаления Inno Setup: {AppId}_is1. Один и тот же для system-wide
@@ -1819,6 +2398,118 @@ _SESSION_KEYS = {"disk": ("downloaded", "failed"), "unlim": ("success", "skipped
 # Повторяет ли запущенная вручную сессия сбойные файлы (нужно для остатка/таймера).
 _session_retry: dict[str, bool] = {"disk": False, "unlim": False}
 
+# Сколько секунд статус может оставаться «активным» без идущей задачи, прежде
+# чем UI перестанет показывать фантомную скорость. Процесс мог быть закрыт
+# аварийно и не успеть записать active=False.
+STALE_ACTIVE_SEC = 90.0
+
+
+def _lane_tasks_running(tasks: dict, prefix: str) -> bool:
+    return any(
+        name.startswith(prefix) and bool((info or {}).get("running"))
+        for name, info in (tasks or {}).items()
+    )
+
+
+def _mark_stale_inactive(st: dict, lane_running: bool, now: float) -> dict:
+    """Гасит «active» у файла статуса, оставшегося от аварийно закрытой задачи."""
+    if not st or not st.get("active") or lane_running:
+        return st
+    updated = float(st.get("updated_at") or 0)
+    if updated and now - updated > STALE_ACTIVE_SEC:
+        out = dict(st)
+        out["active"] = False
+        out["speed_mb"] = 0
+        out["speed_mbit"] = 0
+        return out
+    return st
+
+
+# ── Итог последней сессии после перезапуска ─────────────────────────────────
+#
+# Плашки в шапке показывают, сколько файлов скачалось за последнюю сессию.
+# После перезапуска приложения задач уже нет, и сводка строилась бы из нулей.
+# Поэтому итог пишется в logs/last_session.json и показывается до тех пор,
+# пока не начнётся новая сессия.
+
+def _load_last_sessions() -> dict:
+    try:
+        data = json.loads(paths.LAST_SESSION_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — файла может не быть
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items()
+            if k in ("disk", "unlim") and isinstance(v, dict)}
+
+
+def _save_last_sessions(data: dict) -> None:
+    try:
+        paths.LAST_SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = paths.LAST_SESSION_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, paths.LAST_SESSION_FILE)
+    except OSError:
+        pass
+
+
+def remember_sessions(session: dict) -> None:
+    """Запоминает итог живой сессии, чтобы он пережил перезапуск."""
+    data = _load_last_sessions()
+    changed = False
+    for kind in ("disk", "unlim"):
+        s = session.get(kind)
+        if not s or s.get("restored") or not s.get("started_at"):
+            continue
+        rec = {
+            "started_at": s.get("started_at"),
+            "success": 0 if s.get("preparing") else int(s.get("success") or 0),
+            "pass": int(s.get("pass") or 0),
+            "passes": int(s.get("passes") or 0),
+            "mode": s.get("mode") or "all",
+            "total": int(s.get("total") or 0),
+        }
+        if data.get(kind) != rec:
+            data[kind] = rec
+            changed = True
+    if changed:
+        _save_last_sessions(data)
+
+
+def restore_sessions(session: dict, disk_db: dict, unlim_db: dict) -> dict:
+    """Дополняет сводку итогом прошлой сессии, если текущей ещё нет."""
+    saved = _load_last_sessions()
+    for kind in ("disk", "unlim"):
+        if session.get(kind):
+            continue
+        rec = saved.get(kind)
+        if not rec or not rec.get("started_at"):
+            continue
+        db = unlim_db if kind == "unlim" else disk_db
+        failed_key = _SESSION_KEYS[kind][1]
+        out = {
+            "started_at": rec.get("started_at"),
+            "running": False,
+            "preparing": False,
+            "restored": True,
+            "success": int(rec.get("success") or 0),
+            "pass": int(rec.get("pass") or 0),
+            "passes": int(rec.get("passes") or 0),
+            "mode": str(rec.get("mode") or "all"),
+            "total": int(rec.get("total") or 0),
+        }
+        out["failed"] = int(db.get(failed_key) or 0)
+        out["waiting"] = int(db.get("waiting") or 0)
+        out["lost"] = int(db.get("lost") or 0)
+        out["remaining"] = int(db.get("pending") or 0) + int(db.get("in_progress") or 0)
+        by_status = db.get("bytes_by_status") or {}
+        out["remaining_bytes"] = sum(
+            int(by_status.get(k) or 0)
+            for k in ("pending", "in_progress")
+        )
+        session[kind] = out
+    return session
+
 
 def _status_fresh(st: dict, started_at: float | None) -> bool:
     """Статус относится к текущей задаче, а не остался от прошлой сессии."""
@@ -1937,6 +2628,20 @@ def api_status():
     tasks = tm.status()
     cycle = full_cycle.status()
 
+    # Файл статуса мог остаться «активным» после аварийного закрытия задачи.
+    # Показывать «11 МБ/с» при мёртвом процессе нельзя.
+    now = time.time()
+    download_status = _mark_stale_inactive(
+        download_status, _lane_tasks_running(tasks, "unlim"), now)
+    disk_status = _mark_stale_inactive(
+        disk_status, _lane_tasks_running(tasks, "disk"), now)
+
+    session = build_session(cycle, tasks, download_status, disk_status,
+                            disk_db, unlim_db, _session_retry)
+    # После перезапуска задач нет — показываем итог последней сессии.
+    session = restore_sessions(session, disk_db, unlim_db)
+    remember_sessions(session)
+
     return {
         "config": public_config(cfg),
         # Есть ли канал системных уведомлений (иконка в трее). В браузере
@@ -1962,10 +2667,11 @@ def api_status():
             "local": local_size(cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)),
             "summary": unlim_db_summary(),
         },
-        "session": build_session(cycle, tasks, download_status, disk_status,
-                                 disk_db, unlim_db, _session_retry),
+        "session": session,
         "ram": ram_info(),
         "full_cycle": cycle,
+        # Режим «Зверь»: кнопка в шапке запуска и журнал тактик.
+        "beast": beast.status(),
         "update": update_manager.status(),
         # Сохранённая последняя проверка: плашка в шапке должна знать о новой
         # версии сразу, не дожидаясь ответа GitHub и не создавая второго запроса.
@@ -2041,6 +2747,8 @@ class StartPayload(BaseModel):
 
 @app.post("/api/start")
 def api_start(payload: StartPayload):
+    if beast.is_running():
+        return {"ok": False, "msg": "Включён режим «Зверь» — остановите его, чтобы запускать вручную"}
     ok, msg = pipeline.start(workers=payload.workers,
                               do_disk=payload.do_disk,
                               do_unlim=payload.do_unlim)
@@ -2068,6 +2776,9 @@ class DownloadControlPayload(BaseModel):
 @app.post("/api/download/start")
 def api_download_start(payload: DownloadControlPayload):
     log_action("/api/download/start", payload)
+    if beast.is_running():
+        return {"ok": False, "mode": payload.mode,
+                "msg": "Включён режим «Зверь» — остановите его, чтобы запускать вручную"}
     cfg = get_config()
     problem = check_target_dir(
         (cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR))
@@ -2123,8 +2834,25 @@ class DownloadAllPayload(BaseModel):
 def api_download_all(payload: DownloadAllPayload):
     """Полный цикл: проверить облако, скачать новые и докачать сбойные."""
     log_action("/api/download/all", payload)
+    if beast.is_running():
+        return {"ok": False, "state": full_cycle.state,
+                "msg": "Включён режим «Зверь» — он уже качает; нажмите «зверь», чтобы остановить"}
     ok, msg = full_cycle.start(payload.workers, payload.passes, payload.sort_after)
     return {"ok": ok, "msg": msg, "state": full_cycle.state}
+
+
+@app.post("/api/beast/start")
+def api_beast_start():
+    log_action("/api/beast/start")
+    ok, msg = beast.start()
+    return {"ok": ok, "msg": msg, "beast": beast.status()}
+
+
+@app.post("/api/beast/stop")
+def api_beast_stop():
+    log_action("/api/beast/stop")
+    ok, msg = beast.stop()
+    return {"ok": ok, "msg": msg, "beast": beast.status()}
 
 
 class WatchdogPayload(BaseModel):

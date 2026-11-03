@@ -755,6 +755,18 @@ def save_preview_for_deferred(
 _thread_local = threading.local()
 
 
+def _touch_heartbeat() -> None:
+    """Отметка «данные идут» для режима «Зверь».
+
+    Статус выгрузки пишется только после целого файла: большое видео качается
+    минутами, и без этой отметки «Зверь» принял бы его за зависание.
+    """
+    try:
+        paths.UNLIM_HEARTBEAT_FILE.touch(exist_ok=True)
+    except OSError:
+        pass
+
+
 def get_thread_session(cookies: dict[str, str], use_proxy: bool = False, proxy_url: str = "") -> requests.Session:
     if not hasattr(_thread_local, "session"):
         _thread_local.session = make_session(cookies, use_proxy=use_proxy, proxy_url=proxy_url)
@@ -862,6 +874,7 @@ def download_one_file(
                         f.write(chunk)
                         bytes_downloaded += len(chunk)
                         _global_speed_meter.add(len(chunk))
+                        _touch_heartbeat()
                     if time.monotonic() > deadline:
                         raise TimeoutError("общий таймаут скачивания файла")
             tmp_path.replace(dst_path)
