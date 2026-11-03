@@ -114,7 +114,12 @@ class FileProgress:
 
     @property
     def is_big(self) -> bool:
-        return self.size is not None and self.size >= self._big_bytes
+        if self.size is not None:
+            return self.size >= self._big_bytes
+        # У Безлимита Яндекс не сообщает вес файла. Считаем его крупным, когда
+        # уже скачано больше порога: проценты и «осталось» посчитать не из чего,
+        # но показывать рост в мегабайтах всё равно полезно.
+        return self._written >= self._big_bytes
 
     def start(self) -> None:
         """Первая строка. Для мелких файлов молчит — у них будет только итог."""
@@ -170,6 +175,9 @@ class FileProgress:
             parts.append(self.host)
         if self.size and speed > 0 and self._written < self.size:
             parts.append("осталось ~" + human_span((self.size - self._written) / speed))
+        elif self.size is None:
+            # Без процентов непонятно, почему их нет: это не сбой, а Безлимит.
+            parts.append("вес неизвестен")
         return " · ".join(parts)
 
     def done(
@@ -194,8 +202,20 @@ class FileProgress:
         self._emit(" · ".join(parts))
 
     def stopped(self, reason: Optional[str] = None) -> None:
-        """Крупный файл оборвался: видно, на чём именно остановился."""
-        if not self.is_big or self._written <= 0:
+        """Крупный файл оборвался: видно, на чём именно остановился.
+
+        Если не пришло ни байта, строка «начинаю» не должна висеть в журнале
+        без объяснения: пишем, что сервер файл не отдал.
+        """
+        if not self.is_big:
+            return
+        if self._written <= 0:
+            parts = [f"⏸ {self.name}", "сервер не отдал файл"]
+            if reason:
+                parts[1] += f": {reason}"
+            if self.host:
+                parts.append(self.host)
+            self._emit(" · ".join(parts))
             return
         parts = [f"⏸ {self.name}"]
         if self.size:

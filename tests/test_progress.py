@@ -61,13 +61,43 @@ def test_small_file_prints_only_the_result_line():
     assert lines == ["✅ photo.jpg · 5,0 МБ · 0,4 с · downloader.disk.yandex.ru"]
 
 
-def test_unknown_size_never_shows_progress():
+def test_unknown_small_file_never_shows_progress():
     p, lines, clock = make("файл.zip", None)
     p.start()
     clock.tick(5)
     p.update(3 * MB, "h")
     p.done()
     assert lines == ["✅ файл.zip · 3,0 МБ · 5 с · h"]
+
+
+def test_unknown_size_shows_megabytes_once_it_grows_past_the_threshold():
+    """У Безлимита вес неизвестен, но крупное видео не должно молчать."""
+    p, lines, clock = make("video.mp4", None)
+    p.start()
+    assert lines == []                    # мелкие фото по-прежнему без шума
+
+    clock.tick(5)
+    p.update(99 * MB, "h")
+    assert lines == []                    # ещё не дотянул до порога
+
+    clock.tick(5)
+    p.update(120 * MB, "h")
+    assert lines[-1].startswith("⬇ video.mp4 · 120 МБ · ")
+    assert "12,0 МБ/с" in lines[-1]
+    assert lines[-1].endswith("· h · вес неизвестен")
+
+    clock.tick(10)
+    p.update(150 * MB, "h")
+    assert lines[-1].startswith("⬇ video.mp4 · 150 МБ · ")
+
+
+def test_unknown_size_stopped_shows_downloaded_bytes():
+    p, lines, clock = make("video.mp4", None)
+    p.start()
+    clock.tick(10)
+    p.update(120 * MB, "h")
+    p.stopped("обрыв соединения")
+    assert lines[-1] == "⏸ video.mp4 · 120 МБ · h · обрыв соединения"
 
 
 def test_name_is_the_file_name_not_the_whole_path():
@@ -148,8 +178,18 @@ def test_stopped_shows_where_big_file_stopped():
     )
 
 
-def test_stopped_is_silent_when_nothing_was_downloaded():
+def test_stopped_without_a_single_byte_says_server_did_not_send():
+    """Строка «начинаю» не должна висеть в журнале без объяснения."""
     p, lines, _ = make("video.mp4", 100 * MB)
     p.start()
+    p.stopped("HTTP 500 от сервера хранения")
+    assert lines[-1] == (
+        "⏸ video.mp4 · сервер не отдал файл: HTTP 500 от сервера хранения"
+    )
+
+
+def test_stopped_without_a_single_byte_is_silent_for_small_files():
+    p, lines, _ = make("photo.jpg", 5 * MB)
+    p.start()
     p.stopped("timeout")
-    assert lines == ["⬇ video.mp4 · 100 МБ · начинаю"]
+    assert lines == []

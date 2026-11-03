@@ -405,7 +405,7 @@
 
   /* Режим «Зверь»: маленькая квадратная кнопка рядом с «Скачать всё».
      Серо-буро-малиновая, белый шрифт, чёрная окантовка. Пока режим включён —
-     пульсирует; нажатие той же кнопки останавливает. */
+     красная, светится и подписана «стоп»; нажатие той же кнопки останавливает. */
   .beast-btn{
     flex:0 0 34px;width:34px;height:34px;padding:0;border-radius:7px;
     background:#8a4f5e;color:#fff;border:1.5px solid #111;
@@ -417,14 +417,18 @@
     align-self:stretch;
   }
   .beast-btn:hover{background:#9d5a6c;transform:translateY(-1px)}
+  /* Работающий «Зверь» — ярко-красная кнопка со свечением и надписью «стоп»:
+     видно с первого взгляда, что режим включён и как его выключить. */
   .beast-btn.on{
-    background:#b0445f;
-    box-shadow:0 0 0 0 rgba(176,68,95,.55),0 4px 14px rgba(0,0,0,.4);
-    animation:beastPulse 1.8s ease-in-out infinite;
+    background:#d92b3f;border-color:#4a0810;
+    box-shadow:0 0 8px 2px rgba(217,43,63,.7),0 4px 14px rgba(0,0,0,.4);
+    animation:beastPulse 1.4s ease-in-out infinite;
   }
   @keyframes beastPulse{
-    0%,100%{box-shadow:0 0 0 0 rgba(176,68,95,.0),0 4px 14px rgba(0,0,0,.4)}
-    50%{box-shadow:0 0 0 4px rgba(176,68,95,.45),0 4px 14px rgba(0,0,0,.4)}
+    0%,100%{background:#d92b3f;
+      box-shadow:0 0 8px 2px rgba(217,43,63,.7),0 4px 14px rgba(0,0,0,.4)}
+    50%{background:#f0455a;
+      box-shadow:0 0 16px 5px rgba(240,69,90,.9),0 4px 14px rgba(0,0,0,.4)}
   }
   .beast-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
   /* Пока «Зверь» работает, ручные кнопки пошагового режима недоступны. */
@@ -3338,6 +3342,9 @@ function renderBeast(b){
   if(!btn) return;
   const on = !!(b && b.running);
   btn.classList.toggle('on', on);
+  // Пока режим работает, кнопка красная и подписана «стоп» — понятно, что
+  // нажатие остановит, а не запустит второй раз.
+  btn.textContent = on ? 'стоп' : 'зверь';
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   btn.dataset.tip = on
     ? `Режим «Зверь» работает: круг ${b.round || 1}`
@@ -4053,18 +4060,22 @@ function renderQueueEstimate(s){
     if (done <= 0) return 0;
     return Math.max(0, (+db.bytes_done || 0) / done);
   };
-  const dAvg = avg(d), uAvg = avg(u);
-  const dBytes = dLeft * dAvg, uBytes = uLeft * uAvg;
-  const totalBytes = dBytes + uBytes;
+  // Безлимит: вес ожидающих файлов Яндекс не отдаёт (в базе 0), а средний по
+  // скачанным считает фото и занижает видео в сотни раз. Поэтому гигабайты
+  // для Безлимита не выдумываем — показываем только число файлов.
+  const dBytes = dLeft * avg(d);
+  const totalBytes = dBytes;
   // Свободное место: статус отдаёт его всегда, сторож — только когда включён.
   const freeGb = +(((s || {}).free_gb ?? (((s || {}).watchdog || {}).free_gb)) ?? NaN);
 
   const parts = [];
   if (uLeft > 0) {
-    parts.push('Безлимит ' + uLeft.toLocaleString('ru') + ' файлов' + (uAvg ? ' ≈ ' + _fmtGb(uBytes) : ''));
+    parts.push('Безлимит ' + uLeft.toLocaleString('ru') + ' ' + _pluralFiles(uLeft));
   }
   if (dLeft > 0) {
-    parts.push('Диск ' + dLeft.toLocaleString('ru') + ' файлов' + (dAvg ? ' ≈ ' + _fmtGb(dBytes) : ''));
+    const dAvg = avg(d);
+    parts.push('Диск ' + dLeft.toLocaleString('ru') + ' ' + _pluralFiles(dLeft)
+               + (dAvg ? ' ≈ ' + _fmtGb(dBytes) : ''));
   }
   const text = document.getElementById('queue-estimate-text');
   if (!text) return;

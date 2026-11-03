@@ -880,6 +880,12 @@ def download_one_file(
             # хватает даже на крупное видео (~2.5 ГБ при 6 МБ/с), но ограничивает
             # худший случай.
             deadline = time.monotonic() + max(120.0, timeout * 60.0)
+            # Иногда CDN всё же сообщает вес. Тогда проценты и «осталось»
+            # считаются как у обычного Диска; обычно — только мегабайты.
+            try:
+                total = int((getattr(resp, "headers", None) or {}).get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                total = 0
             with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):
                     if chunk:
@@ -887,7 +893,7 @@ def download_one_file(
                         bytes_downloaded += len(chunk)
                         _global_speed_meter.add(len(chunk))
                         _touch_heartbeat()
-                        file_progress.update(bytes_downloaded, host)
+                        file_progress.update(bytes_downloaded, host, total=total or None)
                     if time.monotonic() > deadline:
                         raise TimeoutError("общий таймаут скачивания файла")
             tmp_path.replace(dst_path)

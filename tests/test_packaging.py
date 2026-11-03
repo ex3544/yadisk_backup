@@ -1044,6 +1044,15 @@ def test_queue_estimate_shows_left_and_free_space():
     assert "не поместится" in html
 
 
+def test_queue_estimate_does_not_invent_unlim_bytes():
+    """35.8.7: у Безлимита вес неизвестен — «≈ 0,8 ГБ» по среднему фото врало."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index("function renderQueueEstimate(")
+    body = html[start:start + 2400]
+    assert "uBytes" not in body
+    assert "_pluralFiles(uLeft)" in body
+
+
 def test_notifications_use_the_tray_not_the_browser():
     """35.6.8: в WebView2 браузерные Notification запрещены навсегда —
     «Включить» ничего не могла сделать. Показываем системный балун из трея."""
@@ -1572,6 +1581,19 @@ def test_beast_mode_is_wired_end_to_end():
     assert "_touch_heartbeat()" in unlim
     assert "DISK_HEARTBEAT_FILE" in paths_src
     assert "UNLIM_HEARTBEAT_FILE" in paths_src
+
+
+def test_beast_button_is_red_and_says_stop_while_running():
+    """35.8.7: работающий «Зверь» — ярко-красная кнопка с надписью «стоп»."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    start = html.index("function renderBeast(b)")
+    body = html[start:start + 1400]
+    assert "btn.textContent = on ? 'стоп' : 'зверь';" in body
+
+    css = html[html.index(".beast-btn.on{"):]
+    rule = css[:css.index("}")]
+    assert "#d92b3f" in rule
+    assert "box-shadow" in rule
 
 
 def test_last_session_is_saved_and_restored_in_ui():
