@@ -162,7 +162,8 @@ def cmd_scan(cfg: dict, args: argparse.Namespace) -> int:
     try:
         for root in roots:
             print(f"Обхожу {root}...")
-            progress = tqdm(unit="file", desc=f"Найдено [{root}]", leave=False)
+            progress = tqdm(unit="file", desc=f"Найдено [{root}]", leave=False,
+                            disable=None)
 
             def on_file(path: str, size: int) -> None:
                 progress.update(1)
@@ -199,7 +200,7 @@ def cmd_scan_media(cfg: dict, args: argparse.Namespace) -> int:
     state = State(str(DB_FILE))
     client = yadisk.Client(token=cfg["token"])
 
-    progress = tqdm(unit="file", desc="Найдено медиа")
+    progress = tqdm(unit="file", desc="Найдено медиа", disable=None)
 
     def on_file(path: str, size: int) -> None:
         progress.update(1)
@@ -444,7 +445,7 @@ def cmd_verify(cfg: dict, args: argparse.Namespace) -> int:
     missing: list[str] = []
     size_mismatch: list[str] = []
 
-    bar = tqdm(rows, desc="Проверка MD5", unit="file")
+    bar = tqdm(rows, desc="Проверка MD5", unit="file", disable=None)
     for row in bar:
         remote = row["remote_path"]
         local = row["local_path"]

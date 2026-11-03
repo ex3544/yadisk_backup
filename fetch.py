@@ -204,6 +204,7 @@ def fetch_to_file(
     storage_timeout: tuple[float, float] = (10.0, 10.0),
     chunk_size: int = 1024 * 1024,
     heartbeat: Optional[Callable[[], None]] = None,
+    progress: Optional[Callable[[int, Optional[str]], None]] = None,
 ) -> FetchResult:
     """Скачивает ссылку в `dst` атомарно: временный файл → os.replace.
 
@@ -288,6 +289,10 @@ def fetch_to_file(
                     # качается, даже если он большой и статус ещё не обновился.
                     if heartbeat is not None:
                         heartbeat()
+                    # Ход скачивания в журнал: сколько уже записано и с какого
+                    # сервера. Частоту строки ограничивает сам получатель.
+                    if progress is not None:
+                        progress(written, host)
         except OSError as e:
             _remove_quiet(part)
             raise FetchFailure(classify_local_error(e), str(e), host=host) from e

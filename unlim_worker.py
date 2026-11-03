@@ -23,6 +23,7 @@ import sqlite3
 import sys
 import time
 import zipfile
+from urllib.parse import urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -31,6 +32,7 @@ import paths
 import selection
 import unlim_dates
 import unlim_schema
+from progress import FileProgress
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -259,23 +261,36 @@ def download_and_extract(s, url: str, worker_id: int, batch_idx: int) -> tuple[l
     os.makedirs(ZIP_TMP_DIR, exist_ok=True)
     os.makedirs(EXTRACT_DIR, exist_ok=True)
     zip_path = os.path.join(ZIP_TMP_DIR, f"w{worker_id}_b{batch_idx}.zip")
+    # Строки журнала: имя архива, вес, проценты, скорость и сервер, который его отдаёт.
+    host = urlparse(url).hostname if url else None
+    file_progress = FileProgress(os.path.basename(zip_path), None)
     try:
         with s.get(url, stream=True, timeout=900) as r:
             r.raise_for_status()
+            length = (getattr(r, "headers", None) or {}).get("Content-Length")
+            if length and str(length).isdigit():
+                file_progress.size = int(length)
+            file_progress.start()
             tmp = zip_path + ".part"
+            written = 0
             try:
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_content(2 * 1024 * 1024):
                         if chunk:
                             f.write(chunk)
+                            written += len(chunk)
+                            file_progress.update(written, host)
                 os.replace(tmp, zip_path)
+                file_progress.done(written, host)
             except OSError as e:
                 # disk full / permission denied
+                file_progress.stopped(f"{type(e).__name__}: {e}")
                 logging.error(f"w{worker_id} b{batch_idx} write: {e}")
                 try: os.remove(tmp)
                 except OSError: pass
                 return [], 0
     except Exception as e:
+        file_progress.stopped(f"{type(e).__name__}: {e}")
         logging.error(f"w{worker_id} b{batch_idx} download: {e}")
         return [], 0
 

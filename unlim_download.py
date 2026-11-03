@@ -244,7 +244,7 @@ def cmd_collect():
         )]
         print(f"\nЗапрашиваю файлы для {len(todo)} кластеров...")
         BATCH = 15
-        bar = tqdm(total=len(todo), unit="cluster")
+        bar = tqdm(total=len(todo), unit="cluster", disable=None)
         added_total = 0
         try:
             for i in range(0, len(todo), BATCH):

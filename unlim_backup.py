@@ -47,6 +47,7 @@ import selection
 import unlim_dates
 import unlim_schema
 from fetch import DeadHosts
+from progress import FileProgress
 from utils import check_target_dir
 
 # Принудительно отключаем IPv6 для исключения таймаутов на неработающем IPv6 (VirtualBox / NAT)
@@ -94,6 +95,13 @@ class TeeLogger:
                 self.file.flush()
             except Exception:
                 pass
+
+    def isatty(self):
+        """Строки с «\r» рисуем только в настоящем терминале."""
+        try:
+            return bool(self.orig and self.orig.isatty())
+        except Exception:
+            return False
 
     def flush(self):
         if self.orig:
@@ -858,6 +866,10 @@ def download_one_file(
     tmp_path = dst_path.with_suffix(dst_path.suffix + ".part")
     bytes_downloaded = 0
 
+    # Строки журнала: имя, вес, проценты, скорость и сервер, который отдаёт файл.
+    file_progress = FileProgress(name, item.get("size"))
+    file_progress.start()
+
     # 3. Скачивание (нулевые повторы)
     try:
         resp = s.get(download_url, stream=True, timeout=(3.0, timeout))
@@ -875,12 +887,15 @@ def download_one_file(
                         bytes_downloaded += len(chunk)
                         _global_speed_meter.add(len(chunk))
                         _touch_heartbeat()
+                        file_progress.update(bytes_downloaded, host)
                     if time.monotonic() > deadline:
                         raise TimeoutError("общий таймаут скачивания файла")
             tmp_path.replace(dst_path)
             mark_done(db_path, fid, str(dst_path), bytes_downloaded)
+            file_progress.done(bytes_downloaded, host)
             return True, bytes_downloaded, "OK"
         else:
+            file_progress.stopped(f"CDN HTTP {resp.status_code}")
             if tmp_path.exists():
                 try: tmp_path.unlink()
                 except OSError: pass
@@ -910,6 +925,7 @@ def download_one_file(
         if isinstance(e, OSError) and getattr(e, "errno", None) == errno.ENOSPC:
             DISK_FULL.set()
             return False, 0, "disk_full"
+        file_progress.stopped(f"{type(e).__name__}: {e}")
         if tmp_path.exists():
             try: tmp_path.unlink()
             except OSError: pass
@@ -1168,15 +1184,24 @@ def run_backup(
                             total_bytes=total_downloaded_bytes + batch_bytes,
                         )
 
-                    print(
-                        f"\r  Батч #{batch_idx}: [{i}/{len(items)}] {percent:5.1f}% | "
-                        f"✓ {batch_success} | ↷ {batch_skipped} пропущено | "
-                        f"🕓 {batch_deferred} ждут | "
-                        f"⚡ {cur_mb:5.1f} MB/s ({cur_mbit:6.1f} Mbps) | "
-                        f"Объём: {batch_bytes / (1024*1024):.1f} MB",
-                        end="",
-                        flush=True,
-                    )
+                    # Строка «Батч #N: …» перерисовывается через «\r» и годится
+                    # только для терминала. В Web UI stdout — конвейер, и она
+                    # склеивалась со строками журнала в одну простыню; там ход
+                    # скачивания показывают строки FileProgress.
+                    try:
+                        tty = sys.stdout.isatty()
+                    except Exception:
+                        tty = False
+                    if tty:
+                        print(
+                            f"\r  Батч #{batch_idx}: [{i}/{len(items)}] {percent:5.1f}% | "
+                            f"✓ {batch_success} | ↷ {batch_skipped} пропущено | "
+                            f"🕓 {batch_deferred} ждут | "
+                            f"⚡ {cur_mb:5.1f} MB/s ({cur_mbit:6.1f} Mbps) | "
+                            f"Объём: {batch_bytes / (1024*1024):.1f} MB",
+                            end="",
+                            flush=True,
+                        )
 
             batch_dur = max(0.01, time.perf_counter() - batch_start_time)
             avg_mb = (batch_bytes / (1024 * 1024)) / batch_dur

@@ -66,6 +66,7 @@ from tqdm import tqdm
 import paths
 import previews as preview_mod
 from fetch import DeadHosts, FetchFailure, fetch_to_file
+from progress import FileProgress
 from state import State, is_deferred_error
 from utils import (
     avoid_case_collision,
@@ -447,6 +448,8 @@ def _transfer(
     local_path: str,
     dead_hosts: Optional[DeadHosts],
     http_session: Optional[requests.Session],
+    *,
+    progress: Optional[Callable[[int, Optional[str]], None]] = None,
 ) -> Optional[str]:
     """Скачивание одного файла: ссылка → прямой запрос к серверу хранения.
 
@@ -477,6 +480,7 @@ def _transfer(
                 dead_hosts=dead_hosts,
                 session=http_session,
                 heartbeat=_touch_heartbeat,
+                progress=progress,
             )
         except FetchFailure as e:
             if e.kind == "server_50x" and attempt < SERVER_5XX_RETRIES:
@@ -549,10 +553,18 @@ def _download_one(
     # пишется во временный .part и подменяет его атомарно. Если диск отключится
     # на середине, прежняя копия останется на месте.
 
+    # Строки журнала о ходе скачивания: имя, вес, проценты, скорость и сервер.
+    file_progress = FileProgress(job.remote_path, job.size)
+    file_progress.start()
+
     try:
-        _transfer(client, job, local_path, dead_hosts, http_session)
+        host = _transfer(
+            client, job, local_path, dead_hosts, http_session,
+            progress=file_progress.update,
+        )
     except FetchFailure as e:
         dur = int((time.monotonic() - start) * 1000)
+        file_progress.stopped(str(e))
         _cleanup_failed_file(local_path)
         if e.is_deferred:
             # Яндекс не отдаёт файл: он остаётся в очереди и попыток не тратит.
@@ -616,6 +628,7 @@ def _download_one(
 
     bytes_written = file_size_safe(local_path) or 0
     dur = int((time.monotonic() - start) * 1000)
+    file_progress.done(bytes_written, host=host)
     return DownloadResult(
         job=job,
         status="downloaded",
@@ -837,7 +850,12 @@ def download_all(
     deferred_jobs = {j.remote_path for j in jobs_list if j.was_deferred}
     deferred_ok = 0
 
-    file_bar = tqdm(total=len(jobs_list), unit="file", desc="Файлы", position=0)
+    # disable=None — полосы рисуются только в настоящем терминале. В Web UI
+    # stdout задачи — конвейер, и tqdm-фрагменты склеивались со строками журнала
+    # («Файлы: 89%|…|2026-11-03 | WARNING | …»). Ход скачивания теперь
+    # показывают строки FileProgress.
+    file_bar = tqdm(total=len(jobs_list), unit="file", desc="Файлы", position=0,
+                    disable=None)
     byte_bar = tqdm(
         total=total_bytes,
         unit="B",
@@ -845,6 +863,7 @@ def download_all(
         unit_divisor=1024,
         desc="Байты",
         position=1,
+        disable=None,
     )
 
     def worker(job: DownloadJob) -> DownloadResult:

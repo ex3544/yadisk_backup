@@ -59,12 +59,23 @@ def main() -> None:
         running = bool(t.get("running"))
         for line in reversed(t.get("log_tail", [])):
             clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
+            # Полосы tqdm («1.5MB/s») больше не рисуются в конвейер, зато
+            # появились строки «⬇ файл · 12% · … · 4,1 МБ/с · сервер · осталось ~43 мин».
             m = re.search(r"(\d+(?:\.\d+)?)\s*([kMG]B/s)", clean)
-            if m:
+            if m and speed is None:
                 speed = m.group(1) + m.group(2)
-            m2 = re.search(r"<([\d:]+),", clean)
-            if m2 and eta is None:
-                eta = m2.group(1)
+            if speed is None:
+                mr = re.search(r"(\d+(?:[.,]\d+)?)\s*(Б|КБ|МБ|ГБ)/с", clean)
+                if mr:
+                    speed = mr.group(1).replace(",", ".") + " " + mr.group(2) + "/с"
+            if eta is None:
+                m2 = re.search(r"<([\d:]+),", clean)
+                if m2:
+                    eta = m2.group(1)
+                else:
+                    m3 = re.search(r"осталось ~([^·]+)", clean)
+                    if m3:
+                        eta = m3.group(1).strip()
             if speed:
                 break
     except Exception:

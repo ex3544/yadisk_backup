@@ -287,3 +287,22 @@ def test_heartbeat_is_not_called_on_failed_download(tmp_path):
     with pytest.raises(FetchFailure):
         fetch_to_file("https://h/f", dst, session=sess, heartbeat=beats.append)
     assert beats == []
+
+
+# ── ход скачивания для журнала ──────────────────────────────────────────────
+
+
+def test_progress_reports_written_bytes_and_storage_host(tmp_path):
+    """Журнал видит, сколько записано и с какого сервера идёт файл."""
+    dst = str(tmp_path / "f.bin")
+    seen = []
+    sess = _Session(
+        _Resp(302, location="https://storage.yandex.net/f"),
+        _Resp(200, body=b"x" * 2500),
+    )
+    fetch_to_file(
+        "https://cloud-api.yandex.net/x", dst, session=sess,
+        chunk_size=1000, progress=lambda written, host: seen.append((written, host)),
+    )
+    assert [w for w, _ in seen] == [1000, 2000, 2500]
+    assert {h for _, h in seen} == {"storage.yandex.net"}
