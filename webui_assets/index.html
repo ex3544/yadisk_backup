@@ -1447,7 +1447,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <!-- Плашка ожидания живёт внутри карточки запуска: отдельный блок над
            заголовком занимал слишком много места. -->
       <div id="waiting-banner" class="tipnode tip-up" role="status"
-        data-tip="Это не сбойные файлы: сервер хранения Яндекса их сейчас не отдаёт. Они остались в очереди и докачаются сами. Нажмите «Попробовать» — запросим прямо сейчас, включая сгоревшие."
+        data-tip="Это не сбойные файлы: сервер хранения Яндекса их сейчас не отдаёт. Они остались в очереди и докачаются сами. Нажмите «Попробовать» — запросим прямо сейчас, включая отложенные."
         style="display:none; align-items:center; gap:8px; background:rgba(255,159,10,.10); border:0.5px solid rgba(255,159,10,.40); color:var(--text); padding:4px 8px 4px 10px; border-radius:9px; margin-bottom:10px; font-size:12.5px;">
         <span style="opacity:.85">🕓</span>
         <span><strong id="waiting-banner-count">0</strong> ждут Яндекса<span id="waiting-banner-host" style="color:var(--text-secondary)"></span><span id="waiting-banner-lost" style="color:var(--text-secondary)"></span></span>
@@ -1467,13 +1467,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
             Полный цикл: проверка облака на новые файлы → скачивание новых → проходы
             по сбойным (ошибки Диска и пропущенные Безлимита).
           </div>
-          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;cursor:pointer">
-            <input type="checkbox" id="all-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
-            Разложить фото/видео по датам после скачивания
-          </label>
-          <div class="btn-hint" style="text-align:left;margin-top:4px">
-            Может занять много времени. Можно не включать: отсортируйте позже на вкладке «Организация», когда всё скачается.
-          </div>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px">
             <span style="color:var(--text-secondary)">Проходов по сбойным:</span>
             <input type="number" id="all-runs" value="3" min="1" max="10" style="width:70px;padding:5px 8px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);text-align:center">
@@ -1486,7 +1479,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
               <svg class="ico"><use href="#i-play"/></svg>Скачать всё
             </button>
             <button id="beast-btn" class="beast-btn tipnode tip-right" onclick="toggleBeast()"
-              data-tip="Режим «Зверь». Крутит выгрузку сам: возвращает сгоревшие, обнуляет счётчики, меняет число потоков, таймауты и порядок файлов. Пока файлы качаются — ничего не трогает; как только перестали — сразу меняет тактику и пробует снова. Остановится только тогда, когда все файлы Диска и Безлимита окажутся на компьютере. Нажмите, чтобы включить; нажмите ещё раз, чтобы остановить.">зверь</button>
+              data-tip="Режим «Зверь». Крутит выгрузку сам: возвращает отложенные, обнуляет счётчики, меняет число потоков, таймауты и порядок файлов. Пока файлы качаются — ничего не трогает; как только перестали — сразу меняет тактику и пробует снова. Остановится только тогда, когда все файлы Диска и Безлимита окажутся на компьютере. Нажмите, чтобы включить; нажмите ещё раз, чтобы остановить.">зверь</button>
           </div>
           <button id="ctrl-all-stop" class="big-btn danger" onclick="stopCustomDownload()" style="display:none">
             <svg class="ico"><use href="#i-stop"/></svg>Остановить
@@ -1543,13 +1536,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
           <option value="from_end" selected>С конца</option>
           <option value="from_start">С начала</option>
         </select>
-      </div>
-      <label style="grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;margin-top:2px">
-        <input type="checkbox" id="unlim-sort-after" style="width:16px;height:16px;accent-color:var(--accent)">
-        Разложить фото/видео по датам сразу после скачивания (Фото/год/месяц, без поиска дубликатов)
-      </label>
-      <div class="btn-hint" style="grid-column:1/-1;text-align:left;margin-top:2px">
-        Может занять много времени. Можно не включать: отсортируйте позже на вкладке «Организация», когда всё скачается.
       </div>
     </div>
 
@@ -2380,11 +2366,11 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="card" id="reset-queue-card">
     <div class="card-title">♻ Сброс очереди</div>
-    <div class="card-sub">Возвращает файлы из «ждут Яндекса», «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
+    <div class="card-sub">Возвращает файлы из «отложенных», «ждут Яндекса», «ошибочных», «пропущенных» и «зависших» обратно в очередь. Меняются только статусы в базе — скачанные файлы не удаляются. Пока идёт выгрузка, сброс недоступен.</div>
     <div class="reset-grid">
       <button class="reset-btn tipnode" onclick="resetStatus('lost')"
-              data-tip="Файлы, которые Яндекс не отдал несколько проходов подряд (сервер отвечал ошибкой). Программа попробует скачать их снова — у каждого будет три свежие попытки. Ничего не удаляется.">
-        <span>Ждут Яндекса</span><span class="reset-count" id="reset-lost">0</span>
+              data-tip="Отложенные сервером: Яндекс отвечал 500 несколько проходов подряд или закрыл доступ (403). Программа попробует скачать их снова — у каждого будет три свежие попытки. Ничего не удаляется.">
+        <span>Отложенные сервером</span><span class="reset-count" id="reset-lost">0</span>
       </button>
       <button class="reset-btn tipnode" onclick="resetStatus('disk_failed')"
               data-tip="Файлы Диска с обычными ошибками скачивания (нет места, оборвался диск). Снова встанут в очередь. Уже скачанные файлы не меняются.">
@@ -3340,7 +3326,7 @@ function toggleModeOpts(){
   updateDbStatusBanner(window._lastStatus);
 }
 
-const BEAST_TIP = 'Режим «Зверь». Крутит выгрузку сам: возвращает сгоревшие, '
+const BEAST_TIP = 'Режим «Зверь». Крутит выгрузку сам: возвращает отложенные, '
   + 'обнуляет счётчики, меняет число потоков, таймауты и порядок файлов. '
   + 'Пока файлы качаются — ничего не трогает; как только перестали — сразу '
   + 'меняет тактику и пробует снова. Остановится только тогда, когда все файлы '
@@ -3379,7 +3365,6 @@ async function toggleBeast(){
 }
 
 async function startDownloadAll(){
-  const sort_after = document.getElementById('all-sort-after').checked;
   const workers = parseInt(document.getElementById('ctrl-workers').value, 10) || 10;
   // Сколько проходов задано, столько и выполнится: сервер не останавливает
   // цикл досрочно. Верхняя граница — 10.
@@ -3388,7 +3373,7 @@ async function startDownloadAll(){
     const r = await fetch('/api/download/all', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ workers: workers, passes: passes, sort_after: sort_after })
+      body: JSON.stringify({ workers: workers, passes: passes })
     });
     const d = await r.json();
     if(d.ok){
@@ -3411,7 +3396,6 @@ async function startCustomDownload(){
   const batch_size = parseInt(document.getElementById('ctrl-batch-size').value, 10) || 1000;
   const batches = parseInt(document.getElementById('ctrl-batches').value, 10) || 0;
   const timeout = parseFloat(document.getElementById('ctrl-timeout').value) || 7.0;
-  const sort_after = document.getElementById('unlim-sort-after').checked;
 
   const payload = {
     mode: mode,
@@ -3421,8 +3405,7 @@ async function startCustomDownload(){
     workers: workers,
     batch_size: batch_size,
     batches: batches,
-    timeout: timeout,
-    sort_after: sort_after
+    timeout: timeout
   };
 
   try {
@@ -4009,12 +3992,12 @@ function waitingTotal(s){
   return (+d.waiting || 0) + (+u.waiting || 0);
 }
 
-// «Сгоревшие»: Яндекс отвечал 500 на эти файлы несколько проходов подряд.
+// «Отложенные сервером»: 500 несколько проходов подряд (lost) или 403 (denied).
 // Они уже не в очереди, но «Попробовать» вернёт их и запросит заново.
 function lostTotal(s){
   const d = ((s || {}).disk || {}).db || {};
   const u = ((s || {}).unlim || {}).db || {};
-  return (+d.lost || 0) + (+u.lost || 0);
+  return (+d.lost || 0) + (+u.lost || 0) + (+d.denied || 0) + (+u.denied || 0);
 }
 
 function _fmtGb(bytes){
@@ -4036,7 +4019,7 @@ function _pluralFiles(n){
 }
 
 // «Не получено» для плашек: сколько файлов ещё не скачано, включая
-// зависшие, сбойные, сгоревшие и ждущие Яндекса. У Безлимита в базе нет
+// зависшие, сбойные, отложенные и ждущие Яндекса. У Безлимита в базе нет
 // размеров нескачанных файлов — там вес оценочный (по среднему размеру
 // уже скачанного), поэтому «≈».
 function renderLeftLine(el, count, bytes, approx){
@@ -4105,7 +4088,7 @@ async function retryWaiting(){
   const lost = lostTotal(s);
   const total = diskW + unlimW + lost;
   if (!total) return;
-  // Сгоревшие файлы вышли из очереди — возвращаем их по явному клику.
+  // Отложенные файлы вышли из очереди — возвращаем их по явному клику.
   if (lost > 0) {
     try {
       const r = await fetch('/api/reset', {
@@ -4114,26 +4097,28 @@ async function retryWaiting(){
         body: JSON.stringify({ what: 'lost' })
       });
       const d = await r.json();
-      if (!d.ok) toast('Сгоревшие: ' + (d.msg || 'не удалось вернуть в очередь'), 'err');
+      if (!d.ok) toast('Отложенные: ' + (d.msg || 'не удалось вернуть в очередь'), 'err');
     } catch (e) {
       toast('Нет связи с программой: ' + e.message, 'err');
     }
   }
   // Запускаем обе линии, у которых есть ожидающие: раньше выбиралась только
   // та, где отложенных больше, и вторая линия молча оставалась стоять.
-  const diskL = +((((s.disk || {}).db) || {}).lost || 0);
-  const unlimL = +((((s.unlim || {}).db) || {}).lost || 0);
+  const diskL = +((((s.disk || {}).db) || {}).lost || 0)
+    + +((((s.disk || {}).db) || {}).denied || 0);
+  const unlimL = +((((s.unlim || {}).db) || {}).lost || 0)
+    + +((((s.unlim || {}).db) || {}).denied || 0);
   const targets = [];
   if (unlimW + unlimL > 0) targets.push({ name: 'Безлимит', payload: {
     mode: 'unlim', media: 'all', target: 'pending', from_end: false, workers: 10,
-    batch_size: 1000, batches: 0, timeout: 7.0, sort_after: false } });
+    batch_size: 1000, batches: 0, timeout: 7.0 } });
   if (diskW + diskL > 0) targets.push({ name: 'Диск', payload: { mode: 'disk' } });
   const where = targets.length > 1 ? 'обе линии (Диск и Безлимит)' : targets[0].name;
   const sure = await askConfirm({
     title: 'Попробовать сейчас?',
     text: `Программа заново запросит ${total.toLocaleString('ru')} файлов, которые ждут `
       + 'ответа серверов Яндекса'
-      + (lost > 0 ? `, включая ${lost.toLocaleString('ru')} сгоревших` : '')
+      + (lost > 0 ? `, включая ${lost.toLocaleString('ru')} отложенных` : '')
       + '. Если серверы всё ещё молчат, файлы останутся '
       + 'в очереди — ничего не потеряется. Запустится: ' + where + '.',
     ok: 'Попробовать сейчас'
@@ -4182,7 +4167,7 @@ function syncLivePills(){
 
 // ── Итог запуска числами ──
 // Одни и те же цифры, что в плашках, но рядом с журналом: «скачано /
-// пропущено / сбойные / ждут Яндекса / сгорело». Считаются по базе и по
+// пропущено / сбойные / ждут Яндекса / отложено». Считаются по базе и по
 // файлу статуса, а не по строкам журнала — поэтому не врут после остановки.
 function runNumbers(kind, s){
   const db = ((kind === 'disk' ? s.disk : s.unlim) || {}).db || {};
@@ -4195,7 +4180,8 @@ function runNumbers(kind, s){
     skipped: +st.skipped || 0,
     failed: ses ? (+ses.failed || 0) : (+db[failedKey] || 0),
     waiting: ses ? (+ses.waiting || 0) : (+db.waiting || 0),
-    lost: ses ? (+ses.lost || 0) : (+db.lost || 0),
+    // «Отложено» — и 500 (lost), и 403 (denied): для счётчика это одно.
+    lost: (ses ? (+ses.lost || 0) : (+db.lost || 0)) + (+db.denied || 0),
     mode: (ses && ses.mode) || st.mode || 'all',
     total: (ses && +ses.total) || +st.total_files || 0,
     active: !!st.active,
@@ -4237,19 +4223,19 @@ function renderRunSummary(s){
     if(n.skipped) items.push(_runItem('', `⏭ пропущено ${ru(n.skipped)}`));
     if(n.failed) items.push(_runItem('warn', `⚠ сбойные ${ru(n.failed)}`));
     if(n.waiting) items.push(_runItem('wait', `🕓 ждут Яндекса ${ru(n.waiting)}`));
-    if(n.lost) items.push(_runItem('bad', `🔥 сгорело ${ru(n.lost)}`));
+    if(n.lost) items.push(_runItem('bad', `⏳ отложено ${ru(n.lost)}`));
   });
   setSafeHTML(box, items.join(''));
   box.style.display = 'flex';
 }
 
-// Сколько ещё не получено: новые + зависшие + сбойные + сгоревшие. Раньше
+// Сколько ещё не получено: новые + зависшие + сбойные + отложенные. Раньше
 // здесь были только очередь и сбойные, и подсказка врала: 174 не полученных
 // файла выглядели как «всё скачано». Размеров нескачанных у Безлимита в базе
 // нет — тогда средний размер уже скачанного, поэтому «≈».
 function queueLeft(db, kind){
   const failedKey = kind === 'unlim' ? 'skipped' : 'failed';
-  const keys = ['pending', 'in_progress', failedKey, 'lost'];
+  const keys = ['pending', 'in_progress', failedKey, 'lost', 'denied'];
   const by = (db||{}).bytes_by_status || {};
   let count = 0, bytes = 0;
   keys.forEach(k => {
@@ -4289,7 +4275,7 @@ function renderSessionPill(id, textId, d, label, kind, db){
       ? `Сессия ещё не запускалась. Не получено ${label}: `
         + `${left.count.toLocaleString('ru')} ${_pluralFiles(left.count)}`
         + (left.bytes ? ` (${left.estimated ? '≈ ' : ''}${human(left.bytes)})` : '')
-        + '. Это новые, зависшие, сбойные и сгоревшие вместе. '
+        + '. Это новые, зависшие, сбойные и отложенные вместе. '
         + 'Нажмите — откроет папку выгрузки.'
       : `${label}: сессия ещё не запускалась, всё скачано. `
         + 'Нажмите — откроет папку выгрузки.';
@@ -4473,19 +4459,19 @@ function closeCycleSummary(){
 }
 
 async function applyWatchdogThreshold(){
-  // У включённого сторожа новый порог применяется сразу: сервер перечитывает
-  // его на каждом круге проверки. Раньше выбор молча возвращался назад.
+  // Порог сохраняется сразу, даже если сторож выключен: иначе выбор молча
+  // терялся и после перезапуска возвращался старый. У включённого сторожа
+  // сервер применяет новое значение на следующем круге проверки.
   const st = window._lastStatus && window._lastStatus.watchdog;
-  if(!st || !st.running) return;
   const threshold = parseFloat(document.getElementById('watchdog-threshold').value) || 20;
-  if(Number(st.threshold_gb) === threshold) return;
+  if(st && Number(st.threshold_gb) === threshold) return;
   try{
-    const r = await fetch('/api/watchdog/start', {
+    const r = await fetch('/api/watchdog/threshold', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({threshold_gb: threshold})
     });
     const d = await r.json();
-    toast(d.msg || 'Порог изменён', d.ok ? 'ok' : 'err');
+    toast(d.msg || 'Порог сохранён', d.ok ? 'ok' : 'err');
   }catch(e){
     toast('Нет связи с программой: ' + e.message, 'err');
   }
@@ -4887,7 +4873,7 @@ function _sessionSummaryText(s){
     if(+st.skipped) bits.push(`пропущено ${st.skipped}`);
     bits.push(`сбойных ${v.failed || 0}`);
     if(+v.waiting) bits.push(`ждут Яндекса ${v.waiting}`);
-    if(+v.lost) bits.push(`сгорело ${v.lost}`);
+    if(+v.lost) bits.push(`отложено ${v.lost}`);
     parts.push(`${name}: ${bits.join(', ')}`);
   });
   return parts.join(' · ');
@@ -4956,13 +4942,15 @@ function renderWatchdog(w){
     btn.textContent = 'Выключить';
     btn.classList.add('danger');
     btn.classList.remove('ghost');
-    const sel = document.getElementById('watchdog-threshold');
-    if(sel) sel.value = String(w.threshold_gb);
   } else {
     btn.textContent = 'Включить';
     btn.classList.remove('danger');
     btn.classList.add('ghost');
   }
+  // Порог показываем всегда, в том числе у выключенного сторожа: он сохранён
+  // в настройках и применится при включении.
+  const sel = document.getElementById('watchdog-threshold');
+  if(sel && document.activeElement !== sel) sel.value = String(w.threshold_gb);
   let txt = w.free_gb != null ? `Свободно ${w.free_gb} ГБ` : 'свободное место неизвестно';
   let cls = 'badge';
   if(w.state === 'triggered'){
@@ -5005,9 +4993,13 @@ function renderResetCounts(s){
     s && s.unlim && s.unlim.db ? s.unlim.db.in_progress : 0);
   // С 35.6.3 сбои сервера Яндекса уходят в «lost», а не в failed/skipped —
   // поэтому раньше три верхние кнопки показывали нули, хотя ждать было чего.
+  // С 35.8.5 сюда же входят файлы с 403 (denied): они не удалены навсегда,
+  // но автоматически не повторяются — только этой кнопкой.
   const lost = count('reset-lost',
     ((s && s.disk && s.disk.db ? s.disk.db.lost : 0) || 0)
-    + ((s && s.unlim && s.unlim.db ? s.unlim.db.lost : 0) || 0));
+    + ((s && s.unlim && s.unlim.db ? s.unlim.db.lost : 0) || 0)
+    + ((s && s.disk && s.disk.db ? s.disk.db.denied : 0) || 0)
+    + ((s && s.unlim && s.unlim.db ? s.unlim.db.denied : 0) || 0));
 
   // Кнопка без работы — ловушка: нажимаешь, а сбрасывать нечего. Пока идёт
   // выгрузка, сброс запрещён и на сервере, поэтому гасим заранее.
@@ -5166,7 +5158,7 @@ async function refresh(){
       const waitLost = document.getElementById('waiting-banner-lost');
       if (waitLost) {
         setText(waitLost, lostNow
-          ? ' · 🔥 ' + lostNow.toLocaleString('ru') + ' сгорели'
+          ? ' · ⏳ ' + lostNow.toLocaleString('ru') + ' отложены'
           : '');
       }
       // Имя молчащего сервера — чтобы было видно, чей это сбой. Если линии
@@ -6646,7 +6638,7 @@ function renderCloudAudit(a){
   setCount('audit-changed', changed);
   setCount('audit-gone', gone);
 
-  // Разбивка по базам: «сгорело» и «ждут Яндекса» — это статусы базы,
+  // Разбивка по базам: «отложено» и «ждут Яндекса» — это статусы базы,
   // а не итог сверки. Без неё цифры в карточке не сходились с «Главной».
   const bases = document.getElementById('audit-bases');
   if(bases){
@@ -6659,7 +6651,7 @@ function renderCloudAudit(a){
         const label = key === 'disk' ? 'Диск' : 'Безлимит';
         const fmt = n => (+n || 0).toLocaleString('ru');
         const bits = [`скачано ${fmt(b.downloaded)}`];
-        if(+b.lost) bits.push(`сгорело ${fmt(b.lost)}`);
+        if(+b.lost) bits.push(`отложено ${fmt(b.lost)}`);
         if(+b.waiting) bits.push(`ждут Яндекса ${fmt(b.waiting)}`);
         const queued = (+b.pending || 0) - (+b.waiting || 0);
         if(queued > 0) bits.push(`в очереди ${fmt(queued)}`);

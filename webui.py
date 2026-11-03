@@ -598,7 +598,6 @@ class FullCycle:
         self.finished_at: Optional[float] = None
         self.passes: int = 3
         self.workers: int = 10
-        self.sort_after: bool = False
         self.log: deque[str] = deque(maxlen=600)
         self.lanes: dict[str, dict] = {
             "disk": self._empty_lane(),
@@ -628,8 +627,7 @@ class FullCycle:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, workers: int = 10, passes: int = 3,
-              sort_after: bool = False) -> tuple[bool, str]:
+    def start(self, workers: int = 10, passes: int = 3) -> tuple[bool, str]:
         with self._lock:
             if self.is_running():
                 return False, "Полный цикл уже идёт"
@@ -648,7 +646,6 @@ class FullCycle:
             self.finished_at = None
             self.passes = max(1, min(int(passes or 3), self.MAX_PASSES))
             self.workers = max(1, min(int(workers or 10), 24))
-            self.sort_after = bool(sort_after)
             self.log.clear()
             self.lanes = {"disk": self._empty_lane(),
                           "unlim": self._empty_lane()}
@@ -939,33 +936,7 @@ class FullCycle:
             if p < self.passes:
                 self._pause(self.PAUSE_AFTER_PASS)
 
-        if self.sort_after and not self._stop:
-            self._sort_unlim()
         lane["state"] = "готово"
-
-    def _sort_unlim(self):
-        cfg = get_config()
-        out_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
-        lane = self.lanes["unlim"]
-        lane["state"] = "сортировка"
-        self._update_step()
-        self._log("🗂 Раскладываю скачанное по датам…")
-        ok, msg = tm.start("organize", "organize.py", [
-            "--input", out_dir,
-            "--action", "move",
-            "--scheme", "type-year-month",
-            "--quick",
-            "--report-file", str(paths.ORGANIZE_REPORT_FILE),
-            "--plan-file", str(paths.ORGANIZE_PLAN_FILE),
-            "--db", str(UNLIM_DB_FILE),
-            "--table", "unlim_files",
-        ])
-        if not ok:
-            self._log(f"⚠ сортировка не запущена: {msg}")
-            return
-        self._owned_slots.add("organize")
-        code = self._wait_task("organize")
-        self._log(f"   сортировка завершена (код {code})")
 
     def status(self) -> dict:
         elapsed = None
@@ -991,13 +962,13 @@ full_cycle = FullCycle()
 
 # ── Режим «Зверь» ────────────────────────────────────────────────────────────
 #
-# Одна кнопка вместо ручного «Скачать сгоревшие» → «Скачать всё». Пока файлы
+# Одна кнопка вместо ручного «Скачать всё». Пока файлы
 # качаются, режим ничего не трогает. Как только прогресс встал (нет новых
-# файлов и нет байт 90 секунд), он меняет тактику: возвращает сгоревшие,
+# файлов и нет байт 90 секунд), он меняет тактику: возвращает отложенные,
 # обнуляет счётчики, меняет число потоков/таймаут/порядок. Так до тех пор,
 # пока в базах не останется ни одного нескачанного файла.
 #
-# Почему это работает: сгоревший файл после трёх ответов 5xx ждёт 30 минут, а
+# Почему это работает: отложенный файл после трёх ответов 5xx ждёт 30 минут, а
 # автовозврат не обнуляет `server_fails` — первый же новый 500 снова сжигает
 # файл. «Попробовать» обнуляет счётчики, поэтому ручное чередование кнопок и
 # давало +15…35 файлов. Здесь то же самое делает каждая смена тактики.
@@ -1228,38 +1199,52 @@ class Beast:
             pass
 
     def _mark_unavailable(self) -> None:
-        """Помечает «недоступен» файл, который точно не появится.
+        """Снимает с очереди файлы, которые Яндекс не отдаст.
 
-        404/403 после трёх попыток — файл удалён из облака или закрыт правами.
-        Без этого «Зверь» крутил бы его вечно.
+        404/410 — файла в облаке нет: статус deleted, скан его не оживит.
+        403 — доступ закрыт, но это может быть временным. Такой файл получает
+        статус denied: «Зверь» его не ждёт и сам не повторяет, зато вручную
+        его можно вернуть кнопкой «Отложенные сервером».
         """
-        total = 0
+        deleted = denied = 0
         jobs = (
-            (DB_FILE, "files", "status='failed' AND (error LIKE '%PathNotFound%' "
-                              "OR error LIKE '%404%' OR error LIKE '%403%')"),
-            (UNLIM_DB_FILE, "unlim_files",
-             "status='skipped' AND (error LIKE '%404%' OR error LIKE '%403%' "
-             "OR error LIKE '%Ссылка не найдена%')"),
+            (DB_FILE, "files", (
+                ("status='failed' AND (error LIKE '%PathNotFound%' "
+                 "OR error LIKE '%404%' OR error LIKE '%410%')", "deleted"),
+                ("status='failed' AND error LIKE '%403%'", "denied"),
+            )),
+            (UNLIM_DB_FILE, "unlim_files", (
+                ("status IN ('skipped','failed') AND (error LIKE '%404%' "
+                 "OR error LIKE '%410%' "
+                 "OR error LIKE '%Ссылка не найдена%')", "deleted"),
+                ("status IN ('skipped','failed') AND error LIKE '%403%'", "denied"),
+            )),
         )
-        for db_file, table, cond in jobs:
+        for db_file, table, rules in jobs:
             if not Path(db_file).exists():
                 continue
             try:
                 con = sqlite3.connect(str(db_file), timeout=30)
                 try:
                     with con:
-                        n = con.execute(
-                            f"UPDATE {table} SET status='deleted' "
-                            f"WHERE {cond} AND COALESCE(attempts, 0) >= 3"
-                        ).rowcount
-                        total += n
+                        for cond, status in rules:
+                            n = con.execute(
+                                f"UPDATE {table} SET status='{status}' "
+                                f"WHERE {cond} AND COALESCE(attempts, 0) >= 3"
+                            ).rowcount
+                            if status == "deleted":
+                                deleted += n
+                            else:
+                                denied += n
                 finally:
                     con.close()
             except sqlite3.Error:
                 pass
-        if total:
-            self._log(f"   {total} файлов недоступны (удалены из облака или нет прав) — "
-                      f"больше не считаю их остатком")
+        if deleted:
+            self._log(f"   {deleted} файлов нет в облаке (404) — больше не считаю их остатком")
+        if denied:
+            self._log(f"   {denied} файлов ответили 403 (нет доступа) — «Зверь» их "
+                      f"не ждёт; вернуть вручную можно в «Сброс очереди»")
 
     def _reset_lost(self) -> int:
         """Возвращает всё нескачанное в очередь и обнуляет счётчики 5xx."""
@@ -1368,7 +1353,7 @@ class Beast:
         Возвращает (сколько скачано, была ли остановка по застою, фатальная
         ошибка или пустая строка).
         """
-        self._log("   возвращаю сгоревшие и обнуляю счётчики…")
+        self._log("   возвращаю отложенные и обнуляю счётчики…")
         returned = self._reset_lost()
         if returned:
             self._log(f"   в очередь возвращено: {returned}")
@@ -2020,6 +2005,16 @@ class DiskWatchdog:
             self._thread.start()
             return True, f"Сторож включён (порог {self.threshold_gb:g} ГБ)"
 
+    def set_threshold(self, threshold_gb: float) -> tuple[bool, str]:
+        """Запоминает порог даже у выключенного сторожа.
+
+        Настройка должна сохраняться сразу: человек выбирает 10 ГБ, выключает
+        сторожа, а при следующем запуске видит снова 20 — так было до 35.8.5.
+        """
+        with self._lock:
+            self.threshold_gb = max(1.0, float(threshold_gb))
+        return True, f"Порог сторожа: {self.threshold_gb:g} ГБ"
+
     def stop(self) -> tuple[bool, str]:
         if not self.is_running():
             self.state = "idle"
@@ -2089,7 +2084,7 @@ def db_stats(db_file: Path, table: str = "files",
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-                "lost": 0, "deleted": 0,
+                "lost": 0, "denied": 0, "deleted": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
@@ -2097,7 +2092,7 @@ def db_stats(db_file: Path, table: str = "files",
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-               "lost": 0, "deleted": 0,
+               "lost": 0, "denied": 0, "deleted": 0,
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
@@ -2576,7 +2571,7 @@ def build_session(fc: dict, tasks: dict, unlim_st: dict, disk_st: dict,
             out[kind] = None
             continue
         session["failed"] = int(db.get(failed_key) or 0)
-        # «Ждут Яндекса» и «сгоревшие» — по базе, как и сбойные: каждый файл
+        # «Ждут Яндекса» и «отложенные» — по базе, как и сбойные: каждый файл
         # считается один раз, цифра уменьшается, когда файл докачался.
         session["waiting"] = int(db.get("waiting") or 0)
         session["lost"] = int(db.get("lost") or 0)
@@ -2722,8 +2717,13 @@ def start_background_services() -> None:
     # выключил, в .env лежит WATCHDOG=0 — тогда не навязываемся.
     try:
         cfg = get_config()
+        # Порог помним и у выключенного сторожа: иначе выбор в списке снова
+        # показывал бы 20 ГБ до первого включения.
+        if cfg.get("watchdog_gb"):
+            watchdog.set_threshold(float(cfg["watchdog_gb"]))
         if cfg.get("watchdog") and not watchdog.is_running():
-            watchdog.start(float(cfg.get("watchdog_gb") or DiskWatchdog.DEFAULT_THRESHOLD_GB))
+            watchdog.start(float(cfg.get("watchdog_gb")
+                                 or DiskWatchdog.DEFAULT_THRESHOLD_GB))
     except Exception:  # noqa: BLE001 - без сторожа приложение работает
         pass
     # Старые превью лежали внутри папки выгрузки — переносим их на диск C,
@@ -2770,7 +2770,6 @@ class DownloadControlPayload(BaseModel):
     batches: int = 0
     timeout: float = 7.0
     from_end: bool = True
-    sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
 
 
 @app.post("/api/download/start")
@@ -2803,8 +2802,6 @@ def api_download_start(payload: DownloadControlPayload):
         ]
         if payload.from_end:
             args.append("--from-end")
-        if payload.sort_after:
-            args.append("--sort-after")
         if not cfg.get("previews", True):
             args.append("--no-previews")
         # «all» и «skipped» — повтор сбойных, значит они тоже входят в остаток.
@@ -2827,7 +2824,6 @@ class DownloadAllPayload(BaseModel):
     workers: int = 10
     # Сколько проходов по сбойным делать за запуск. Ровно столько и будет.
     passes: int = Field(default=3, ge=1, le=10)
-    sort_after: bool = False  # после скачивания Безлимита сразу разложить по датам
 
 
 @app.post("/api/download/all")
@@ -2837,7 +2833,7 @@ def api_download_all(payload: DownloadAllPayload):
     if beast.is_running():
         return {"ok": False, "state": full_cycle.state,
                 "msg": "Включён режим «Зверь» — он уже качает; нажмите «зверь», чтобы остановить"}
-    ok, msg = full_cycle.start(payload.workers, payload.passes, payload.sort_after)
+    ok, msg = full_cycle.start(payload.workers, payload.passes)
     return {"ok": ok, "msg": msg, "state": full_cycle.state}
 
 
@@ -2883,6 +2879,17 @@ def api_watchdog_start(payload: WatchdogPayload):
     return {"ok": ok, "msg": msg}
 
 
+@app.post("/api/watchdog/threshold")
+def api_watchdog_threshold(payload: WatchdogPayload):
+    """Сохраняет порог, не включая и не выключая сторожа."""
+    log_action("/api/watchdog/threshold", payload)
+    ok, msg = watchdog.set_threshold(payload.threshold_gb)
+    if ok:
+        # Текущее состояние сторожа не меняем: только запоминаем порог.
+        _remember_watchdog(watchdog.is_running(), payload.threshold_gb)
+    return {"ok": ok, "msg": msg}
+
+
 @app.post("/api/watchdog/stop")
 def api_watchdog_stop():
     ok, msg = watchdog.stop()
@@ -2917,9 +2924,11 @@ def api_reset(payload: ResetPayload):
     what = payload.what
 
     if what == "lost":
-        # «Сгоревшие» файлы: Яндекс отвечал 500 несколько проходов подряд.
-        # Это явное действие пользователя («Попробовать»), поэтому счётчик 5xx
-        # обнуляем — у файла снова три попытки.
+        # «Отложенные сервером»: Яндекс отвечал 500 несколько проходов подряд
+        # (lost) или закрыл доступ 403 (denied). Это явное действие
+        # пользователя («Попробовать»), поэтому счётчики обнуляем — у файла
+        # снова три попытки. Файлы, которых нет в облаке (404), не трогаем:
+        # статус deleted остаётся.
         if _any_task_running(("disk", "unlim")):
             return {"ok": False, "msg": "Сначала остановите выгрузку"}
         ok, item, err = _auto_backup("before-reset", ("disk", "unlim"))
@@ -2936,7 +2945,8 @@ def api_reset(payload: ResetPayload):
                 with con:
                     total += con.execute(
                         f"UPDATE {table} SET status='pending', error=NULL, "
-                        f"server_fails=0, retry_after=NULL WHERE status='lost'"
+                        f"server_fails=0, retry_after=NULL, attempts=0 "
+                        f"WHERE status IN ('lost','denied')"
                     ).rowcount
             except sqlite3.Error as e:
                 return {"ok": False, "msg": f"Ошибка БД: {e}"}
@@ -2945,7 +2955,7 @@ def api_reset(payload: ResetPayload):
                     con.close()
         return {"ok": True, "count": total,
                 "backup": item["id"] if item else "",
-                "msg": f"Сгоревших файлов возвращено в очередь: {total}"}
+                "msg": f"Отложенных файлов возвращено в очередь: {total}"}
 
     if what == "disk_failed":
         if _any_task_running(("disk",)):

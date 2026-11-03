@@ -322,7 +322,7 @@ python organize.py --input "D:/Backup" --action move    # применить
 
    ```bash
    python build_installer.py
-   # результат: installer_output\YandexDiskBackup-35.8.4-setup.exe
+   # результат: installer_output\YandexDiskBackup-35.8.5-setup.exe
    ```
 
 Установщик ставит программу в `%LOCALAPPDATA%\Programs\YandexDiskBackup`
@@ -347,7 +347,7 @@ Microsoft Edge WebView2 Bootstrapper (нужен интернет). Если у�
 
    ```bash
    python build_portable.py
-   # результат: dist\YandexDiskBackup-35.8.4-portable.zip
+   # результат: dist\YandexDiskBackup-35.8.5-portable.zip
    ```
 
    Архив распаковывается в папку `YandexDiskBackup` и запускается двойным
@@ -433,7 +433,7 @@ OAuth-токен Яндекса живёт примерно год. Получи
 
 ### Файлы падают с `HTTP 500`, `Read timed out`, `IncompleteRead`
 
-Это не баг программы, а **сгоревшие/недоступные серверы хранения Яндекса**. Такие файлы помечаются `failed` (диск) или `skipped` (безлимит) с причиной. Когда Яндекс починит серверы, их можно добрать:
+Это не баг программы, а **недоступные серверы хранения Яндекса**. Такие файлы помечаются `failed` (диск) или `skipped` (безлимит) с причиной. Когда Яндекс починит серверы, их можно добрать:
 
 ```bash
 python main.py retry-failed                        # диск: failed → pending → скачивание

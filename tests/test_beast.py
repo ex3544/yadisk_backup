@@ -159,21 +159,25 @@ def test_beast_reset_returns_lost_and_clears_counters(monkeypatch, tmp_path):
 
 
 def test_beast_marks_unavailable_only_after_three_attempts(monkeypatch, tmp_path):
+    """404/410 — навсегда deleted; 403 — только denied, не «удалён навсегда»."""
     disk, unlim = _beast_dbs(tmp_path, monkeypatch)
     con = sqlite3.connect(disk)
     con.executemany(
         "INSERT INTO files (remote_path, size, status, error, attempts)"
         " VALUES (?, 1, 'failed', ?, ?)",
         [("gone", "HTTP 404: файла на сервере нет", 3),
+         ("gone410", "HTTP 410 Gone", 3),
          ("soon", "HTTP 404: файла на сервере нет", 1),
          ("denied", "HTTP 403 от сервера хранения", 4)],
     )
     con.commit()
     con.close()
     con = sqlite3.connect(unlim)
-    con.execute(
+    con.executemany(
         "INSERT INTO unlim_files (file_id, status, error, attempts)"
-        " VALUES ('u', 'skipped', 'HTTP 404', 3)")
+        " VALUES (?, 'skipped', ?, 3)",
+        [("u", "HTTP 404"), ("u403", "CDN HTTP 403")],
+    )
     con.commit()
     con.close()
 
@@ -182,10 +186,56 @@ def test_beast_marks_unavailable_only_after_three_attempts(monkeypatch, tmp_path
     con = sqlite3.connect(disk)
     rows = dict(con.execute("SELECT remote_path, status FROM files"))
     con.close()
-    assert rows == {"gone": "deleted", "soon": "failed", "denied": "deleted"}
+    assert rows == {"gone": "deleted", "gone410": "deleted", "soon": "failed",
+                    "denied": "denied"}
+    con = sqlite3.connect(unlim)
+    rows = dict(con.execute("SELECT file_id, status FROM unlim_files"))
+    con.close()
+    assert rows == {"u": "deleted", "u403": "denied"}
+
+    # denied не держат «Зверя»: в остатке только файл с одной попыткой.
+    assert b._remaining("disk") == 1
+    assert b._remaining("unlim") == 0
+
+
+def test_manual_reset_returns_denied_and_lost_but_not_deleted(monkeypatch, tmp_path):
+    """Кнопка «Отложенные сервером» возвращает lost и denied, 404 не оживляет."""
+    disk, unlim = _beast_dbs(tmp_path, monkeypatch)
+    con = sqlite3.connect(disk)
+    con.executemany(
+        "INSERT INTO files (remote_path, size, status, error, attempts,"
+        " server_fails) VALUES (?, 1, ?, ?, ?, ?)",
+        [("a", "lost", "HTTP 500", 3, 3),
+         ("b", "denied", "HTTP 403", 3, 0),
+         ("c", "deleted", "HTTP 404", 3, 0)],
+    )
+    con.commit()
+    con.close()
+    con = sqlite3.connect(unlim)
+    con.execute(
+        "INSERT INTO unlim_files (file_id, status, error, attempts)"
+        " VALUES ('u', 'denied', 'CDN HTTP 403', 3)")
+    con.commit()
+    con.close()
+
+    monkeypatch.setattr(webui, "_any_task_running", lambda *_: False)
+    monkeypatch.setattr(webui, "_auto_backup",
+                        lambda *a, **k: (True, {"id": "b1"}, ""))
+    out = webui.api_reset(webui.ResetPayload(what="lost"))
+
+    assert out["ok"] is True
+    assert out["count"] == 3
+    assert "Отложенных" in out["msg"]
+    con = sqlite3.connect(disk)
+    rows = dict(con.execute("SELECT remote_path, status FROM files"))
+    fails = dict(con.execute("SELECT remote_path, server_fails FROM files"))
+    attempts = dict(con.execute("SELECT remote_path, attempts FROM files"))
+    con.close()
+    assert rows == {"a": "pending", "b": "pending", "c": "deleted"}
+    assert fails["a"] == 0 and attempts["b"] == 0
     con = sqlite3.connect(unlim)
     assert con.execute(
-        "SELECT status FROM unlim_files WHERE file_id='u'").fetchone()[0] == "deleted"
+        "SELECT status FROM unlim_files WHERE file_id='u'").fetchone()[0] == "pending"
     con.close()
 
 

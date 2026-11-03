@@ -1000,10 +1000,10 @@ def _apply_result(
             except Exception:  # noqa: BLE001
                 pass
         counters["deferred"] = int(counters.get("deferred", 0)) + 1
-        # Отдельная строка журнала: «сгоревший» файл — приговор, а не ожидание.
+        # Отдельная строка журнала: «отложенный» файл — приговор, а не ожидание.
         log.warning(
             "%s | %s | %s | %s",
-            "СГОРЕЛ" if new_status == "lost" else "ЖДЁТ",
+            "ОТЛОЖЕН" if new_status == "lost" else "ЖДЁТ",
             res.kind or "storage_down",
             res.error,
             res.job.remote_path,

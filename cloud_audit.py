@@ -334,7 +334,7 @@ def _same_detail(info: dict, row: dict) -> str:
         parts.append("размер в облаке не отдаётся — сверено по наличию")
     status = row.get("status")
     if status == "lost":
-        parts.append("сгорел у Яндекса")
+        parts.append("отложен сервером Яндекса")
     elif status in ("pending", "in_progress") and str(
         row.get("error") or ""
     ).startswith("storage_down"):
@@ -698,7 +698,7 @@ def render_report(data: dict, actions: list[dict] | None = None) -> str:
             if "downloaded" in info:
                 bits = [f"скачано {int(info.get('downloaded') or 0):,}"]
                 if info.get("lost"):
-                    bits.append(f"сгорело {int(info.get('lost') or 0):,}")
+                    bits.append(f"отложено {int(info.get('lost') or 0):,}")
                 if info.get("waiting"):
                     bits.append(f"ждут Яндекса {int(info.get('waiting') or 0):,}")
                 queued = int(info.get("pending") or 0) - int(info.get("waiting") or 0)

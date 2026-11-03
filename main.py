@@ -298,7 +298,7 @@ def cmd_download(cfg: dict, args: argparse.Namespace) -> int:
     if not getattr(args, "selection", False) and not getattr(args, "no_return_lost", False):
         returned = state.return_lost()
         if returned:
-            print(f"Сгоревших возвращено в очередь: {returned}", flush=True)
+            print(f"Отложенных возвращено в очередь: {returned}", flush=True)
 
     # Режим «скачать выбранное»: список работ берётся из selection.json,
     # а не из всей очереди базы.
@@ -553,7 +553,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_dl.add_argument(
         "--no-return-lost",
         action="store_true",
-        help="Не возвращать сгоревшие файлы в очередь (повторные проходы полного цикла)",
+        help="Не возвращать отложенные файлы в очередь (повторные проходы полного цикла)",
     )
     p_dl.set_defaults(func=cmd_download)
 

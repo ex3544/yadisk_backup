@@ -1050,9 +1050,9 @@ def run_backup(
         try:
             returned = return_lost_files(db_path, cluster_ranges=cluster_ranges)
         except sqlite3.Error as exc:  # noqa: BLE001 — база могла быть занята
-            print(f"[!] Не удалось вернуть сгоревшие файлы: {exc}", flush=True)
+            print(f"[!] Не удалось вернуть отложенные файлы: {exc}", flush=True)
     if returned:
-        print(f"Сгоревших возвращено в очередь: {returned}", flush=True)
+        print(f"Отложенных возвращено в очередь: {returned}", flush=True)
     AUTH_EXPIRED.clear()
     DISK_FULL.clear()
 
@@ -1332,7 +1332,7 @@ def main():
     parser.add_argument("--sort-after", action="store_true", help="После скачивания сразу разложить файлы по датам (organize.py, быстрый режим без MD5)")
     parser.add_argument("--no-previews", action="store_true", help="Не сохранять превью фото, которые сейчас ждут Яндекса")
     parser.add_argument("--selection", action="store_true", help="Скачать только дни, отмеченные в календаре (selection.json); статусы остальной очереди не меняются")
-    parser.add_argument("--no-return-lost", action="store_true", help="Не возвращать сгоревшие файлы в очередь (повторные проходы полного цикла)")
+    parser.add_argument("--no-return-lost", action="store_true", help="Не возвращать отложенные файлы в очередь (повторные проходы полного цикла)")
     parser.add_argument("--web", action="store_true", help="Запустить веб-интерфейс дашборда (http://127.0.0.1:8000)")
     parser.add_argument("--cli", action="store_true", help="Принудительный запуск в консольном режиме без аргументов")
 

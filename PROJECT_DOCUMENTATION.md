@@ -2355,3 +2355,65 @@ Chrome (или встроенного Chromium), открывает `https://yan
 каждом чанке. `tests/test_packaging.py`: кнопка, API, блокировка ручных
 кнопок, `setText`/`setSafeHTML`, `last_session`.
 Всего 672 теста; `ruff --select F,E9` и `node --check` чисто.
+
+## 47. Ноябрь 2026: «отложенные», честный 403, только ручная сортировка (v35.8.5)
+
+Названия без приговора, ошибки доступа без вечного «удалён» и один способ
+раскладки по датам.
+
+### «Отложенные» вместо «сгоревших»
+
+- Пользовательские тексты заменены: плашки итога (`⏳ отложено`), строка
+  сессии (`отложено N`), плашка ожидания (`⏳ N отложены`), разбивка в отчёте
+  сверки («отложено N»), подсказка ожидания, «Зверь» и журнал
+  (`ОТЛОЖЕН` в `downloader.py`, «возвращаю отложенные» в `Beast._run_round`).
+- Кнопка в «Сбросе очереди» теперь называется «Отложенные сервером»
+  (`resetStatus('lost')`, `#reset-lost`).
+- Внутренние имена не менялись: статус `lost`, `server_fails`, `_reset_lost`,
+  `_mark_unavailable`. Исторические записи CHANGELOG не переписаны.
+
+### 403 — не «удалён навсегда»
+
+- `Beast._mark_unavailable()` делит причины:
+  - диск: `failed` + (`PathNotFound`/404/410) после 3 попыток → `deleted`;
+  - диск: `failed` + 403 после 3 попыток → **`denied`**;
+  - Безлимит: `skipped`/`failed` + (404/410/«Ссылка не найдена») → `deleted`;
+  - Безлимит: `skipped`/`failed` + 403 → **`denied`**.
+- `denied` не входит в `_remaining()`, поэтому «Зверь» не крутит такие файлы
+  вечно и завершается. Скан (`ON CONFLICT`) статус не меняет, автоматического
+  возврата нет.
+- Ручной возврат: `POST /api/reset {what:'lost'}` теперь обновляет
+  `status IN ('lost','denied')` → `pending`, обнуляя `server_fails`,
+  `retry_after` и `attempts`. UI считает `#reset-lost` как `lost + denied`
+  обеих баз, `lostTotal()` тоже; «Попробовать» подхватывает оба статуса.
+- `db_stats()` отдаёт `denied` (в `total`/`bytes_total`, как `failed`),
+  `queueLeft()` и итог запуска включают его в «отложено».
+
+### Сортировка только вручную
+
+- Удалены чекбоксы `#all-sort-after` и `#unlim-sort-after`, поля `sort_after`
+  из `DownloadControlPayload`, `DownloadAllPayload`, `FullCycle.start()`,
+  `FullCycle.sort_after`, метод `FullCycle._sort_unlim()` и параметр
+  `--sort-after` в UI-пути. CLI `unlim_backup.py --sort-after` остался для
+  ручного запуска.
+- Раскладка по датам выполняется только на вкладке «Организация».
+
+### Сторож
+
+- `DiskWatchdog.set_threshold()` меняет порог, не запуская и не останавливая
+  поток; `POST /api/watchdog/threshold` пишет `WATCHDOG_GB` в `.env` и
+  сохраняет текущее состояние (`WATCHDOG=1/0`).
+- `applyWatchdogThreshold()` вызывает этот эндпоинт всегда, а не только у
+  работающего сторожа; `renderWatchdog()` показывает сохранённый порог и у
+  выключенного.
+- При старте `start_background_services()` подставляет порог из `.env` в
+  `watchdog.threshold_gb` даже при `WATCHDOG=0`.
+
+### Тесты
+
+`tests/test_beast.py`: 404/410 → `deleted`, 403 → `denied`, `denied` не в
+остатке, ручной сброс возвращает `lost`+`denied` и не трогает `deleted`.
+`tests/test_webui.py`: сохранение порога сторожа при выключенном стороже.
+`tests/test_packaging.py`: галочек автосортировки нет, `sort_after` отсутствует
+в UI. `tests/test_cloud_audit.py`: «отложено». Всего 674 теста;
+`ruff --select F,E9` и `node --check` чисто.

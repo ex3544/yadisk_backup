@@ -175,7 +175,7 @@ def test_compare_same_explains_lost_and_waiting_files():
     }
     items = {item["key"]: item for item in cloud_audit.compare("unlim", cloud, db)}
     assert items["fid-1"]["kind"] == "same"
-    assert "сгорел у Яндекса" in items["fid-1"]["detail"]
+    assert "отложен сервером Яндекса" in items["fid-1"]["detail"]
     assert items["fid-2"]["kind"] == "same"
     assert "ждёт Яндекса" in items["fid-2"]["detail"]
 
@@ -261,7 +261,7 @@ def test_run_writes_status_report_csv_and_plan(env, monkeypatch):
 
 
 def test_run_reports_base_statuses_and_unknown_cloud_size(env, monkeypatch):
-    """Цифры «сгорело / ждут Яндекса» — из базы, а не из итога сверки."""
+    """Цифры «отложено / ждут Яндекса» — из базы, а не из итога сверки."""
     make_unlim_db(paths.UNLIM_DB_FILE, [
         ("fid-1", "a.jpg", 10, None, "downloaded", "C:/u/a.jpg"),
         ("fid-2", "b.jpg", 0, None, "lost", None),
@@ -293,7 +293,7 @@ def test_run_reports_base_statuses_and_unknown_cloud_size(env, monkeypatch):
     assert data["same"] == 3
 
     report = paths.CLOUD_AUDIT_REPORT_FILE.read_text(encoding="utf-8")
-    assert "сгорело 1" in report
+    assert "отложено 1" in report
     assert "ждут Яндекса 1" in report
     assert "размер в облаке не отдаётся" in report
     assert "сверены по наличию" in report

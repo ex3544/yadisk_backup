@@ -422,16 +422,16 @@ def test_download_all_passes_payload_to_full_cycle(monkeypatch):
     calls = []
     monkeypatch.setattr(
         webui.full_cycle, "start",
-        lambda workers, passes, sort_after: calls.append(
-            (workers, passes, sort_after)) or (True, "ok"),
+        lambda workers, passes: calls.append(
+            (workers, passes)) or (True, "ok"),
     )
 
     out = webui.api_download_all(
-        webui.DownloadAllPayload(workers=6, passes=2, sort_after=True)
+        webui.DownloadAllPayload(workers=6, passes=2)
     )
 
     assert out["ok"] is True
-    assert calls == [(6, 2, True)]
+    assert calls == [(6, 2)]
 
 
 def test_download_all_payload_defaults():
@@ -439,7 +439,8 @@ def test_download_all_payload_defaults():
 
     assert payload.workers == 10
     assert payload.passes == 3
-    assert payload.sort_after is False
+    # 35.8.5: автосортировки после скачивания больше нет.
+    assert not hasattr(payload, "sort_after")
 
 
 def test_download_start_refuses_unavailable_folder(monkeypatch, tmp_path):
@@ -1022,6 +1023,23 @@ def test_watchdog_is_on_by_default_with_20gb(monkeypatch):
     assert cfg["watchdog"] is True
     assert cfg["watchdog_gb"] == 20.0
     assert webui.DiskWatchdog.DEFAULT_THRESHOLD_GB == 20.0
+
+
+def test_watchdog_threshold_is_saved_even_when_off(tmp_path, monkeypatch):
+    """35.8.5: смена порога сохраняется сразу, даже у выключенного сторожа."""
+    env = tmp_path / ".env"
+    w = webui.DiskWatchdog()
+    assert w.is_running() is False
+    monkeypatch.setattr(webui, "watchdog", w)
+    monkeypatch.setattr(webui, "ENV_FILE", env)
+
+    out = webui.api_watchdog_threshold(webui.WatchdogPayload(threshold_gb=7.5))
+
+    assert out["ok"] is True
+    assert w.threshold_gb == 7.5
+    text = env.read_text(encoding="utf-8")
+    assert "WATCHDOG=0" in text
+    assert "WATCHDOG_GB=7.5" in text
 
 
 def test_config_previews_dir_defaults_to_program_data(monkeypatch):

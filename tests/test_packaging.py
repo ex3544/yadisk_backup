@@ -83,10 +83,11 @@ def test_launch_modes_are_visually_separate_with_button_hints():
     assert "Сначала новые, затем сбойные" not in html
     assert "по сбойным (ошибки Диска и пропущенные Безлимита)" in html
 
-    # Автосортировка доступна в обоих режимах и честно предупреждает о времени.
-    assert 'id="all-sort-after"' in html
-    assert "document.getElementById('all-sort-after').checked" in html
-    assert html.count("Может занять много времени. Можно не включать") == 2
+    # 35.8.5: автосортировки после скачивания больше нет ни в одном режиме —
+    # раскладка по датам осталась только ручной задачей на «Организации».
+    assert 'id="all-sort-after"' not in html
+    assert 'id="unlim-sort-after"' not in html
+    assert "Может занять много времени. Можно не включать" not in html
 
     # Повторное сканирование Безлимита должно дополнять базу, а не пересоздавать.
     assert "Дополнить её новыми файлами из облака" in html
@@ -310,7 +311,8 @@ def test_download_all_is_a_full_cycle_in_ui():
     assert 'id="cycle-modal"' in html
     assert "function renderFullCycle(fc)" in html
     assert "renderFullCycle(s.full_cycle);" in html
-    assert "JSON.stringify({ workers: workers, passes: passes, sort_after: sort_after })" in html
+    assert "JSON.stringify({ workers: workers, passes: passes })" in html
+    assert "sort_after" not in html
 
 
 def test_exit_code_one_is_not_treated_as_user_stop():
@@ -1313,7 +1315,7 @@ def test_run_summary_shows_numbers_not_green_badge():
     assert "function renderRunSummary(s)" in html
     assert "function runNumbers(kind, s)" in html
     assert "renderRunSummary(s);" in html
-    for text in ("✅ скачано", "⚠ сбойные", "🕓 ждут Яндекса", "🔥 сгорело"):
+    for text in ("✅ скачано", "⚠ сбойные", "🕓 ждут Яндекса", "⏳ отложено"):
         assert text in html
 
 
@@ -1346,9 +1348,10 @@ def test_relocate_sorting_and_lost_queue_are_visible_in_ui():
     diag = _panel_html(html, "diagnostics")
     organize = _panel_html(html, "organize")
 
-    # Сброс очереди: главная кнопка — «сгоревшие», они и копятся с 35.6.3.
+    # Сброс очереди: главная кнопка — «Отложенные сервером» (35.8.5).
     assert "onclick=\"resetStatus('lost')\"" in diag
     assert 'id="reset-lost"' in diag
+    assert "Отложенные сервером" in diag
     assert "lost > 0" in html
 
     # Файлы переехали: предпросмотр, применение, возврат структуры облака.
@@ -1596,3 +1599,14 @@ def test_settext_helpers_keep_selection_alive():
     assert "function setSafeHTML(el, html)" in html
     assert "if(el.textContent !== v) el.textContent = v;" in html
     assert "if(el._lastHTML === v) return;" in html
+
+
+def test_watchdog_threshold_saves_without_enabling():
+    """35.8.5: порог сторожа сохраняется даже у выключенного сторожа."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "/api/watchdog/threshold" in html
+    assert "Number(st.threshold_gb) === threshold" in html
+    assert "if(!st || !st.running) return;" not in html
+    # Порог показывается и у выключенного сторожа.
+    assert "document.activeElement !== sel" in html
