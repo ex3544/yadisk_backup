@@ -307,9 +307,18 @@ class TaskManager:
         self._tasks: dict[str, Task] = {}  # ключ — название/слот
         self._lock = threading.Lock()
 
-    def start(self, slot: str, script: str, args: list[str]) -> tuple[bool, str]:
+    def start(
+        self,
+        slot: str,
+        script: str,
+        args: list[str],
+        env_extra: Optional[dict[str, str]] = None,
+    ) -> tuple[bool, str]:
         """slot — логическое имя ('disk', 'photoslice_collect', 'worker-1', ...).
         Можно одновременно несколько задач в разных слотах.
+
+        `env_extra` добавляется к окружению дочернего процесса. «Зверь» так
+        включает пробы мёртвых серверов хранения.
         """
         with self._lock:
             existing = self._tasks.get(slot)
@@ -335,6 +344,8 @@ class TaskManager:
             # Дочерние процессы обязаны писать в тот же каталог данных, даже если
             # приложение установлено в Program Files.
             env["YADISK_DATA_DIR"] = str(paths.DATA_DIR)
+            if env_extra:
+                env.update({str(k): str(v) for k, v in env_extra.items()})
             if IS_FROZEN:
                 # Тот же exe разбирает argv и запускает нужный скрипт.
                 cmd = [sys.executable, script] + args
@@ -1345,7 +1356,10 @@ class Beast:
             script = "unlim_backup.py"
         self._clear_heartbeat(kind)
         reset_session_counters(kind)
-        return tm.start(kind, script, args)
+        # Помеченный мёртвым сервер хранения получает несколько настоящих
+        # запросов за круг: если Яндекс его уже вернул в строй, файлы поедут
+        # сразу, а не через полчаса TTL.
+        return tm.start(kind, script, args, env_extra={"YADISK_DEAD_HOST_PROBES": "3"})
 
     def _run_round(self, strategy: dict) -> tuple[int, bool, str]:
         """Один круг: сброс счётчиков, запуск линий, наблюдение.

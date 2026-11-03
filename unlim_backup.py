@@ -46,9 +46,9 @@ import previews as preview_mod
 import selection
 import unlim_dates
 import unlim_schema
-from fetch import DeadHosts
+from fetch import DeadHosts, part_path_for
 from progress import FileProgress
-from utils import check_target_dir
+from utils import check_target_dir, file_size_safe
 
 # Принудительно отключаем IPv6 для исключения таймаутов на неработающем IPv6 (VirtualBox / NAT)
 urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
@@ -781,6 +781,48 @@ def get_thread_session(cookies: dict[str, str], use_proxy: bool = False, proxy_u
     return _thread_local.session
 
 
+def _part_path_for_file(dst_path: Path) -> Path:
+    """Временный файл рядом с целевым.
+
+    Имя то же, что у Диска (`fetch.part_path_for`), поэтому недокачанный файл
+    находится при следующей попытке. Прошлые версии Безлимита звали обрывок
+    `<имя>.part` — такой файл один раз переименовываем, чтобы не потерять
+    уже скачанные гигабайты.
+    """
+    part = Path(part_path_for(str(dst_path)))
+    legacy = dst_path.with_suffix(dst_path.suffix + ".part")
+    if not part.exists() and legacy.is_file():
+        try:
+            legacy.replace(part)
+        except OSError:
+            pass
+    return part
+
+
+def _drop_part(part: Path) -> None:
+    """Убирает обрывок, который больше не пригодится."""
+    try:
+        part.unlink()
+    except OSError:
+        pass
+
+
+def _total_from_headers(resp, resume_from: int = 0) -> int:
+    """Полный вес файла: у 206 в Content-Range, иначе Content-Length."""
+    headers = getattr(resp, "headers", None) or {}
+    match = re.search(r"/(\d+)\s*$", str(headers.get("Content-Range") or ""))
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return 0
+    try:
+        length = int(headers.get("Content-Length") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return length + resume_from if resume_from else length
+
+
 def download_one_file(
     db_path: Path,
     cookies: dict[str, str],
@@ -849,7 +891,9 @@ def download_one_file(
         host = urlparse(download_url).hostname
     except ValueError:
         host = None
-    if DEAD_HOSTS.is_dead(host):
+    # `allow` вместо `is_dead`: у «Зверя» этому серверу выданы пробы, и он
+    # должен получить настоящий запрос, чтобы ожить в этом же круге.
+    if not DEAD_HOSTS.allow(host):
         mark_deferred(db_path, fid, host)
         return False, 0, f"{DEFERRED_PREFIX}: сервер {host} не отвечает"
 
@@ -863,30 +907,36 @@ def download_one_file(
         safe_fid = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', fid.strip("/"))
         dst_path = out_dir / f"{safe_fid}_{name}"
 
-    tmp_path = dst_path.with_suffix(dst_path.suffix + ".part")
-    bytes_downloaded = 0
+    tmp_path = _part_path_for_file(dst_path)
+    resume_from = file_size_safe(tmp_path) or 0
 
     # Строки журнала: имя, вес, проценты, скорость и сервер, который отдаёт файл.
     file_progress = FileProgress(name, item.get("size"))
+    if resume_from:
+        file_progress.resumed(resume_from)
     file_progress.start()
 
-    # 3. Скачивание (нулевые повторы)
+    # 3. Скачивание (нулевые повторы). Недокачанный `.part` продолжается
+    # запросом Range: крупный файл, оборванный сетью, не начинается заново.
+    # Жёсткого лимита времени на файл нет — сторожем служит тайм-аут чтения:
+    # если сервер молчит дольше `timeout` секунд, requests рвёт соединение.
     try:
-        resp = s.get(download_url, stream=True, timeout=(3.0, timeout))
-        if resp.status_code == 200:
-            # Мёртвые шарды могут «сочиться» байтами, не превышая read-таймаут, и
-            # вешать поток навсегда. Общий лимит на файл разрывает такое зависание:
-            # файл помечается skipped и поток освобождается. 420 сек при --timeout 7
-            # хватает даже на крупное видео (~2.5 ГБ при 6 МБ/с), но ограничивает
-            # худший случай.
-            deadline = time.monotonic() + max(120.0, timeout * 60.0)
-            # Иногда CDN всё же сообщает вес. Тогда проценты и «осталось»
-            # считаются как у обычного Диска; обычно — только мегабайты.
-            try:
-                total = int((getattr(resp, "headers", None) or {}).get("Content-Length") or 0)
-            except (TypeError, ValueError):
-                total = 0
-            with open(tmp_path, "wb") as f:
+        req_headers = {"Range": f"bytes={resume_from}-"} if resume_from else None
+        resp = s.get(download_url, stream=True, timeout=(3.0, timeout), headers=req_headers)
+        if resp.status_code == 416 and resume_from:
+            # Файл в облаке изменился: начало диапазона сервер не принял.
+            _drop_part(tmp_path)
+            mark_deferred(db_path, fid, host)
+            return False, 0, f"{DEFERRED_PREFIX}: частичный файл не подошёл"
+        if resp.status_code in (200, 206):
+            resumed = resp.status_code == 206 and resume_from > 0
+            if not resumed:
+                resume_from = 0
+            # Вес: у 206 Content-Length — это остаток, полный вес лежит в
+            # Content-Range («bytes 100-999/1000»).
+            total = _total_from_headers(resp, resume_from)
+            bytes_downloaded = resume_from
+            with open(tmp_path, "ab" if resumed else "wb") as f:
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
@@ -894,19 +944,14 @@ def download_one_file(
                         _global_speed_meter.add(len(chunk))
                         _touch_heartbeat()
                         file_progress.update(bytes_downloaded, host, total=total or None)
-                    if time.monotonic() > deadline:
-                        raise TimeoutError("общий таймаут скачивания файла")
             tmp_path.replace(dst_path)
             mark_done(db_path, fid, str(dst_path), bytes_downloaded)
             file_progress.done(bytes_downloaded, host)
             return True, bytes_downloaded, "OK"
         else:
             file_progress.stopped(f"CDN HTTP {resp.status_code}")
-            if tmp_path.exists():
-                try: tmp_path.unlink()
-                except OSError: pass
             # 429 и 5xx — это «Яндекс не отдаёт», а не «файл плохой»: файл
-            # откладываем, не тратя попытку.
+            # откладываем, не тратя попытку. Обрывок при этом сохраняем.
             #   429 — Яндекс просит подождать: тормозим весь хост.
             #   5xx — ответ живого сервера по конкретному файлу: хост не гасим
             #   никогда, ни после какого числа таких ответов. Раньше гасили
@@ -923,6 +968,8 @@ def download_one_file(
                     # помечен мёртвым, и лишние запросы только тормозят проход.
                     save_preview_for_deferred(db_path, s, sk, uid, fid, name, out_dir)
                 return False, 0, f"{DEFERRED_PREFIX}: CDN HTTP {resp.status_code}"
+            # 403/404 и прочие 4xx — с файлом что-то не так, обрывок бесполезен.
+            _drop_part(tmp_path)
             err = f"CDN HTTP {resp.status_code}"
             mark_skipped(db_path, fid, err)
             return False, 0, err
@@ -931,20 +978,25 @@ def download_one_file(
         if isinstance(e, OSError) and getattr(e, "errno", None) == errno.ENOSPC:
             DISK_FULL.set()
             return False, 0, "disk_full"
-        file_progress.stopped(f"{type(e).__name__}: {e}")
-        if tmp_path.exists():
-            try: tmp_path.unlink()
-            except OSError: pass
+        # Тихое место: имя ошибки requests ничего не говорит человеку —
+        # пишем, сколько секунд сервер не присылал данные.
+        if isinstance(e, requests.Timeout):
+            file_progress.stopped(f"нет данных {int(timeout)} с")
+        else:
+            file_progress.stopped(f"{type(e).__name__}: {e}")
         if isinstance(e, (requests.RequestException, TimeoutError)):
-            # Обрыв соединения или медленная отдача файла: сервер мог умереть,
-            # файл не виноват — откладываем и пробуем позже.
+            # Обрыв соединения или молчание сервера: файл не виноват —
+            # откладываем, а `.part` оставляем для докачки.
             first_failure = not DEAD_HOSTS.is_dead(host)
             if isinstance(e, requests.RequestException) and not isinstance(e, requests.Timeout):
                 DEAD_HOSTS.mark(host)
             mark_deferred(db_path, fid, host)
             if make_previews and first_failure:
                 save_preview_for_deferred(db_path, s, sk, uid, fid, name, out_dir)
-            return False, 0, f"{DEFERRED_PREFIX}: {type(e).__name__}"
+            reason = f"нет данных {int(timeout)} с" if isinstance(e, requests.Timeout) else type(e).__name__
+            return False, 0, f"{DEFERRED_PREFIX}: {reason}"
+        # Локальная ошибка (место, права) — обрывок не годится.
+        _drop_part(tmp_path)
         err = f"Download error: {e}"
         mark_skipped(db_path, fid, err)
         return False, 0, err

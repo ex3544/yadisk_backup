@@ -1835,3 +1835,49 @@ def test_guide_endpoints_return_text_and_remember_first_show(monkeypatch, tmp_pa
 
     assert webui.api_guide_seen() == {"ok": True}
     assert webui.api_guide()["seen"] is True
+
+
+# ── 35.8.8: пробы мёртвых серверов у «Зверя» ───────────────────────────────
+
+
+def test_task_manager_passes_extra_environment(monkeypatch):
+    captured = {}
+
+    class _Proc:
+        stdout = iter(())
+        def poll(self):
+            return 0
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        captured["env"] = kwargs["env"]
+        return _Proc()
+
+    monkeypatch.setattr(webui.subprocess, "Popen", fake_popen)
+    manager = webui.TaskManager()
+    ok, _ = manager.start(
+        "probe-slot", "main.py", ["download"],
+        env_extra={"YADISK_DEAD_HOST_PROBES": "3"},
+    )
+    assert ok
+    assert captured["env"]["YADISK_DEAD_HOST_PROBES"] == "3"
+    assert captured["env"]["PYTHONUTF8"] == "1"
+
+
+def test_beast_gives_dead_hosts_a_few_probes(monkeypatch):
+    beast = webui.Beast()
+    calls = {}
+
+    monkeypatch.setattr(webui, "get_config", lambda: {})
+    monkeypatch.setattr(webui, "reset_session_counters", lambda kind: None)
+    monkeypatch.setattr(beast, "_clear_heartbeat", lambda kind: None)
+
+    def fake_start(slot, script, args, **kwargs):
+        calls.update(slot=slot, kwargs=kwargs)
+        return True, "запущено"
+
+    monkeypatch.setattr(webui.tm, "start", fake_start)
+    ok, _ = beast._start_lane("disk", {})
+    assert ok
+    assert calls["kwargs"]["env_extra"] == {"YADISK_DEAD_HOST_PROBES": "3"}

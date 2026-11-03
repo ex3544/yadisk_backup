@@ -193,3 +193,57 @@ def test_stopped_without_a_single_byte_is_silent_for_small_files():
     p.start()
     p.stopped("timeout")
     assert lines == []
+
+
+# ── докачка недокачанного файла ─────────────────────────────────────────────
+
+
+def test_resumed_big_file_announces_the_place_and_speed_counts_new_bytes():
+    p, lines, clock = make("video.mp4", 400 * MB)
+    p.resumed(200 * MB)
+    p.start()
+    assert lines == ["↻ video.mp4 · продолжаю с 50% · 200 МБ из 400 МБ"]
+
+    clock.tick(10)
+    p.update(250 * MB, "h")
+    # Проценты — от всего файла, скорость — только по новым 50 МБ.
+    assert lines[-1] == (
+        "⬇ video.mp4 · 62% · 250 МБ из 400 МБ · 5,0 МБ/с · h · осталось ~30 с"
+    )
+
+
+def test_resumed_without_known_size_shows_downloaded_bytes():
+    p, lines, _ = make("video.mp4", None)
+    p.resumed(300 * MB)
+    p.start()
+    assert lines == ["↻ video.mp4 · продолжаю с 300 МБ"]
+
+
+def test_resumed_small_file_is_silent_until_the_result():
+    p, lines, clock = make("photo.jpg", 5 * MB)
+    p.resumed(2 * MB)
+    p.start()
+    assert lines == []
+    clock.tick(1)
+    p.done(5 * MB)
+    assert lines[0].startswith("✅ photo.jpg · 5,0 МБ · ")
+
+
+def test_restart_from_zero_after_resume_resets_the_base():
+    """Повтор по свежей ссылке качает заново — скорость считается с нуля."""
+    p, lines, clock = make("big.iso", 100 * MB)
+    p.resumed(60 * MB)
+    p.start()
+    clock.tick(5)
+    p.update(70 * MB, "h")
+    assert lines[-1].startswith("⬇ big.iso · 70% · ")
+
+    # Счётчик пошёл с нуля: проценты не должны прыгнуть назад в 70%.
+    clock.tick(5)
+    p.update(10 * MB, "h")
+    assert lines[-1].startswith("⬇ big.iso · 10% · ")
+    assert "МБ/с ·" not in lines[-1]  # скорости по нулевому времени ещё нет
+
+    clock.tick(10)
+    p.update(20 * MB, "h")
+    assert "2,0 МБ/с" in lines[-1]

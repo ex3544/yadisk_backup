@@ -111,6 +111,10 @@ class FileProgress:
         self._t0: Optional[float] = None
         self._last_line = 0.0
         self._written = 0
+        # Сколько байт уже лежало в `.part` до этой попытки. Скорость считаем
+        # только по новым байтам: иначе докачка с 90% мгновенно показала бы
+        # «5 ГБ/с».
+        self._base = 0
 
     @property
     def is_big(self) -> bool:
@@ -121,13 +125,33 @@ class FileProgress:
         # но показывать рост в мегабайтах всё равно полезно.
         return self._written >= self._big_bytes
 
+    def resumed(self, written: int) -> None:
+        """Файл продолжается с недокачанного `.part`, а не качается заново.
+
+        Вызывать до `start()`/`update()`: дальше `written` снова абсолютный,
+        а скорость считается только по новым байтам.
+        """
+        self._base = int(written or 0)
+        self._written = self._base
+
     def start(self) -> None:
         """Первая строка. Для мелких файлов молчит — у них будет только итог."""
         now = self._clock()
         if self._t0 is None:
             self._t0 = now
-        if self.is_big:
-            self._emit(f"⬇ {self.name} · {human_size(self.size)} · начинаю")
+        if not self.is_big:
+            return
+        if self._base > 0:
+            if self.size:
+                pct = min(100, int(self._base * 100 / self.size))
+                self._emit(
+                    f"↻ {self.name} · продолжаю с {pct}% · "
+                    f"{human_size(self._base)} из {human_size(self.size)}"
+                )
+            else:
+                self._emit(f"↻ {self.name} · продолжаю с {human_size(self._base)}")
+            return
+        self._emit(f"⬇ {self.name} · {human_size(self.size)} · начинаю")
 
     def update(
         self,
@@ -149,6 +173,7 @@ class FileProgress:
             # скорость считаем заново, старые цифры не должны утекать в строку.
             self._t0 = now
             self._last_line = 0.0
+            self._base = 0
         self._written = written
         if not self.is_big:
             return
@@ -161,7 +186,8 @@ class FileProgress:
         elapsed = now - self._t0 if self._t0 is not None else 0.0
         # Сразу после старта (или после повтора по новой ссылке) время почти
         # нулевое — скорость по нему была бы фантастической. Лучше промолчать.
-        speed = self._written / elapsed if elapsed >= 0.5 else 0.0
+        gained = max(0, self._written - self._base)
+        speed = gained / elapsed if elapsed >= 0.5 else 0.0
         parts = [f"⬇ {self.name}"]
         if self.size:
             pct = min(100, int(self._written * 100 / self.size))

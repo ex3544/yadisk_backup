@@ -4,6 +4,7 @@ import hashlib
 import os
 
 import pytest
+import requests
 
 from fetch import (
     DeadHosts,
@@ -70,11 +71,14 @@ def test_scrub_urls_hides_signed_links():
     assert "<ссылка скрыта>" in scrub_urls(text)
 
 
-def test_part_path_is_hidden_and_unique(tmp_path):
+def test_part_path_is_hidden_and_stable(tmp_path):
     dst = str(tmp_path / "a.jpg")
     p1 = part_path_for(dst)
     p2 = part_path_for(dst)
-    assert p1 != p2
+    # Один и тот же путь даёт один и тот же `.part`: следующая попытка
+    # находит обрывок и докачивает его по Range.
+    assert p1 == p2
+    assert part_path_for(str(tmp_path / "b.jpg")) != p1
     assert os.path.dirname(p1) == str(tmp_path)
     assert os.path.basename(p1).startswith(".yadisk-")
     assert os.path.basename(p1).endswith(".part")
@@ -146,6 +150,25 @@ def test_dead_host_skips_without_request(tmp_path):
     assert ei.value.kind == "storage_skip"
     assert ei.value.is_deferred
     assert sess.calls == []
+
+
+def test_probes_allow_a_few_real_attempts():
+    """«Зверь» даёт мёртвому серверу пару запросов за круг — вдруг ожил."""
+    now = [0.0]
+    dead = DeadHosts(ttl=60.0, clock=lambda: now[0], probes=2)
+    dead.mark("h")
+    assert dead.allow("h")
+    assert dead.allow("h")
+    assert not dead.allow("h")
+    # Чистая проверка проб не тратит и по-прежнему видит пометку.
+    assert dead.is_dead("h")
+
+
+def test_probe_count_comes_from_environment(monkeypatch):
+    monkeypatch.setenv("YADISK_DEAD_HOST_PROBES", "3")
+    dead = DeadHosts()
+    dead.mark("h")
+    assert sum(1 for _ in range(5) if dead.allow("h")) == 3
 
 
 def test_dead_host_expires_by_ttl():
@@ -287,6 +310,126 @@ def test_heartbeat_is_not_called_on_failed_download(tmp_path):
     with pytest.raises(FetchFailure):
         fetch_to_file("https://h/f", dst, session=sess, heartbeat=beats.append)
     assert beats == []
+
+
+# ── докачка недокачанного (.part по Range) ─────────────────────────────────
+
+
+def _make_part(dst, data):
+    part = part_path_for(dst)
+    with open(part, "wb") as f:
+        f.write(data)
+    return part
+
+
+class _RaisingSession:
+    """Сессия, которая падает ещё до получения ответа."""
+
+    def __init__(self, exc):
+        self.exc = exc
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        raise self.exc
+
+    def close(self):
+        pass
+
+
+class _DropResp(_Resp):
+    """Ответ, который отдал часть тела и оборвался посреди скачивания."""
+
+    def __init__(self, body, exc, status=200):
+        super().__init__(status, body=body)
+        self._exc = exc
+
+    def iter_content(self, chunk_size=1024):
+        yield self._body
+        raise self._exc
+
+
+def test_resume_requests_range_and_appends(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    part = _make_part(dst, b"12345")
+    sess = _Session(_Resp(206, body=b"6789"))
+    res = fetch_to_file("https://h/f", dst, session=sess)
+    assert sess.calls[0][1]["headers"]["Range"] == "bytes=5-"
+    assert open(dst, "rb").read() == b"123456789"
+    assert res.bytes_written == 9
+    assert not os.path.exists(part)
+
+
+def test_plain_200_ignoring_range_restarts_from_scratch(tmp_path):
+    """Сервер не умеет Range — старый обрывок не должен склеиться с новым."""
+    dst = str(tmp_path / "f.bin")
+    _make_part(dst, b"12345")
+    sess = _Session(_Resp(200, body=b"abcdefg"))
+    fetch_to_file("https://h/f", dst, session=sess)
+    assert open(dst, "rb").read() == b"abcdefg"
+
+
+def test_resume_is_checked_against_expected_size(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    _make_part(dst, b"12345")
+    sess = _Session(_Resp(206, body=b"6789"))
+    res = fetch_to_file("https://h/f", dst, expected_size=9, session=sess)
+    assert res.bytes_written == 9
+
+
+def test_md5_covers_whole_file_after_resume(tmp_path):
+    """MD5 считается по всему файлу, а не только по новой половине."""
+    dst = str(tmp_path / "f.bin")
+    _make_part(dst, b"hello ")
+    body = b"hello world"
+    md5 = hashlib.md5(body, usedforsecurity=False).hexdigest()
+    sess = _Session(_Resp(206, body=b"world"))
+    res = fetch_to_file("https://h/f", dst, expected_md5=md5, session=sess)
+    assert res.md5 == md5
+    assert open(dst, "rb").read() == body
+
+
+def test_416_drops_stale_part_and_reports_bad_file(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    part = _make_part(dst, b"12345")
+    sess = _Session(_Resp(416))
+    with pytest.raises(FetchFailure) as ei:
+        fetch_to_file("https://h/f", dst, session=sess)
+    assert ei.value.kind == "bad_file"
+    assert not os.path.exists(part)
+    assert not os.path.exists(dst)
+
+
+def test_timeout_keeps_part_for_the_next_attempt(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    part = _make_part(dst, b"12345")
+    sess = _RaisingSession(requests.Timeout("read timed out"))
+    with pytest.raises(FetchFailure) as ei:
+        fetch_to_file("https://h/f", dst, session=sess)
+    assert ei.value.kind == "timeout"
+    assert open(part, "rb").read() == b"12345"
+
+
+def test_connection_drop_mid_stream_keeps_downloaded_bytes(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    part = _make_part(dst, b"12345")
+    sess = _Session(_DropResp(b"678", requests.ConnectionError("reset"), status=206))
+    with pytest.raises(FetchFailure) as ei:
+        fetch_to_file("https://h/f", dst, session=sess)
+    assert ei.value.kind == "connection"
+    assert open(part, "rb").read() == b"12345678"
+
+
+def test_server_5xx_keeps_part_but_404_drops_it(tmp_path):
+    dst = str(tmp_path / "f.bin")
+    part = _make_part(dst, b"12345")
+    with pytest.raises(FetchFailure):
+        fetch_to_file("https://h/f", dst, session=_Session(_Resp(503)))
+    assert os.path.exists(part)
+
+    with pytest.raises(FetchFailure):
+        fetch_to_file("https://h/f", dst, session=_Session(_Resp(404)))
+    assert not os.path.exists(part)
 
 
 # ── ход скачивания для журнала ──────────────────────────────────────────────

@@ -65,7 +65,7 @@ from tqdm import tqdm
 
 import paths
 import previews as preview_mod
-from fetch import DeadHosts, FetchFailure, fetch_to_file
+from fetch import DeadHosts, FetchFailure, fetch_to_file, part_path_for
 from progress import FileProgress
 from state import State, is_deferred_error
 from utils import (
@@ -555,6 +555,11 @@ def _download_one(
 
     # Строки журнала о ходе скачивания: имя, вес, проценты, скорость и сервер.
     file_progress = FileProgress(job.remote_path, job.size)
+    # Если прошлая попытка оставила недокачанный `.part`, `fetch_to_file`
+    # продолжит его по Range — проценты и скорость считаем от этой отметки.
+    existing_part = file_size_safe(part_path_for(local_path))
+    if existing_part:
+        file_progress.resumed(existing_part)
     file_progress.start()
 
     try:

@@ -21,7 +21,6 @@ import os
 import re
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
@@ -100,9 +99,21 @@ class DeadHosts:
         self,
         ttl: float = DEAD_HOST_TTL,
         clock=time.monotonic,
+        probes: Optional[int] = None,
     ) -> None:
         self._ttl = ttl
         self._clock = clock
+        # Сколько настоящих запросов разрешить «мёртвому» хосту до истечения
+        # TTL. Обычно 0 (старое поведение: пропуск без запроса). «Зверь»
+        # задаёт 3 через YADISK_DEAD_HOST_PROBES, чтобы оживший сервер ловился
+        # в этом же круге, а не через полчаса.
+        if probes is None:
+            try:
+                probes = int(os.getenv("YADISK_DEAD_HOST_PROBES") or 0)
+            except ValueError:
+                probes = 0
+        self._probes = max(0, int(probes))
+        self._probes_left: dict[str, int] = {}
         self._hosts: dict[str, float] = {}
         self._lock = threading.Lock()
 
@@ -111,8 +122,10 @@ class DeadHosts:
             return
         with self._lock:
             self._hosts[host] = self._clock() + self._ttl
+            self._probes_left[host] = self._probes
 
     def is_dead(self, host: Optional[str]) -> bool:
+        """Чистая проверка для журнала и статусов — пробы не тратит."""
         if not host:
             return False
         now = self._clock()
@@ -122,18 +135,46 @@ class DeadHosts:
                 return False
             if until <= now:
                 self._hosts.pop(host, None)
+                self._probes_left.pop(host, None)
                 return False
+            return True
+
+    def allow(self, host: Optional[str]) -> bool:
+        """Можно ли ходить на хост сейчас.
+
+        Для живого — да. Для помеченного мёртвым — да, пока остались пробы:
+        каждая такая проверка списывает одну пробу. Так «Зверь» делает
+        несколько настоящих попыток за круг и замечает оживший сервер.
+        """
+        if not host:
+            return True
+        now = self._clock()
+        with self._lock:
+            until = self._hosts.get(host)
+            if until is None:
+                return True
+            if until <= now:
+                self._hosts.pop(host, None)
+                self._probes_left.pop(host, None)
+                return True
+            left = self._probes_left.get(host, 0)
+            if left <= 0:
+                return False
+            self._probes_left[host] = left - 1
             return True
 
     def clear(self) -> None:
         with self._lock:
             self._hosts.clear()
+            self._probes_left.clear()
 
     def snapshot(self) -> list[str]:
         """Живые (не истёкшие) мёртвые серверы — для журнала и диагностики."""
         now = self._clock()
         with self._lock:
             self._hosts = {h: t for h, t in self._hosts.items() if t > now}
+            self._probes_left = {h: n for h, n in self._probes_left.items()
+                                 if h in self._hosts}
             return sorted(self._hosts)
 
 
@@ -145,13 +186,16 @@ class FetchResult:
 
 
 def part_path_for(dst: str) -> str:
-    """Скрытый временный файл рядом с целевым.
+    """Скрытый временный файл рядом с целевым — один и тот же для одного пути.
 
-    Не `<имя>.part`: на Диске вполне может лежать настоящий файл `видео.mp4.part`,
-    и мы бы его затёрли. Плюс короткое имя не упирается в лимит длины пути.
+    Имя зависит только от `dst`, поэтому недокачанный файл находится при
+    следующей попытке и докачивается по `Range`. Не `<имя>.part`: на Диске
+    вполне может лежать настоящий файл `видео.mp4.part`, и мы бы его затёрли.
+    Плюс короткое имя не упирается в лимит длины пути.
     """
     parent = os.path.dirname(dst) or "."
-    return os.path.join(parent, f".yadisk-{uuid.uuid4().hex[:16]}.part")
+    digest = hashlib.sha1(dst.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return os.path.join(parent, f".yadisk-{digest}.part")
 
 
 def _absolute(url: str) -> str:
@@ -174,6 +218,14 @@ def _remove_quiet(path: str) -> None:
             os.remove(to_long_path(path))
     except OSError:
         pass
+
+
+def _part_size(path: str) -> int:
+    """Сколько уже лежит в недокачанном `.part` (0, если файла нет)."""
+    try:
+        return os.path.getsize(to_long_path(path))
+    except OSError:
+        return 0
 
 
 def _check_status(status: int, host: Optional[str]) -> None:
@@ -222,11 +274,21 @@ def fetch_to_file(
     host: Optional[str] = None
     response = None
 
+    # `.part` один и тот же для этого пути: если прошлая попытка оборвалась,
+    # продолжаем с того места по Range, а не качаем гигабайты заново.
+    part = part_path_for(dst)
+    resume_from = _part_size(part)
+    if expected_size is not None and resume_from >= expected_size:
+        # Обрывок не меньше файла: либо прошлая попытка успела всё записать,
+        # либо файл в облаке изменился. Проверять нечего — начинаем заново.
+        _remove_quiet(part)
+        resume_from = 0
+
     try:
         # Первый запрос — ссылка от API, редирект разбираем вручную: нужен host.
         for hop in range(5):
             hop_host = _host_of(url)
-            if dead_hosts is not None and dead_hosts.is_dead(hop_host):
+            if dead_hosts is not None and not dead_hosts.allow(hop_host):
                 raise FetchFailure(
                     "storage_skip",
                     "сервер хранения не отвечает — пропускаю без запроса",
@@ -235,6 +297,8 @@ def fetch_to_file(
             req_headers = {"Accept": "*/*"}
             if hop == 0 and headers:
                 req_headers.update(headers)
+            if resume_from > 0:
+                req_headers["Range"] = f"bytes={resume_from}-"
             try:
                 response = s.get(
                     url,
@@ -244,7 +308,9 @@ def fetch_to_file(
                     headers=req_headers,
                 )
             except requests.Timeout as e:
-                raise FetchFailure("timeout", f"таймаут соединения: {e}", host=hop_host) from e
+                wait = (storage_timeout if hop > 0 else link_timeout)[1]
+                # По-русски и по делу: сколько секунд сервер не присылал данных.
+                raise FetchFailure("timeout", f"нет данных {int(wait)} с", host=hop_host) from e
             except requests.RequestException as e:
                 raise FetchFailure("connection", f"ошибка соединения: {e}", host=hop_host) from e
 
@@ -261,23 +327,47 @@ def fetch_to_file(
         else:
             raise FetchFailure("bad_redirect", "слишком много перенаправлений", host=host)
 
-        _check_status(response.status_code, host)
+        if response.status_code == 416 and resume_from > 0:
+            # Сервер не принял начало диапазона: обрывок не подходит.
+            _remove_quiet(part)
+            raise FetchFailure(
+                "bad_file", "частичный файл не подошёл — скачаю заново", host=host
+            )
+
+        try:
+            _check_status(response.status_code, host)
+        except FetchFailure as e:
+            # На отказ (403) и «нет файла» (404) держать обрывок незачем.
+            # На 429 и 5xx — оставляем: следующий заход продолжит по Range.
+            if not e.is_deferred:
+                _remove_quiet(part)
+            raise
 
         if reject_pages:
             ctype = (response.headers.get("Content-Type") or "").lower()
             if "text/html" in ctype or "application/json" in ctype:
+                _remove_quiet(part)
                 raise FetchFailure(
                     "bad_file",
                     f"вместо файла пришла страница ({ctype.split(';')[0]})",
                     host=host,
                 )
 
-        part = part_path_for(dst)
-        _remove_quiet(part)
+        resumed = response.status_code == 206 and resume_from > 0
         hasher = hashlib.md5(usedforsecurity=False) if is_md5(expected_md5) else None
-        written = 0
+        if hasher is not None and resumed:
+            # Контрольная сумма считается по всему файлу: сначала добавляем в
+            # хеш уже скачанное, иначе итоговый MD5 будет неверным.
+            try:
+                with open(to_long_path(part), "rb") as f:
+                    for block in iter(lambda: f.read(chunk_size), b""):
+                        hasher.update(block)
+            except OSError as e:
+                _remove_quiet(part)
+                raise FetchFailure(classify_local_error(e), str(e), host=host) from e
+        written = resume_from if resumed else 0
         try:
-            with open(to_long_path(part), "wb") as f:
+            with open(to_long_path(part), "ab" if resumed else "wb") as f:
                 for chunk in response.iter_content(chunk_size=chunk_size):
                     if not chunk:
                         continue
@@ -293,15 +383,18 @@ def fetch_to_file(
                     # сервера. Частоту строки ограничивает сам получатель.
                     if progress is not None:
                         progress(written, host)
+        except requests.Timeout as e:
+            # Сеть оборвалась — `.part` оставляем для докачки по Range.
+            raise FetchFailure("timeout", f"нет данных {int(storage_timeout[1])} с", host=host) from e
+        except requests.RequestException as e:
+            # Важно раньше `OSError`: RequestException тоже наследник IOError,
+            # иначе сетевой обрыв превратился бы в «локальный диск» и снёс
+            # недокачанные байты.
+            raise FetchFailure("connection", f"обрыв соединения: {e}", host=host) from e
         except OSError as e:
+            # Локальная ошибка (место, права): недокачанное не годится.
             _remove_quiet(part)
             raise FetchFailure(classify_local_error(e), str(e), host=host) from e
-        except requests.Timeout as e:
-            _remove_quiet(part)
-            raise FetchFailure("timeout", f"обрыв по таймауту: {e}", host=host) from e
-        except requests.RequestException as e:
-            _remove_quiet(part)
-            raise FetchFailure("connection", f"обрыв соединения: {e}", host=host) from e
 
         if expected_size is not None:
             if expected_size == 0 and written == 0:
