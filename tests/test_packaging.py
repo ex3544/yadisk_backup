@@ -1201,6 +1201,27 @@ def test_missing_files_line_is_calm_not_alarming():
     assert "⚠ не получено" not in html
 
 
+def test_disk_card_counts_files_already_on_disk_as_downloaded():
+    """35.9.4: «скачано» = пришло с сервера + уже лежало на месте.
+
+    У тестера карточка показывала «4 608 / 6 438», хотя не хватало 29 файлов:
+    1 801 уже лежавший на диске считался неполученным.
+    """
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    assert ("const diskDone = (dd.done != null) ? +dd.done "
+            ": (dd.downloaded || 0) + (dd.skipped || 0);") in html
+    # Числитель карточки берёт готовое значение, а не только скачанное сервером.
+    start = html.index("const diskDoneEl = document.getElementById('home-disk-done');")
+    chunk = html[start:start + 900]
+    assert "diskDone.toLocaleString('ru')" in chunk
+    assert "(dd.downloaded || 0).toLocaleString('ru')" not in chunk
+    # И видно, откуда взялись лишние файлы в числителе.
+    assert "'лежали'} на диске" in html
+    # У Безлимита skipped — сбой, поэтому его «скачано» — только downloaded.
+    assert ("const unlimDownloaded = (ud.done != null) ? +ud.done "
+            ": (ud.downloaded || 0);") in html
+
+
 def test_plates_show_how_many_files_are_still_missing():
     """35.6.9: «не получено» — включая сбойные, сгоревшие и ждущие Яндекса."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")

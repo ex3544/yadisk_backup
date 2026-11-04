@@ -49,6 +49,7 @@ import previews
 import profiles
 import relocate as relocate_mod
 import selection
+import state
 import unlim_dates
 import updater
 import verify as verify_mod
@@ -2138,15 +2139,19 @@ def _storage_host(error: object) -> str:
 def db_stats(db_file: Path, table: str = "files",
              id_col: str = "remote_path") -> dict:
     if not db_file.exists():
-        return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
+        return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0, "done": 0,
                 "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
                 "lost": 0, "denied": 0, "deleted": 0, "excluded": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
+    # «Скачано» — по правилу из state: у Диска сюда входит и skipped (файл уже
+    # лежал на месте), у Безлимита skipped — сбойная попытка.
+    done_statuses = (state.DONE_STATUSES if table == "files"
+                     else state.UNLIM_DONE_STATUSES)
     c = None
     try:
         c = sqlite3.connect(sqlite_ro_uri(db_file), uri=True, timeout=30)
         c.row_factory = sqlite3.Row
-        out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
+        out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0, "done": 0,
                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
                "lost": 0, "denied": 0, "deleted": 0, "excluded": 0,
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
@@ -2158,6 +2163,8 @@ def db_stats(db_file: Path, table: str = "files",
             if st not in out:
                 out[st] = 0
             out[st] = r["n"]
+            if st in done_statuses:
+                out["done"] += r["n"]
             # «Удалён из облака» — это история, а не очередь: в общий объём
             # такие файлы не входят, иначе полоса готовности откатывалась бы
             # назад после «Пометить пропавшие».
@@ -2168,7 +2175,7 @@ def db_stats(db_file: Path, table: str = "files",
             # Объём по каждому статусу: по нему считается остаток в гигабайтах
             # для плашек и таймера.
             out["bytes_by_status"][st] = r["b"]
-            if st in ("downloaded", "skipped"):
+            if st in done_statuses:
                 out["bytes_done"] += r["b"]
         # «Ждут Яндекса»: файлы, которые не сбойные, а отложены до ответа
         # сервера хранения. Считаем отдельно от failed — иначе плашка пугает.

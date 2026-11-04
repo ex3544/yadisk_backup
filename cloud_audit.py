@@ -29,6 +29,7 @@ from typing import Callable, Optional
 
 import exclusions
 import paths
+import state
 from utils import human_bytes, human_duration, volume_ready
 
 SCOPES = ("disk", "unlim")
@@ -470,14 +471,17 @@ def _waiting_count(rows: dict[str, dict]) -> int:
     )
 
 
-def _base_stats(files: dict[str, dict], rows: dict[str, dict]) -> dict:
+def _base_stats(files: dict[str, dict], rows: dict[str, dict],
+                scope: str = "disk") -> dict:
     """Итоги одной базы: облако, база и разбивка по статусам."""
     statuses = _db_status_counts(rows)
     waiting = _waiting_count(rows)
+    # У Диска файл, который уже лежал на месте (`skipped`), тоже скачан.
+    done = state.DONE_STATUSES if scope == "disk" else state.UNLIM_DONE_STATUSES
     return {
         "cloud": len(files),
         "db": len(rows),
-        "downloaded": statuses.get("downloaded", 0),
+        "downloaded": sum(statuses.get(st, 0) for st in done),
         "lost": statuses.get("lost", 0),
         "waiting": waiting,
         "pending": statuses.get("pending", 0) + statuses.get("in_progress", 0),
@@ -592,7 +596,7 @@ def run(
                 files = scan_unlim_cloud(paths.COOKIES_FILE, on_progress=progress,
                                          on_error=report_error)
             rows = load_db_rows(base)
-            per_base[base] = _base_stats(files, rows)
+            per_base[base] = _base_stats(files, rows, base)
             for key, info in files.items():
                 cloud[f"{base}:{key}"] = info
             for key, row in rows.items():

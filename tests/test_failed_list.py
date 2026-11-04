@@ -26,6 +26,7 @@ def _make_dbs(tmp_path: Path) -> tuple[Path, Path]:
             ("disk:/a.jpg", 10, "deleted", "PathNotFound", 3),
             ("disk:/lost.bin", 100, "lost", "сервер не отвечает", 0),
             ("disk:/ok.jpg", 5, "downloaded", "", 1),
+            ("disk:/already.jpg", 12, "skipped", "", 2),
             ("disk:/wait.jpg", 7, "pending", "", 0),
             ("disk:/skip.txt", 8, "excluded", "", 0),
             ("disk:/now.jpg", 9, "in_progress", "", 1),
@@ -71,6 +72,11 @@ def test_collect_keeps_everything_not_downloaded(tmp_path):
 
     by_name = {it["name"]: it for it in data["disk"]["items"]}
     assert "ok.jpg" not in by_name  # скачанное в список не попадает
+    # 35.9.4: файл, который уже лежал на месте, тоже скачан — его не считаем
+    # невыгруженным. У Безлимита skipped остаётся в списке (это сбой).
+    assert "already.jpg" not in by_name
+    # ...а у Безлимита skipped — сбойная попытка, он остаётся в списке
+    assert data["unlim"]["counts"]["skipped"] == 1
     assert by_name["снимок 1.jpg"]["status_label"] == "ошибка загрузки"
     assert by_name["wait.jpg"]["status_label"] == "в очереди"
     assert by_name["now.jpg"]["status_label"] == "качается сейчас"

@@ -5888,7 +5888,9 @@ async function refresh(){
     const isDiskScanning = isDiskRunning && (diskTask?.log_tail || []).some(l => /scan|Обхожу/i.test(l));
     const diskDoneEl = document.getElementById('home-disk-done');
     const totalDisk = dd.total || 0;
-    const diskDone = (dd.downloaded || 0) + (dd.skipped || 0);
+    // Скачанное = пришло с сервера + уже лежало на месте. Сервер отдаёт `done`
+    // по правилу state.DONE_STATUSES; запасной счёт — для старых ответов.
+    const diskDone = (dd.done != null) ? +dd.done : (dd.downloaded || 0) + (dd.skipped || 0);
 
     if (diskDoneEl) {
       if (isDiskScanning) {
@@ -5896,7 +5898,7 @@ async function refresh(){
       } else if (diskDone === 0 && totalDisk > 0) {
         setSafeHTML(diskDoneEl, `<span style="font-size:20px;color:var(--green)">✓ ${totalDisk.toLocaleString('ru')} в базе</span>`);
       } else {
-        setText(diskDoneEl, (dd.downloaded || 0).toLocaleString('ru') + (totalDisk ? ` / ${totalDisk.toLocaleString('ru')}` : ''));
+        setText(diskDoneEl, diskDone.toLocaleString('ru') + (totalDisk ? ` / ${totalDisk.toLocaleString('ru')}` : ''));
       }
     }
     const diskInfoEl = document.getElementById('home-disk-info');
@@ -5906,7 +5908,13 @@ async function refresh(){
       } else if (diskDone === 0 && totalDisk > 0) {
         setSafeHTML(diskInfoEl, `<span style="color:var(--green)">✓ Все файлы в статусе pending (готовы к выгрузке)</span>`);
       } else {
-        setText(diskInfoEl, `${human(dd.bytes_done || 0)} из ${human(dd.bytes_total || 0)}`);
+        // Откуда взялись лишние файлы в числителе: они уже были на диске.
+        const skippedDisk = +dd.skipped || 0;
+        const hint = skippedDisk > 0
+          ? ` · ${skippedDisk.toLocaleString('ru')} уже ${skippedDisk === 1 ? 'лежал' : 'лежали'} на диске`
+          : '';
+        setText(diskInfoEl,
+                `${human(dd.bytes_done || 0)} из ${human(dd.bytes_total || 0)}${hint}`);
       }
     }
     const diskBarEl = document.getElementById('home-disk-bar');
@@ -5948,7 +5956,8 @@ async function refresh(){
     const isUnlimScanning = isUnlimRunning && (unlimTask?.log_tail || []).some(l => /фотосреза|кластер|scan/i.test(l));
     const unlimDoneEl = document.getElementById('home-unlim-done');
     const totalUnlim = uSum.total_files || ud.total || 0;
-    const unlimDownloaded = ud.downloaded || 0;
+    // У Безлимита `done` — это только downloaded: skipped там сбойная попытка.
+    const unlimDownloaded = (ud.done != null) ? +ud.done : (ud.downloaded || 0);
     // «Не получено» для Безлимита: всё, кроме downloaded (skipped здесь —
     // это сбойные файлы, а не скачанные). Размеров нескачанных в базе нет,
     // поэтому вес оценочный — по среднему размеру уже скачанного файла.

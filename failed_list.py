@@ -8,7 +8,8 @@
   * pending     — стоит в очереди;
   * in_progress — качается прямо сейчас;
   * failed      — ошибка загрузки файла Диска;
-  * skipped     — неудачная попытка Безлимита;
+  * skipped     — неудачная попытка Безлимита (у Диска такой файл уже лежит
+                  на диске и считается скачанным);
   * lost        — файл ждёт серверы Яндекса, попытка будет позже;
   * denied      — сервер ответил 403, доступа нет;
   * deleted     — файла больше нет в облаке (404/410);
@@ -29,8 +30,15 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-# Скачанное — единственный статус, который в отчёт не попадает.
-SKIP_STATUSES = ("downloaded",)
+import state
+
+# Что в отчёт не попадает. У Диска скачанным считается и `skipped` — файл уже
+# лежал на месте нужного размера; у Безлимита `skipped` — сбойная попытка, её
+# в списке невыгруженного показываем. Это то же правило, что в state.py.
+SKIP_STATUSES = {
+    "files": tuple(state.DONE_STATUSES),
+    "unlim_files": tuple(state.UNLIM_DONE_STATUSES),
+}
 
 STATUS_LABELS = {
     "pending": "в очереди",
@@ -137,12 +145,13 @@ def _rows(db_path, table: str, columns: str):
     con = _connect_readonly(db_path)
     if con is None:
         return []
-    marks = ",".join("?" for _ in SKIP_STATUSES)
+    skip = SKIP_STATUSES.get(table, ("downloaded",))
+    marks = ",".join("?" for _ in skip)
     try:
         return con.execute(
             f"SELECT {columns} FROM {table} "
             f"WHERE COALESCE(status, '') NOT IN ({marks})",
-            SKIP_STATUSES,
+            skip,
         ).fetchall()
     except sqlite3.Error:
         return []

@@ -78,6 +78,16 @@ LOST_RETRY_SEC = 30 * 60
 # один прогон превращается в сплошные повторы.
 LOST_RETURN_LIMIT = 200
 
+# «Скачано» с точки зрения человека: файл либо только что скачали, либо он
+# уже лежал на месте нужного размера (resume → status='skipped'). Какая разница,
+# кто и когда его положил — сейчас он на диске, значит получен. Раньше из-за
+# этого карточка Диска показывала «4 608 / 6 438», хотя не хватало 29 файлов:
+# 1 801 скачанный числился пропущенным.
+DONE_STATUSES = ("downloaded", "skipped")
+
+# У Безлимита 'skipped' — сбойная попытка, а не готовый файл.
+UNLIM_DONE_STATUSES = ("downloaded",)
+
 
 def is_deferred_error(error: object) -> bool:
     return isinstance(error, str) and error.startswith(DEFERRED_PREFIX)

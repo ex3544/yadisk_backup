@@ -428,3 +428,21 @@ def test_actions_refuse_while_audit_is_running(env, monkeypatch):
     })
     with pytest.raises(cloud_audit.AuditError):
         cloud_audit.add_new()
+
+
+def test_base_stats_treats_skipped_as_downloaded_only_on_disk():
+    """35.9.4: у Диска skipped — файл уже на месте; у Безлимита — сбой."""
+    disk_rows = {
+        "disk:/a.jpg": {"status": "downloaded"},
+        "disk:/b.jpg": {"status": "skipped"},
+        "disk:/c.jpg": {"status": "pending"},
+    }
+    disk = cloud_audit._base_stats({}, disk_rows, "disk")
+    assert disk["downloaded"] == 2
+
+    unlim_rows = {
+        "f1": {"status": "downloaded"},
+        "f2": {"status": "skipped"},
+    }
+    unlim = cloud_audit._base_stats({}, unlim_rows, "unlim")
+    assert unlim["downloaded"] == 1

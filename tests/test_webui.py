@@ -178,6 +178,61 @@ def test_db_stats_missing_file(tmp_path):
     assert out["recent"] == []
 
 
+def test_db_stats_done_counts_skipped_on_disk(tmp_path):
+    """35.9.4: файл, который уже лежал на месте, — тоже скачан.
+
+    У тестера так накопилось 1 801 файл: в числителе карточки их не было,
+    и «4 608 / 6 438» выглядело как 1 830 неполученных при реальных 29.
+    """
+    db = tmp_path / "state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE files (remote_path TEXT PRIMARY KEY, size INTEGER, "
+        "status TEXT, local_path TEXT, error TEXT, downloaded_at TIMESTAMP)"
+    )
+    con.executemany(
+        "INSERT INTO files (remote_path, size, status) VALUES (?, ?, ?)",
+        [
+            ("disk:/a.jpg", 10, "downloaded"),
+            ("disk:/b.jpg", 20, "skipped"),
+            ("disk:/c.jpg", 30, "pending"),
+            ("disk:/d.jpg", 40, "deleted"),
+        ],
+    )
+    con.commit()
+    con.close()
+
+    out = webui.db_stats(db, "files", "remote_path")
+    assert out["done"] == 2          # downloaded + skipped
+    assert out["total"] == 3         # deleted — история, не очередь
+    assert out["bytes_done"] == 30
+
+
+def test_db_stats_done_ignores_skipped_for_unlim(tmp_path):
+    """У Безлимита skipped — сбойная попытка, скачанным не считается."""
+    db = tmp_path / "unlim_state.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE unlim_files (file_id TEXT PRIMARY KEY, name TEXT, "
+        "size INTEGER, status TEXT, local_path TEXT, error TEXT, "
+        "downloaded_at TIMESTAMP)"
+    )
+    con.executemany(
+        "INSERT INTO unlim_files (file_id, name, size, status) "
+        "VALUES (?, ?, ?, ?)",
+        [
+            ("f1", "a.jpg", 10, "downloaded"),
+            ("f2", "b.jpg", 20, "skipped"),
+        ],
+    )
+    con.commit()
+    con.close()
+
+    out = webui.db_stats(db, "unlim_files", "file_id")
+    assert out["done"] == 1
+    assert out["bytes_done"] == 10
+
+
 def test_preview_groups_by_category(disk_db):
     out = webui.preview_db(disk_db, "files", "remote_path")
     assert out["empty"] is False

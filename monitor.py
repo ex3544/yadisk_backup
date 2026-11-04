@@ -91,9 +91,12 @@ def save_state(state: dict, path: Optional[Path] = None) -> None:
 
 def _db_part(db: dict | None) -> dict:
     db = db or {}
+    # «Скачано» считается по правилу state: у Диска сюда входит и skipped
+    # (файл уже лежал на месте), у Безлимита он остаётся сбоем.
+    done = db.get("done")
     return {
         "total": int(db.get("total", 0) or 0),
-        "downloaded": int(db.get("downloaded", 0) or 0),
+        "downloaded": int(done if done is not None else (db.get("downloaded", 0) or 0)),
         "pending": int(db.get("pending", 0) or 0),
         "failed": int(db.get("failed", 0) or 0),
     }
