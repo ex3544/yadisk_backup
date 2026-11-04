@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv, set_key
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ import backups
 import cloud_audit as cloud_audit_mod
 import diagnostics
 import exclusions
+import failed_list
 import guide
 import monitor
 import paths
@@ -5487,6 +5488,69 @@ def api_open_reports():
         return {"ok": True, "path": str(paths.REPORT_DIR)}
     except Exception as e:
         return {"ok": False, "error": str(e), "path": str(paths.REPORT_DIR)}
+
+
+# ── Файлы, которые не удалось скачать ──────────────────────────────────────
+# Только чтение баз: список нужен, чтобы вручную найти файл на сайте Яндекса.
+
+def _failed_data(limit: int | None = None) -> dict:
+    cfg = get_config()
+    disk_dir = (cfg.get("disk_dir") or cfg.get("download_dir")
+                or str(paths.DEFAULT_DISK_DIR))
+    unlim_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
+    return failed_list.collect(
+        DB_FILE, UNLIM_DB_FILE, disk_dir, unlim_dir, limit=limit)
+
+
+@app.get("/api/failed")
+def api_failed(limit: int = 200):
+    limit = max(0, min(int(limit or 0), 2000))
+    return _failed_data(limit or None)
+
+
+@app.get("/api/failed/export")
+def api_failed_export(fmt: str = "txt", line: str = "all"):
+    """Готовит TXT или CSV и сразу отдаёт его браузеру на скачивание."""
+    fmt = "csv" if str(fmt).lower() == "csv" else "txt"
+    line = str(line).lower()
+    data = _failed_data()
+    if line == "disk":
+        data["unlim"] = {"total": 0, "counts": {}, "items": []}
+    elif line == "unlim":
+        data["disk"] = {"total": 0, "counts": {}, "items": []}
+    text = failed_list.render_csv(data) if fmt == "csv" else failed_list.render_txt(data)
+    name = failed_list.export_filename(fmt)
+    try:
+        paths.REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        (paths.REPORT_DIR / name).write_text(text, encoding="utf-8")
+    except OSError:
+        # Не смогли сохранить копию — файл всё равно отдаём на скачивание.
+        pass
+    media = "text/csv; charset=utf-8" if fmt == "csv" else "text/plain; charset=utf-8"
+    return Response(
+        content=text.encode("utf-8"),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+class OpenUrlPayload(BaseModel):
+    url: str = ""
+
+
+@app.post("/api/open_url")
+def api_open_url(payload: OpenUrlPayload):
+    """Открывает ссылку на файл в браузере. Только Яндекс.Диск."""
+    url = (payload.url or "").strip()
+    parts = urlsplit(url)
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in {
+            "disk.yandex.ru", "yandex.ru"}:
+        return JSONResponse(
+            {"ok": False, "error": "Разрешены только ссылки на Яндекс.Диск"},
+            status_code=400)
+    import webbrowser
+    webbrowser.open(url)
+    return {"ok": True}
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

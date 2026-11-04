@@ -260,9 +260,10 @@ def test_watchdog_is_a_compact_strip_between_the_folders_and_token():
     assert "Проверяет диск раз в 30 секунд и останавливает выгрузку" not in setup
     assert "проверяет свободное место раз в 30 секунд" in setup  # это уже подсказка
     assert "#watchdog-card{padding:10px 14px}" in html
-    # Две независимые колонки, чтобы сторож не уезжал вниз за высокий блок кук.
-    assert 'class="setup-col"' in setup
-    assert ".setup-col{display:flex;flex-direction:column;gap:12px}" in html
+    # Две независимые колонки: сторож в левой, «Доступ к Яндексу» — в правой.
+    assert 'class="tab-col" data-col="left"' in setup
+    assert 'class="tab-col" data-col="right"' in setup
+    assert ".tab-col{display:flex;flex-direction:column;gap:12px;min-width:0}" in html
     assert 'data-panel="setup"] .card:nth-child(' not in html
 
 
@@ -413,8 +414,10 @@ def test_watchdog_lives_in_settings_with_status_pill():
 
     # Пилюля показывает состояние, но не управляет сторожем.
     assert "pill-watchdog-text" in html
-    assert "pillText.textContent = `🛡 ${w.threshold_gb} ГБ`" in html
-    assert "pillText.textContent = '🛡 выкл'" in html
+    assert '<symbol id="i-shield"' in html
+    assert '<use href="#i-shield"/>' in html
+    assert "pillText.textContent = `${w.threshold_gb} ГБ`" in html
+    assert "pillText.textContent = 'выкл'" in html
 
 
 def test_queue_reset_lives_in_diagnostics_and_fits_its_buttons():
@@ -630,8 +633,10 @@ def test_service_pills_look_different_from_download_totals():
     assert ".pill.service{" in html
     assert ".pill.info{" in html
     # Сторож включён — тот же овал без заливки и рамки: состояние показывают
-    # только точка и цвет текста, поэтому плашка не выглядит выше соседних.
-    assert "pill.className = 'pill service on';" in html
+    # только щит и цвет текста, поэтому плашка не выглядит выше соседних.
+    # Меняем только классы состояния, иначе слетает clickable.
+    assert "pill.classList.toggle('on', active);" in html
+    assert "pill.classList.toggle('err', triggered);" in html
     assert ".pill.service.on{background:transparent;border-color:transparent" in html
     assert "pill.className = 'pill info';" not in html
 
@@ -697,10 +702,17 @@ def test_ui_speaks_to_the_user_formally():
 
 
 def test_home_layout_has_no_empty_half():
+    """35.9.1: главная — две колонки карточек, обе заполнены, пустой половины нет."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    home = _panel_html(html, "home")
 
-    assert "align-content:start;" in html
-    assert ".panel[data-panel=\"home\"] > .card:not(#pipeline-card){grid-column:1 / -1}" in html
+    assert 'class="tab-grid" data-tab-grid="home"' in home
+    assert ".tab-grid{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:start}" in html
+    left = home[home.index('class="tab-col" data-col="left"'):home.index('class="tab-col" data-col="right"')]
+    right = home[home.index('class="tab-col" data-col="right"'):]
+    assert 'id="launch-all-card"' in left
+    assert 'id="home-unlim-card"' in right
+    assert 'id="pipeline-card"' in right
 
 
 def test_main_sets_utf8_stdout_before_scanning():
@@ -825,7 +837,8 @@ def test_folder_check_button_explains_the_path():
     py = (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
     utils = (PROJECT_DIR / "utils.py").read_text(encoding="utf-8")
 
-    assert html.count("Проверить папку") >= 4  # две карточки + два шага мастера
+    assert html.count("Проверить папку") >= 2  # два шага мастера
+    assert html.count("Проверить и сохранить") >= 2  # две карточки папок
     assert "function checkFolder(inputId, statusId)" in html
     assert "function _looksAbsolute(p)" in html
     assert "Полный путь с буквой диска" in html
@@ -1122,19 +1135,21 @@ def test_start_button_text_is_visible_in_light_theme():
 
 
 def test_home_stats_sit_above_the_log_in_header_order():
-    """35.6.9: плашки итогов — над журналом, Безлимит первым, как в шапке."""
+    """35.9.1: плашки итогов — в правой колонке, над журналом, Безлимит первым."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    stats = html.index('<div class="grid-2 home-stats compact">')
-    log = html.index('id="pipeline-card"')
+    home = _panel_html(html, "home")
+    right = home[home.index('class="tab-col" data-col="right"'):]
+
+    stats = right.index('id="home-unlim-card"')
+    log = right.index('id="pipeline-card"')
     assert stats < log, "плашки должны идти до окна «Выполнение процесса»"
-    chunk = html[stats:log]
+    assert right.index('id="home-disk-card"') < log
+    chunk = right[stats:log]
     assert chunk.index('id="home-unlim-done"') < chunk.index('id="home-disk-done"')
     assert "photoslice" not in html
-    # Плашки и журнал — один правый столбик: журнал вплотную под плашками.
-    assert ".home-right{display:flex;flex-direction:column;gap:12px}" in html
-    assert ".home-right{grid-column:2;grid-row:1}" in html
-    # Левая колонка больше не растягивает первый ряд на две строки —
-    # именно из-за этого под плашками оставалась пустота.
+    # Плашки и журнал — одна правая колонка: журнал вплотную под плашками.
+    # Старая сетка с отдельным .home-right больше не используется.
+    assert ".home-right{" not in html
     assert "grid-row:1 / span 2" not in html
     assert '"grid-row:2"' not in html
 
@@ -1478,7 +1493,7 @@ def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
         "launch-manual-card", "pipeline-card", "organize-card", "backups-card",
         "profiles-card", "export-dirs-card", "watchdog-card", "access-card",
         "previews-card", "picker-card", "diag-report-card",
-        "verify-card", "cloud-audit-card", "reports-card",
+        "verify-card", "failed-card", "cloud-audit-card", "reports-card",
         "reset-queue-card", "db-card", "find-files-card", "update-card",
     ]
     start = html.index("['home-unlim-card'")
@@ -1698,3 +1713,130 @@ def test_35_9_0_exclusions_resume_and_old_folder_ui():
     # Обратная связь — в шапке, отдельным окном.
     assert 'id="feedback-btn"' in html
     assert 'id="feedback-modal"' in html
+
+
+def test_cards_can_move_between_columns_in_all_four_tabs():
+    """35.9.1: карточки перетаскиваются между колонками, раскладка запоминается."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    # В каждой из четырёх вкладок — две колонки и своя сетка.
+    for panel in ("home", "organize", "setup", "diagnostics"):
+        chunk = _panel_html(html, panel)
+        assert f'class="tab-grid" data-tab-grid="{panel}"' in chunk
+        assert 'class="tab-col" data-col="left"' in chunk
+        assert 'class="tab-col" data-col="right"' in chunk
+        assert f"resetCardLayout('{panel}')" in chunk
+
+    # Раскладка хранится по вкладке, тянется за ручку, а не за всё окно.
+    assert "const CARD_LAYOUT_PREFIX = 'ui-card-layout:v1:';" in html
+    assert "function initCardLayouts()" in html
+    assert "initCardLayouts();" in html
+    assert "function resetCardLayout(name)" in html
+    assert "pointerdown" in html and "pointermove" in html
+    assert ".card-drag{" in html and ".card-drag-ghost{" in html
+    assert ".card-drop-line{" in html
+
+    # На узком окне колонки складываются в одну, ручки не мешают полям.
+    assert "@media (max-width:1199px){" in html
+    assert ".tab-grid{grid-template-columns:1fr}" in html
+
+
+def test_folder_fields_save_themselves():
+    """35.9.1: «Проверить» больше не выглядит сохранением — поле сохраняется само."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "function saveDirSetting(target, opts)" in html
+    assert "function checkAndSaveDir(target, opts)" in html
+    assert "function autoSaveDir(target)" in html
+    assert "function _anyDownloadRunning()" in html
+
+    # Проверка пути и сохранение — один шаг; кнопка так и называется.
+    assert "/api/check_dir" in html
+    assert "/api/config/dirs" in html
+    assert html.count("Проверить и сохранить") >= 2
+    assert html.count('onblur="autoSaveDir(') >= 2
+    assert "checkAndSaveDir('disk')" in html and "checkAndSaveDir('unlim')" in html
+
+    # Выбор папки через «Обзор…» сохраняется сразу, без второй кнопки.
+    assert "if(!explicitInputId && (target === 'disk' || target === 'unlim'))" in html
+    assert "checkAndSaveDir(target);" in html
+
+    # Пока идут задачи — спрашиваем, а не меняем папку молча.
+    assert "_anyDownloadRunning()" in html
+
+    # Строка «Сейчас сохранено: …» показывает, куда реально пойдут новые файлы.
+    assert 'id="disk-dir-current"' in html and 'id="unlim-dir-current"' in html
+    assert "class=\"setup-hint dir-current\"" in html
+
+
+def test_find_files_offers_to_switch_download_folder():
+    """35.9.1: после перепривязки предлагаем переключить папку выгрузки."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="find-folder-warning"' in html
+    assert 'id="find-folder-switch-btn"' in html
+    assert 'onclick="switchDownloadDirFromFind()"' in html
+    assert "function switchDownloadDirFromFind()" in html
+    assert "function updateFindFolderWarning(" in html
+    assert "function hideFindFolderWarning()" in html
+    # Переключение — через общее сохранение папки, без отдельного .env-хака.
+    assert "saveDirSetting(" in html
+
+
+def test_export_folder_tabs_start_with_unlim():
+    """35.9.1: в «Папках выгрузки» сначала Безлимит, он же открыт по умолчанию."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    card = html[html.index('id="export-dirs-card"'):]
+    card = card[:card.index('id="watchdog-card"')]
+
+    assert card.index('data-ctab="unlim"') < card.index('data-ctab="disk"')
+    assert 'class="ctab active" type="button" role="tab" aria-selected="true"' in card
+    assert 'class="ctab-panel active" data-ctab-panel="unlim"' in card
+    assert 'class="ctab-panel" data-ctab-panel="disk"' in card
+
+
+def test_pipeline_resizes_as_whole_card_and_grip_stops_at_corners():
+    """35.9.1: тянется вся карточка журнала, полоска не выходит на скругления."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "#pipeline-card{display:flex;flex-direction:column}" in html
+    assert "#pipeline-card #pipeline-console{flex:1 1 auto;" in html
+    assert "min-height:140px;max-height:none" in html
+    # Внутренний журнал отдельной ручкой больше не растягивается.
+    assert "makeResizable(document.getElementById('pipeline-console')" not in html
+    assert "[['home-unlim-card'" not in html
+    # Полоска захвата короче карточки на скругления.
+    assert "left:12px;right:12px;bottom:2px;height:2.5px" in html
+
+
+def test_card_borders_are_thicker_and_have_shadow():
+    """35.9.1: рамки карточек заметнее, у карточки мягкая тень."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert "--card-line:rgba(255,255,255,.30);" in html
+    assert "--card-line:rgba(0,0,0,.28);" in html
+    assert "--card-line-hover:rgba(255,255,255,.46);" in html
+    assert "--card-line-hover:rgba(0,0,0,.44);" in html
+    assert "border:2px solid var(--card-line);" in html
+    assert "box-shadow:var(--card-shadow);" in html
+    assert ".card:hover{border-color:var(--card-line-hover)}" in html
+
+
+def test_failed_files_card_lists_names_with_export_and_links():
+    """35.9.1: «Не скачалось» — имена, пути, дата и ссылка на Яндекс.Диск."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="failed-card"' in html
+    assert 'data-ftab="disk"' in html and 'data-ftab="unlim"' in html
+    assert 'id="failed-list"' in html and 'id="failed-summary"' in html
+    assert "onclick=\"exportFailed('txt')\"" in html
+    assert "onclick=\"exportFailed('csv')\"" in html
+    assert "function switchFailedTab(" in html
+    assert "async function loadFailedList(" in html
+    assert "function renderFailedList(" in html
+    assert "async function openFailedUrl(" in html
+    assert "async function exportFailed(" in html
+    # Ссылки открываются только после проверки адреса на сервере.
+    assert "fetch('/api/open_url'" in html
+    # Читаем список при входе на «Диагностику», без фонового опроса.
+    assert "if(name === 'diagnostics'){ loadFailedList(false); }" in html

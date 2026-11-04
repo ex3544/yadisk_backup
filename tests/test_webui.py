@@ -2020,3 +2020,91 @@ def test_exclusions_api_refuses_while_tasks_run(monkeypatch):
     out = webui.api_set_exclusions(webui.ExclusionsPayload(items=["disk:/a"]))
     assert out["ok"] is False
     assert "остановите" in out["msg"]
+
+
+# ── 35.9.1: список «что не скачалось» и безопасные ссылки ──────────────────
+
+
+def _failed_env(tmp_path, monkeypatch):
+    disk_db = tmp_path / "state.db"
+    unlim_db = tmp_path / "unlim_state.db"
+
+    con = sqlite3.connect(disk_db)
+    con.execute("CREATE TABLE files (remote_path TEXT PRIMARY KEY, size INTEGER, "
+                "status TEXT, local_path TEXT, error TEXT, attempts INTEGER)")
+    con.executemany(
+        "INSERT INTO files (remote_path, size, status, error, attempts) "
+        "VALUES (?,?,?,?,?)",
+        [("disk:/Фото/снимок 1.jpg", 2048, "failed", "HTTP 500", 3),
+         ("disk:/ok.jpg", 5, "downloaded", "", 1)],
+    )
+    con.commit()
+    con.close()
+
+    con = sqlite3.connect(unlim_db)
+    con.execute("CREATE TABLE unlim_files (file_id TEXT PRIMARY KEY, "
+                "cluster_id TEXT, name TEXT, size INTEGER, status TEXT, "
+                "local_path TEXT, error TEXT, attempts INTEGER)")
+    con.execute("INSERT INTO unlim_files (file_id, cluster_id, name, size, "
+                "status, error, attempts) VALUES (?,?,?,?,?,?,?)",
+                ("fid1", "0000001791626926000_abc", "2026-10-10 13-09-22.JPG",
+                 1024, "skipped", "HTTP 500", 4))
+    con.commit()
+    con.close()
+
+    monkeypatch.setattr(webui, "DB_FILE", disk_db)
+    monkeypatch.setattr(webui, "UNLIM_DB_FILE", unlim_db)
+    monkeypatch.setattr(webui, "get_config", lambda: {
+        "disk_dir": r"D:\Backup\Disk", "download_dir": r"D:\Backup\Disk",
+        "unlim_dir": r"D:\Backup\Unlim"})
+    monkeypatch.setattr(webui.paths, "REPORT_DIR", tmp_path / "reports")
+    return tmp_path / "reports"
+
+
+def test_failed_api_lists_both_lines(tmp_path, monkeypatch):
+    _failed_env(tmp_path, monkeypatch)
+    out = webui.api_failed(limit=200)
+    assert out["disk"]["total"] == 1
+    assert out["disk"]["items"][0]["name"] == "снимок 1.jpg"
+    assert out["disk"]["items"][0]["url"].startswith(
+        "https://disk.yandex.ru/client/disk/")
+    assert out["unlim"]["items"][0]["date"] == "2026-10-10 13:09:22"
+
+
+def test_failed_export_csv_single_line_and_saved(tmp_path, monkeypatch):
+    reports = _failed_env(tmp_path, monkeypatch)
+    resp = webui.api_failed_export(fmt="csv", line="disk")
+    body = resp.body.decode("utf-8")
+    assert body.startswith("\ufeff")
+    assert "Обычный Диск" in body
+    assert "Безлимит;" not in body
+    assert 'filename="failed-' in resp.headers["content-disposition"]
+    saved = list(reports.glob("failed-*.csv"))
+    assert len(saved) == 1
+    assert saved[0].read_text(encoding="utf-8").startswith("\ufeff")
+
+
+def test_failed_export_unlim_only_txt(tmp_path, monkeypatch):
+    _failed_env(tmp_path, monkeypatch)
+    resp = webui.api_failed_export(fmt="txt", line="unlim")
+    body = resp.body.decode("utf-8")
+    assert "БЕЗЛИМИТ" in body
+    assert "2026-10-10 13:09:22" in body
+    assert "снимок 1.jpg" not in body
+
+
+def test_open_url_allows_only_yandex_disk(monkeypatch):
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+
+    good = webui.api_open_url(webui.OpenUrlPayload(
+        url="https://disk.yandex.ru/client/disk/a.jpg"))
+    assert good == {"ok": True}
+    assert opened == ["https://disk.yandex.ru/client/disk/a.jpg"]
+
+    for bad in ("http://disk.yandex.ru/client/disk/a.jpg",
+                "https://evil.example/a",
+                "https://disk.yandex.ru.evil.example/a"):
+        resp = webui.api_open_url(webui.OpenUrlPayload(url=bad))
+        assert resp.status_code == 400
+    assert len(opened) == 1

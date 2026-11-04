@@ -14,7 +14,9 @@
     --hairline:rgba(255,255,255,.08);
     --hairline-strong:rgba(255,255,255,.14);
     /* Рамки карточек: заметнее волосяных линий, но всё ещё спокойные. */
-    --card-line:rgba(255,255,255,.17);
+    --card-line:rgba(255,255,255,.30);
+    --card-line-hover:rgba(255,255,255,.46);
+    --card-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 2px rgba(0,0,0,.4);
     --text:#f5f5f7;
     --text-secondary:#aeaeb2;
     --text-tertiary:#8e8e93;
@@ -46,7 +48,9 @@
     --surface3:#d9d9de;
     --hairline:rgba(0,0,0,.08);
     --hairline-strong:rgba(0,0,0,.16);
-    --card-line:rgba(0,0,0,.19);
+    --card-line:rgba(0,0,0,.28);
+    --card-line-hover:rgba(0,0,0,.44);
+    --card-shadow:0 6px 18px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.06);
     --text:#1c1c1e;
     --text-secondary:#48484a;
     --text-tertiary:#6c6c70;
@@ -65,7 +69,6 @@
   /* Белые «стеклянные» подложки на светлой теме не видны — даём серую. */
   html[data-theme="light"] .pill.service{background:rgba(0,0,0,.04)}
   html[data-theme="light"] .pill .dot{box-shadow:none}
-  html[data-theme="light"] .card{box-shadow:0 1px 3px rgba(0,0,0,.07)}
 
   /* Доступность (C4): заметный фокус с клавиатуры и щадящие анимации. */
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -305,15 +308,37 @@
   /* ── Card ── */
   .card{
     background:var(--surface);
-    border:1px solid var(--card-line);
+    border:2px solid var(--card-line);
     border-radius:14px;
     padding:16px;
     margin-bottom:12px;
-    transition:border-color .2s;
+    box-shadow:var(--card-shadow);
+    transition:border-color .2s,box-shadow .2s;
   }
-  .card:hover{border-color:var(--hairline-strong)}
+  .card:hover{border-color:var(--card-line-hover)}
   .card-title{font-size:17px;font-weight:600;letter-spacing:-.02em;margin-bottom:2px}
   .card-sub{font-size:13px;color:var(--text-secondary);margin-bottom:8px}
+
+  /* ── «Что не скачалось» ── */
+  .failed-count{
+    display:inline-flex;align-items:center;justify-content:center;
+    min-width:20px;height:18px;padding:0 6px;margin-left:5px;border-radius:99px;
+    background:var(--surface2);color:var(--text-secondary);
+    font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;
+  }
+  .failed-list{
+    max-height:330px;overflow-y:auto;margin-top:8px;
+    border:1px solid var(--hairline);border-radius:10px;background:var(--surface2);
+  }
+  .failed-row{padding:8px 10px;border-bottom:1px solid var(--hairline)}
+  .failed-row:last-child{border-bottom:0}
+  .failed-name{font-size:12.5px;font-weight:600;word-break:break-all}
+  .failed-name.link{color:var(--accent);cursor:pointer;text-decoration:none}
+  .failed-name.link:hover{text-decoration:underline}
+  .failed-meta{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
+  .failed-err{font-size:11.5px;color:var(--red);margin-top:2px;word-break:break-word}
+  .failed-empty{padding:14px;text-align:center;color:var(--text-tertiary);font-size:12.5px}
+  .failed-more{padding:8px 10px;color:var(--text-tertiary);font-size:11.5px;text-align:center}
 
   .section-label{
     font-size:11px;font-weight:600;color:var(--text-tertiary);
@@ -442,13 +467,54 @@
   }
 
   /* ── Режимы запуска: «скачать всё» и «пошаговый» — разные блоки ── */
-  .home-control{display:flex;flex-direction:column;gap:12px}
-  .home-control > .card{margin-bottom:0}
-  /* Плашки итогов и журнал — один правый столбик. Иначе на широком окне
-     журнал уезжает к низу высокой левой колонки, а под плашками остаётся
-     полоса пустоты. */
-  .home-right{display:flex;flex-direction:column;gap:12px}
-  .home-right > .grid-2, .home-right > .card{margin-bottom:0}
+  /* Две независимые колонки карточек на каждой вкладке. Карточки можно
+     перетаскивать между колонками за ручку ⠿; раскладка запоминается в
+     localStorage отдельно для каждой вкладки. */
+  .layout-tools{
+    display:flex;justify-content:flex-end;align-items:center;gap:10px;
+    margin:-2px 0 8px;font-size:11.5px;color:var(--text-tertiary);
+  }
+  .layout-hint{display:inline-flex;align-items:center;gap:5px}
+  .layout-reset{padding:2px 9px;font-size:11.5px;border-radius:8px}
+  .tab-grid{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:start}
+  .tab-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .tab-col > .card{margin-bottom:0;position:relative}
+  .tab-col.dnd-over{outline:1.5px dashed rgba(10,132,255,.55);outline-offset:4px;border-radius:14px}
+  .tab-col > .card.dnd-dragging{opacity:.35}
+  .card-drag-ghost{
+    position:fixed;z-index:9999;pointer-events:none;opacity:.92;
+    max-height:70vh;overflow:hidden;transform-origin:top left;
+    box-shadow:0 14px 36px rgba(0,0,0,.3);
+  }
+  .card-drop-line{
+    height:2px;border-radius:2px;margin:0 3px;flex:0 0 auto;
+    background:var(--accent);box-shadow:0 0 8px rgba(10,132,255,.65);
+  }
+  /* Полоска захвата лежит в верхнем отступе карточки (16 px), поэтому не
+     перекрывает заголовок и не исчезает, когда мышь уходит на ручку.
+     Видна при наведении на карточку, внутри — маленькая пилюля ⠿. */
+  .card-drag{
+    position:absolute;top:0;left:0;right:0;height:15px;z-index:6;
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;cursor:grab;user-select:none;touch-action:none;
+    border-radius:14px 14px 0 0;
+  }
+  .card-drag::before{
+    content:'⠿';display:inline-flex;align-items:center;justify-content:center;
+    height:15px;padding:0 10px;border-radius:0 0 99px 99px;
+    background:var(--surface);border:0.5px solid var(--hairline-strong);
+    border-top:0;color:var(--text-tertiary);
+    font-size:11px;line-height:1;letter-spacing:2px;
+    box-shadow:0 2px 6px rgba(0,0,0,.14);
+    transition:color .15s,border-color .15s;
+  }
+  .tab-col > .card:hover > .card-drag,.card-drag:focus{opacity:1}
+  .card-drag:active{cursor:grabbing}
+  .card-drag:hover::before{color:var(--accent);border-color:rgba(10,132,255,.55)}
+  @media (max-width:1199px){
+    .tab-grid{grid-template-columns:1fr}
+    .layout-hint{display:none}
+  }
   .launch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:0 2px}
   .launch-card{padding:16px;margin-bottom:0}
   .launch-card.auto{
@@ -490,34 +556,17 @@
   .grid-2{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-bottom:16px}
   @media (max-width:680px){.grid-2{grid-template-columns:1fr}}
 
-  /* ── Широкоформатный (16:9) расклад: два столбца на больших экранах ── */
+  /* ── Широкоформатный (16:9) расклад: две колонки на больших экранах ── */
   @media (min-width:1200px){
-    .panel.active[data-panel="home"]{
-      display:grid;grid-template-columns:1fr 1.2fr;gap:16px;
-      align-items:start;align-content:start;
-    }
-    .panel[data-panel="home"] .card,
-    .panel[data-panel="home"] .grid-2{margin-bottom:0}
-    .home-control{grid-column:1;grid-row:1}
-    /* Плашки итогов и журнал — один правый столбик: журнал идёт вплотную
-       под плашками, а не к низу высокой левой колонки. */
-    .home-right{grid-column:2;grid-row:1}
     /* Журнал выше: иначе под статистикой справа остаётся пол-экрана пустоты,
        а лог всё равно обрезан до 320 px. */
     #pipeline-card #pipeline-console{height:min(52vh, 560px)}
-    /* Остальные карточки «Главной» — на всю ширину: иначе третий ряд занят
-       одной карточкой, а правая половина стоит пустой. */
-    .panel[data-panel="home"] > .card:not(#pipeline-card){grid-column:1 / -1}
-
-    .panel.active[data-panel="setup"]{
-      display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;
-    }
-    .panel[data-panel="setup"] .card{margin-bottom:0}
-    /* Две независимые колонки: строки не тянутся друг за другом, и сторож
-       стоит ровно между токеном и папкой Безлимита, как бы ни был высок
-       соседний блок с куками. */
-    .setup-col{display:flex;flex-direction:column;gap:12px}
   }
+
+  /* «Выполнение процесса» тянется за внешнюю карточку: журнал внутри
+     занимает всё освободившееся место и прокручивается сам. */
+  #pipeline-card{display:flex;flex-direction:column}
+  #pipeline-card #pipeline-console{flex:1 1 auto;min-height:140px;max-height:none}
 
   .stat{
     background:var(--surface);border:1px solid var(--card-line);
@@ -529,12 +578,20 @@
 
   /* ── Итоги линий на «Главной» (компактные плашки над журналом) ── */
   .home-stats.compact{margin-bottom:12px}
-  .home-stats.compact .card{padding:10px 12px;border-radius:12px}
-  .home-stats.compact .card-title{font-size:11.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
-  .home-stats.compact .stat-value{font-size:17px}
-  .home-stats.compact .stat-sub{font-size:11.5px;margin-top:2px}
-  .home-stats.compact .progress{margin-top:7px}
-  .home-stats.compact .progress-track{height:4px}
+  .home-stats.compact .card,
+  .home-stat-card{padding:10px 12px;border-radius:12px}
+  .home-stats.compact .card-title,
+  .home-stat-card .card-title{font-size:11.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .home-stats.compact .stat-value,
+  .home-stat-card .stat-value{font-size:17px}
+  .home-stats.compact .stat-sub,
+  .home-stat-card .stat-sub{font-size:11.5px;margin-top:2px}
+  .home-stats.compact .progress,
+  .home-stat-card .progress{margin-top:7px}
+  .home-stats.compact .progress-track,
+  .home-stat-card .progress-track{height:4px}
+  /* Строка «Сейчас сохранив: …» под полем папки: видно, что именно применится. */
+  .dir-current{margin:0 0 8px;color:var(--text-secondary);font-size:12px}
   /* Строка «сколько ещё не получено» — просто справка, а не тревожный
      сигнал: приглушённый цвет, обычный вес, без восклицательного знака. */
   .stat-left{font-size:11px;margin-top:3px;font-weight:400;color:var(--text-tertiary)}
@@ -650,8 +707,9 @@
      на всю ширину карточки. Сама ручка остаётся 13 px: по ней удобно попадать
      мышкой, а невидимая зона не уменьшилась. */
   .resize-grip::before{
-    content:'';position:absolute;left:0;right:0;bottom:0;height:2.5px;
-    border-radius:0 0 9px 9px;background:transparent;
+    /* Линия заканчивается до скруглений карточки, а не упирается в углы. */
+    content:'';position:absolute;left:12px;right:12px;bottom:2px;height:2.5px;
+    border-radius:99px;background:transparent;
     transition:background .15s;pointer-events:none;
   }
   .resize-grip:hover{color:var(--accent)}
@@ -1006,7 +1064,12 @@
   /* Сторож свободного места — одна строка, а не отдельная большая карточка */
   #watchdog-card{padding:10px 14px}
   .watchdog-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .watchdog-title{font-size:14px;font-weight:600;white-space:nowrap}
+  .watchdog-title{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;white-space:nowrap}
+  /* Щит вместо эмодзи: крупный, с заливкой по состоянию. */
+  .shield-ico{width:18px;height:18px;flex:0 0 auto;color:var(--text-tertiary);transition:color .15s}
+  .watchdog-title .shield-ico{width:24px;height:24px}
+  #pill-watchdog.on .shield-ico,#watchdog-card.on .shield-ico{color:var(--green)}
+  #pill-watchdog.err .shield-ico,#watchdog-card.err .shield-ico{color:var(--red)}
   #watchdog-threshold{padding:6px 9px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:13px}
   #watchdog-btn{padding:6px 14px;font-size:13px}
 
@@ -1083,6 +1146,11 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </symbol>
     <symbol id="i-check" viewBox="0 0 24 24">
       <path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+    </symbol>
+    <!-- Щит сторожа: заливка цветом состояния, галочка — цветом фона. -->
+    <symbol id="i-shield" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2.4 4.4 5.7v5.1c0 4.8 3.2 9.1 7.6 10.8 4.4-1.7 7.6-6 7.6-10.8V5.7L12 2.4Z"/>
+      <path fill="var(--surface)" d="m10.8 15.1-2.9-2.9 1.3-1.3 1.6 1.6 4.1-4.1 1.3 1.3-5.4 5.4Z"/>
     </symbol>
     <symbol id="i-search" viewBox="0 0 24 24">
       <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/>
@@ -1527,7 +1595,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <span class="pill service clickable" id="pill-profile" role="button" tabindex="0" data-tip="Профиль и аватарка: у каждого профиля свои куки, токен, базы и папки выгрузки. Нажмите — откроет настройки пользователя."><span class="pill-profile-avatar"><svg class="avatar-svg" aria-hidden="true"><use id="avatar-use" href="#av-fox"/></svg></span><span class="dot"></span><span id="pill-profile-text">Основной</span></span>
     <span class="pill service clickable" id="pill-token" role="button" tabindex="0" data-tip="OAuth-токен для скачивания обычного Диска. Если токена нет или он протух, работают только куки. Нажмите — откроет поле токена в «Настройках»."><span class="dot"></span><span id="pill-token-text">токен</span></span>
     <span class="pill service clickable" id="pill-cookies" role="button" tabindex="0" data-tip="Cookies браузера — нужны для Безлимитного хранилища (фото с телефона). Нажмите — откроет поле кук в «Настройках»."><span class="dot"></span><span id="pill-cookies-text">cookies</span></span>
-    <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><span class="dot"></span><span id="pill-watchdog-text">🛡 выкл</span></span>
+    <span class="pill service clickable" id="pill-watchdog" role="button" tabindex="0" data-tip="Сторож свободного места: проверяет диск раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Нажмите — откроет настройку сторожа."><svg class="shield-ico" aria-hidden="true"><use href="#i-shield"/></svg><span id="pill-watchdog-text">выкл</span></span>
   </div>
 </header>
 
@@ -1590,7 +1658,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 <!-- ============= ГЛАВНАЯ ============= -->
 <div class="panel active" data-panel="home">
 
-  <div class="home-control">
+  <div class="layout-tools">
+    <span class="layout-hint">⠿ Карточки можно перетаскивать между колонками</span>
+    <button class="ghost layout-reset" onclick="resetCardLayout('home')">Вернуть раскладку</button>
+  </div>
+  <div class="tab-grid" data-tab-grid="home">
+  <div class="tab-col" data-col="left">
     <div class="launch-head">
       <div>
         <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
@@ -1833,14 +1906,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
     </div>
 
-  </div><!-- /home-control -->
+  </div><!-- /tab-col left -->
 
   <!-- Итоги по линиям — прямо над журналом: порядок как в шапке (Безлимит,
-       затем Диск), плашки компактные, чтобы не отнимать место у журнала.
-       Обёртка .home-right держит плашки и журнал вплотную друг к другу. -->
-  <div class="home-right">
-  <div class="grid-2 home-stats compact">
-    <div class="card" id="home-unlim-card">
+       затем Диск), плашки компактные, чтобы не отнимать место у журнала. -->
+  <div class="tab-col" data-col="right">
+    <div class="card home-stat-card" id="home-unlim-card">
       <div class="card-title">Безлимит</div>
       <div class="stat-value num" id="home-unlim-done">—</div>
       <div class="stat-sub" id="home-unlim-info">—</div>
@@ -1849,7 +1920,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <div class="progress-track"><div class="progress-fill purple" id="home-unlim-bar" style="width:0%"></div></div>
       </div>
     </div>
-    <div class="card" id="home-disk-card">
+    <div class="card home-stat-card" id="home-disk-card">
       <div class="card-title">Обычный диск</div>
       <div class="stat-value num" id="home-disk-done">—</div>
       <div class="stat-sub" id="home-disk-info">—</div>
@@ -1858,7 +1929,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <div class="progress-track"><div class="progress-fill" id="home-disk-bar" style="width:0%"></div></div>
       </div>
     </div>
-  </div>
 
   <div class="card" id="pipeline-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -1875,13 +1945,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <hr>
     <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
-  </div><!-- /home-right -->
-
-</div>
+  </div><!-- /tab-col right -->
+  </div><!-- /tab-grid -->
+</div><!-- /panel home -->
 
 <!-- ============= ОРГАНИЗАЦИЯ ============= -->
 <div class="panel" data-panel="organize">
 
+  <div class="layout-tools">
+    <span class="layout-hint">⠿ Карточки можно перетаскивать между колонками</span>
+    <button class="ghost layout-reset" onclick="resetCardLayout('organize')">Вернуть раскладку</button>
+  </div>
+  <div class="tab-grid" data-tab-grid="organize">
+  <div class="tab-col" data-col="left">
   <div class="card" id="organize-card">
     <div class="card-title">Организация файлов по датам</div>
     <div class="card-sub">Раскладывает уже скачанные файлы (например, из Безлимита) по папкам годов и месяцев. Дату берёт из EXIF фото, метаданных видео, имени файла или даты изменения.</div>
@@ -1951,7 +2027,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <div class="setup-hint" id="organize-plan-hint"></div>
     </div>
   </div>
+  </div><!-- /tab-col left -->
 
+  <div class="tab-col" data-col="right">
   <div class="card" id="backups-card">
     <div class="card-title">Резервные копии баз</div>
     <div class="card-sub">
@@ -2011,13 +2089,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
     </div>
   </div>
-
-</div>
+  </div><!-- /tab-col right -->
+  </div><!-- /tab-grid -->
+</div><!-- /panel organize -->
 
 <!-- ============= НАСТРОЙКА ============= -->
 <div class="panel" data-panel="setup">
 
-  <div class="setup-col">
+  <div class="layout-tools">
+    <span class="layout-hint">⠿ Карточки можно перетаскивать между колонками</span>
+    <button class="ghost layout-reset" onclick="resetCardLayout('setup')">Вернуть раскладку</button>
+  </div>
+  <div class="tab-grid" data-tab-grid="setup">
+  <div class="tab-col" data-col="left">
 
   <div class="card" id="profiles-card">
     <div class="card-title">Пользователь</div>
@@ -2042,57 +2126,57 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
     <div class="card-tabs" role="tablist" aria-label="Папки выгрузки">
       <button class="ctab active" type="button" role="tab" aria-selected="true"
-              data-ctab="disk" onclick="switchCardTab('export-dirs-card','disk')">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
-      </button>
-      <button class="ctab" type="button" role="tab" aria-selected="false"
               data-ctab="unlim" onclick="switchCardTab('export-dirs-card','unlim')">
         <svg class="ico-sm"><use href="#i-cloud"/></svg>Безлимит
       </button>
+      <button class="ctab" type="button" role="tab" aria-selected="false"
+              data-ctab="disk" onclick="switchCardTab('export-dirs-card','disk')">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
+      </button>
     </div>
 
-    <div class="ctab-panel active" data-ctab-panel="disk" role="tabpanel">
+    <div class="ctab-panel" data-ctab-panel="disk" role="tabpanel">
       <label class="field-label">Путь к папке Диска</label>
       <div style="display:flex;gap:8px;margin-bottom:6px">
-        <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk" style="flex:1">
+        <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk" style="flex:1"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('disk')}"
+               onblur="autoSaveDir('disk')">
         <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 14px">
           <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
         </button>
       </div>
+      <div id="disk-dir-current" class="setup-hint dir-current">Сейчас: —</div>
       <div class="setup-hint" style="margin-bottom:10px">
         Полный путь с буквой диска, например <code>G:\Бэкап\Disk</code>.
         Относительный путь программа примет, но положит папку рядом с программой.
       </div>
       <div class="actions">
-        <button class="ghost" onclick="checkFolder('disk-dir-input','disk-dir-check')">
-          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
-        </button>
-        <button class="primary" onclick="saveDiskDir()">
-          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        <button class="primary" onclick="checkAndSaveDir('disk')">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
         </button>
       </div>
       <div id="disk-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
     </div>
 
-    <div class="ctab-panel" data-ctab-panel="unlim" role="tabpanel">
+    <div class="ctab-panel active" data-ctab-panel="unlim" role="tabpanel">
       <label class="field-label">Путь к папке Безлимита</label>
       <div style="display:flex;gap:8px;margin-bottom:6px">
-        <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim" style="flex:1">
+        <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim" style="flex:1"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('unlim')}"
+               onblur="autoSaveDir('unlim')">
         <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
           <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
         </button>
       </div>
+      <div id="unlim-dir-current" class="setup-hint dir-current">Сейчас: —</div>
       <div class="setup-hint" style="margin-bottom:10px">
         Полный путь с буквой диска, например <code>G:\Бэкап\Unlim</code>.
         Относительный путь вида <code>backup\Unlim</code> программа примет, но
         положит папку рядом с программой — так файлы легко потерять.
       </div>
       <div class="actions">
-        <button class="ghost" onclick="checkFolder('unlim-dir-input','unlim-dir-check')">
-          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить папку
-        </button>
-        <button class="primary" onclick="saveUnlimDir()">
-          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        <button class="primary" onclick="checkAndSaveDir('unlim')">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
         </button>
       </div>
       <div id="unlim-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
@@ -2102,7 +2186,7 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   <!-- Сторож — компактной строкой между папками выгрузки и доступом к Яндексу -->
   <div class="card" id="watchdog-card">
     <div class="watchdog-line">
-      <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно пилюлей 🛡 в шапке окна.">🛡 Сторож свободного места</span>
+      <span class="watchdog-title tipnode" data-tip="Сторож проверяет свободное место раз в 30 секунд и останавливает выгрузку, если места стало меньше порога. Состояние всегда видно щитом в шапке окна."><svg class="shield-ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Сторож свободного места</span></span>
       <select id="watchdog-threshold" onchange="applyWatchdogThreshold()">
         <option value="10">10 ГБ</option>
         <option value="20" selected>20 ГБ</option>
@@ -2240,9 +2324,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div><!-- /ctab cookies -->
   </div><!-- /access-card -->
 
-  </div><!-- /setup-col -->
+  </div><!-- /tab-col left -->
 
-  <div class="setup-col">
+  <div class="tab-col" data-col="right">
 
   <!-- Превью отложенных фото -->
   <div class="card" id="previews-card">
@@ -2282,12 +2366,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  </div><!-- /setup-col -->
-
-</div>
+  </div><!-- /tab-col right -->
+  </div><!-- /tab-grid -->
+</div><!-- /panel setup -->
 
 <!-- ============= ДИАГНОСТИКА ============= -->
 <div class="panel" data-panel="diagnostics">
+
+  <div class="layout-tools">
+    <span class="layout-hint">⠿ Карточки можно перетаскивать между колонками</span>
+    <button class="ghost layout-reset" onclick="resetCardLayout('diagnostics')">Вернуть раскладку</button>
+  </div>
+  <div class="tab-grid" data-tab-grid="diagnostics">
+  <div class="tab-col" data-col="left">
 
   <div class="card" id="diag-report-card">
     <div class="card-title">Диагностический отчёт</div>
@@ -2389,6 +2480,36 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="setup-hint">Файлы не удаляются, статусы в базе не меняются — это только осмотр.</div>
   </div>
 
+  <div class="card" id="failed-card">
+    <div class="card-title">Что не скачалось</div>
+    <div class="card-sub">Имена файлов, путь на диске и дата для Безлимита. Список можно сохранить в TXT или открыть CSV в Excel — удобно искать файлы вручную на сайте Яндекса.</div>
+
+    <div class="card-tabs" role="tablist" aria-label="Что не скачалось">
+      <button class="ctab active" type="button" role="tab" aria-selected="true"
+              data-ftab="disk" onclick="switchFailedTab('disk')">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
+        <span class="failed-count" id="failed-disk-count">—</span>
+      </button>
+      <button class="ctab" type="button" role="tab" aria-selected="false"
+              data-ftab="unlim" onclick="switchFailedTab('unlim')">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Безлимит
+        <span class="failed-count" id="failed-unlim-count">—</span>
+      </button>
+    </div>
+
+    <div id="failed-summary" class="setup-hint" style="margin-top:10px">Загружаю список…</div>
+    <div id="failed-list" class="failed-list" role="status" aria-live="polite">
+      <div class="failed-empty">Загружаю…</div>
+    </div>
+
+    <div class="actions" style="margin-top:10px">
+      <button class="primary" onclick="exportFailed('txt')">Скачать TXT</button>
+      <button class="ghost" onclick="exportFailed('csv')">CSV для Excel</button>
+      <button class="ghost" onclick="loadFailedList(true)">Обновить</button>
+      <button class="ghost" onclick="openReportsFolder()">Открыть папку отчётов</button>
+    </div>
+  </div>
+
   <div class="card" id="cloud-audit-card">
     <div class="card-title tipnode" data-tip="Проверяет, что сейчас реально лежит в облаке, и сравнивает с нашей базой. Ничего не скачивает и не удаляет — только показывает: что совпадает, что появилось, что изменилось, что пропало. Нужна, если файлы добавляли или удаляли с телефона, другого компьютера или через сайт Яндекса, а наша база об этом ещё не знает.">Сверка с облаком<span class="tip-i" aria-hidden="true">i</span></div>
     <div class="card-sub">Что сейчас реально лежит в Яндексе и как это сходится с базой: ✅ совпадает, ➕ новое, 🔁 изменилось, ➖ пропало.</div>
@@ -2452,7 +2573,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
     <div class="setup-hint">Сверка и обе кнопки ничего не удаляют. Свежий список файлов строится при каждом запуске — это и есть проверка «что сейчас в облаке».</div>
   </div>
+  </div><!-- /tab-col left -->
 
+  <div class="tab-col" data-col="right">
   <div class="card" id="reports-card">
     <div class="card-title">Последние отчёты</div>
     <div class="card-sub">Файлы лежат в папке данных приложения.</div>
@@ -2609,6 +2732,16 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <pre id="find-list" class="diag-pre" style="display:none"></pre>
     </div>
 
+    <div id="find-folder-warning" class="diag-note"
+         style="display:none;margin-top:10px;background:rgba(255,159,10,.08);border-color:rgba(255,159,10,.45)">
+      <div id="find-folder-warning-text"></div>
+      <div class="actions" style="margin-top:8px">
+        <button id="find-folder-switch-btn" class="primary" style="display:none"
+                onclick="switchDownloadDirFromFind()">Переключить папку выгрузки</button>
+        <button class="ghost" onclick="hideFindFolderWarning()">Оставить как есть</button>
+      </div>
+    </div>
+
     <div class="setup-hint">
       «Вернуть структуру облака» пригодится, если папку Диска уже сортировали:
       файлы разложатся обратно по облачным папкам. Для Безлимита эта кнопка не нужна —
@@ -2635,8 +2768,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       администратора не нужны. Настройки и скачанные файлы не удаляются.
     </div>
   </div>
-
-</div>
+  </div><!-- /tab-col right -->
+  </div><!-- /tab-grid -->
+</div><!-- /panel diagnostics -->
 
 <footer>
   <span class="author" style="font-size:14px">Автор доработок и мейнтейнер: Sergey Pukhir (ex3544, vovapuh's son)</span> · обновляется каждые 1.5 сек
@@ -2952,6 +3086,9 @@ function showPanel(name){
   // Резервные копии живут в «Организации»: при входе на вкладку список
   // снова свёрнут, но счётчик копий обновляем сразу.
   if(name === 'organize'){ toggleBackupsList(false); loadBackups(); }
+  // Список не скачанных файлов читается при входе на вкладку, а не в общем
+  // опросе статуса: базы большие, а список нужен только здесь.
+  if(name === 'diagnostics'){ loadFailedList(false); }
   return panel;
 }
 
@@ -3204,39 +3341,154 @@ async function checkFolder(inputId, statusId){
   }
 }
 
-async function saveUnlimDir(){
-  const dir = document.getElementById('unlim-dir-input').value.trim();
-  if(!dir){ toast('Укажите путь к папке Безлимита','err'); return; }
-  if(!_looksAbsolute(dir)) toast('Путь относительный: папка появится рядом с программой. Лучше полный, с буквой диска.','warn');
-  try {
-    const r = await fetch('/api/config/dirs', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ unlim_dir: dir })
-    });
-    const d = await r.json();
-    if(d.ok){ toast('Папка Безлимита сохранена', 'ok'); }
-    else { toast('Ошибка сохранения', 'err'); }
-  } catch(e){ toast('Ошибка сети: ' + e.message, 'err'); }
-  refresh();
+// ── Папки выгрузки: проверка и сохранение одной кнопкой ──
+// Раньше рядом стояли «Проверить» и «Сохранить», и легко было проверить
+// новый путь, но не сохранить его — программа продолжала качать в старую
+// папку. Теперь кнопка одна, а выбор через «Обзор…» и Enter сохраняют сами.
+window._savedDirs = window._savedDirs || {disk: '', unlim: ''};
+
+function _dirMeta(target){
+  return target === 'disk'
+    ? {input: 'disk-dir-input', status: 'disk-dir-check', current: 'disk-dir-current',
+       key: 'disk_dir', label: 'Диска', what: 'папку Диска'}
+    : {input: 'unlim-dir-input', status: 'unlim-dir-check', current: 'unlim-dir-current',
+       key: 'unlim_dir', label: 'Безлимита', what: 'папку Безлимита'};
 }
 
-async function saveDiskDir(){
-  const dir = document.getElementById('disk-dir-input').value.trim();
-  if(!dir){ toast('Укажите путь к папке Диска','err'); return; }
-  if(!_looksAbsolute(dir)) toast('Путь относительный: папка появится рядом с программой. Лучше полный, с буквой диска.','warn');
-  try {
+function _anyDownloadRunning(){
+  const s = window._lastStatus || {};
+  const tasks = s.tasks || {};
+  if(s.pipeline && s.pipeline.running) return true;
+  return Object.keys(tasks).some(k => k !== 'verify' && tasks[k] && tasks[k].running);
+}
+
+function _setDirCurrent(target){
+  const m = _dirMeta(target);
+  const el = document.getElementById(m.current);
+  const saved = (window._savedDirs || {})[target] || '';
+  if(el) el.textContent = saved ? `Сейчас сохранив: ${saved}` : 'Сейчас: путь ещё не сохранён';
+}
+
+async function saveDirSetting(target, opts){
+  opts = opts || {};
+  const m = _dirMeta(target);
+  const input = document.getElementById(m.input);
+  const status = document.getElementById(m.status);
+  if(!input) return false;
+  const dir = input.value.trim();
+  if(!dir){
+    if(!opts.silent) toast(`Укажите путь к папке ${m.label}`, 'err');
+    return false;
+  }
+  const saved = (window._savedDirs || {})[target] || '';
+  if(dir === saved){
+    if(status){
+      status.textContent = `✅ Уже сохранено: ${dir}`;
+      status.style.color = 'var(--green)';
+    }
+    return true;
+  }
+  if(_anyDownloadRunning() && !opts.force){
+    const ok = await askConfirm({
+      title: 'Идёт выгрузка',
+      text: `Сейчас файлы качаются в старую папку. Новый путь (${dir}) `
+        + 'применится к следующим запускам, а текущая выгрузка продолжится '
+        + 'в прежней папке.\n\nСохранить новый путь?',
+      ok: 'Сохранить'
+    });
+    if(!ok) return false;
+  }
+  try{
     const r = await fetch('/api/config/dirs', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ disk_dir: dir })
+      body: JSON.stringify({[m.key]: dir})
     });
     const d = await r.json();
-    if(d.ok){ toast('Папка Диска сохранена', 'ok'); }
-    else { toast('Ошибка сохранения', 'err'); }
-  } catch(e){ toast('Ошибка сети: ' + e.message, 'err'); }
-  refresh();
+    if(!d.ok){
+      if(status){ status.textContent = d.message || 'Ошибка сохранения'; status.style.color = 'var(--red)'; }
+      toast(d.message || 'Ошибка сохранения', 'err');
+      return false;
+    }
+    window._savedDirs[target] = dir;
+    _setDirCurrent(target);
+    if(status){
+      status.textContent = `✅ Папка ${m.label} сохранена: ${dir}`;
+      status.style.color = 'var(--green)';
+    }
+    toast(`Папка ${m.label} сохранена: ${dir}`, 'ok');
+    refresh();
+    return true;
+  }catch(e){
+    if(status){ status.textContent = 'Нет связи с программой'; status.style.color = 'var(--red)'; }
+    toast('Ошибка сети: ' + e.message, 'err');
+    return false;
+  }
 }
+
+async function checkAndSaveDir(target, opts){
+  opts = opts || {};
+  const m = _dirMeta(target);
+  const input = document.getElementById(m.input);
+  const status = document.getElementById(m.status);
+  const dir = input ? input.value.trim() : '';
+  if(!dir){
+    if(!opts.silent) toast(`Укажите путь к папке ${m.label}`, 'err');
+    return false;
+  }
+  if(status){ status.textContent = 'Проверяю папку…'; status.style.color = 'var(--text-secondary)'; }
+  try{
+    const r = await fetch('/api/check_dir', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path: dir })
+    });
+    const d = await r.json();
+    if(d.ok){
+      if(status){
+        status.textContent = d.message || '✅ Папка доступна';
+        status.style.color = 'var(--green)';
+      }
+      if(d.relative) toast('Путь относительный — лучше полный, с буквой диска', 'warn');
+      // Проверка прошла — сохраняем сами, второй кнопки больше нет.
+      return await saveDirSetting(target, {silent: opts.silent});
+    }
+    if(status){
+      status.textContent = d.message || '❌ Папка сейчас недоступна';
+      status.style.color = 'var(--red)';
+    }
+    // Внешний диск может быть просто отключён. Путь всё равно полезен:
+    // предлагаем сохранить его на будущее, но не молча.
+    if(opts.silent) return false;
+    const saveAnyway = await askConfirm({
+      title: 'Папка сейчас недоступна',
+      text: (d.message || 'Папка недоступна') + `\n\nВсё равно сохранить путь?\n${dir}\n\n`
+        + 'Если это внешний диск, подключите его перед следующей выгрузкой.',
+      ok: 'Сохранить всё равно'
+    });
+    if(saveAnyway) return await saveDirSetting(target, {});
+    return false;
+  }catch(e){
+    if(status){ status.textContent = 'Нет связи с программой'; status.style.color = 'var(--red)'; }
+    toast('Нет связи с программой: ' + e.message, 'err');
+    return false;
+  }
+}
+
+function autoSaveDir(target){
+  const m = _dirMeta(target);
+  const input = document.getElementById(m.input);
+  if(!input) return;
+  const dir = input.value.trim();
+  // Пустое поле и недописанный путь не трогаем: сохраняем только полный.
+  if(!dir || dir === ((window._savedDirs || {})[target] || '')) return;
+  if(!_looksAbsolute(dir)) return;
+  checkAndSaveDir(target, {silent: false});
+}
+
+// Совместимость со старыми вызовами.
+function saveUnlimDir(){ return checkAndSaveDir('unlim'); }
+function saveDiskDir(){ return checkAndSaveDir('disk'); }
 
 async function browseFolder(target, explicitInputId){
   // Из мастера первого запуска поля называются иначе — передаём id явно.
@@ -3256,6 +3508,11 @@ async function browseFolder(target, explicitInputId){
       if(inputEl){
         inputEl.value = d.path;
         toast('Выбрана папка: ' + d.path, 'ok');
+        // Папки выгрузки сохраняем сразу после выбора в проводнике —
+        // чтобы «выбрал, но забыл нажать Сохранить» больше не повторялось.
+        if(!explicitInputId && (target === 'disk' || target === 'unlim')){
+          checkAndSaveDir(target);
+        }
       }
     } else {
       if(d.msg !== 'Выбор отменён') toast(d.msg || 'Выбор отменён', 'err');
@@ -3668,7 +3925,7 @@ async function startCustomScan(){
   }
 
   const card = document.getElementById('pipeline-card');
-  if (card) card.style.display = 'block';
+  if (card) card.style.removeProperty('display');
   const ps = document.getElementById('pipeline-state');
   if (ps) { ps.textContent = 'идёт сканирование'; ps.className = 'badge run'; }
   const pStep = document.getElementById('pipeline-step');
@@ -5154,18 +5411,26 @@ function renderWatchdog(w){
   st.textContent = txt;
   st.className = cls;
 
-  // Пилюля в шапке: состояние сторожа видно на любой вкладке.
+  // Щит и пилюля в шапке: состояние сторожа видно на любой вкладке.
+  const card = document.getElementById('watchdog-card');
+  const active = !!w.running && w.state !== 'triggered';
+  const triggered = w.state === 'triggered';
+  if(card){
+    card.classList.toggle('on', active);
+    card.classList.toggle('err', triggered);
+  }
   if(pill && pillText){
-    if(w.state === 'triggered'){
-      pill.className = 'pill service err';
-      pillText.textContent = '🛡 свободно мало';
-    } else if(w.running){
+    // Меняем только классы состояния, не весь className: иначе слетает
+    // clickable, и клик по пилюле перестаёт открывать настройку.
+    pill.classList.toggle('on', active);
+    pill.classList.toggle('err', triggered);
+    if(triggered){
+      pillText.textContent = 'свободно мало';
+    } else if(active){
       // Без заливки и рамки: включённый сторож — не итог выгрузки, а служба.
-      pill.className = 'pill service on';
-      pillText.textContent = `🛡 ${w.threshold_gb} ГБ`;
+      pillText.textContent = `${w.threshold_gb} ГБ`;
     } else {
-      pill.className = 'pill service';
-      pillText.textContent = '🛡 выкл';
+      pillText.textContent = 'выкл';
     }
   }
 }
@@ -5416,14 +5681,33 @@ async function refresh(){
       if(cookiesDetails && !(s.cookies.count > 0)) cookiesDetails.open = true;
     }
 
-    const unlimDirIn = document.getElementById('unlim-dir-input');
-    if (unlimDirIn && !unlimDirIn.value && s.config.unlim_dir) {
-      unlimDirIn.placeholder = `текущее: ${s.config.unlim_dir}`;
-    }
-    const diskDirIn = document.getElementById('disk-dir-input');
-    if (diskDirIn && !diskDirIn.value && s.config.disk_dir) {
-      diskDirIn.placeholder = `текущее: ${s.config.disk_dir}`;
-    }
+    // Поля папок показывают именно сохранённый путь, а не только подсказку.
+    // Несохранённый ввод не затираем: если путь ещё не записался, оставляем
+    // его в поле, чтобы человек видел, что именно не сохранилось.
+    const prevDirs = window._savedDirs || {disk: '', unlim: ''};
+    const savedDirs = {
+      disk: (s.config && s.config.disk_dir) || '',
+      unlim: (s.config && s.config.unlim_dir) || ''
+    };
+    [['disk', 'disk-dir-input', 'disk-dir-current'],
+     ['unlim', 'unlim-dir-input', 'unlim-dir-current']].forEach(([key, inputId, curId]) => {
+      const inp = document.getElementById(inputId);
+      const cur = document.getElementById(curId);
+      if(inp){
+        if(!inp.value.trim() || inp.value.trim() === (prevDirs[key] || '')){
+          inp.value = savedDirs[key];
+        }
+        inp.placeholder = savedDirs[key]
+          ? `например: ${savedDirs[key]}`
+          : (key === 'disk' ? 'например: G:\\Бэкап\\Disk' : 'например: G:\\Бэкап\\Unlim');
+      }
+      if(cur){
+        cur.textContent = savedDirs[key]
+          ? `Сейчас сохранив: ${savedDirs[key]}`
+          : 'Сейчас: путь ещё не сохранён';
+      }
+    });
+    window._savedDirs = savedDirs;
 
     // Download Task & Pipeline State
     const tasks = s.tasks || {};
@@ -5484,7 +5768,7 @@ async function refresh(){
     renderPickerResult(s);
 
     if (isRunning) {
-      if (card) card.style.display = 'block';
+      if (card) card.style.removeProperty('display');
       if (startBtn) startBtn.style.display = 'none';
       if (scanBtn) scanBtn.style.display = 'none';
       if (allBtn) allBtn.style.display = 'none';
@@ -5532,7 +5816,7 @@ async function refresh(){
       if (fcst.summary) {
         // После полного цикла показываем сводку по обоим источникам, а не
         // лог последней задачи: он затирал результат Диска.
-        if (card) card.style.display = 'block';
+        if (card) card.style.removeProperty('display');
         const partial = fcst.state !== 'done';
         if (ps) { setText(ps, partial ? 'с ошибками' : 'готово'); ps.className = partial ? 'badge warn' : 'badge ok'; }
         setText(pStep, 'Полный цикл: Диск + Безлимит');
@@ -5541,7 +5825,7 @@ async function refresh(){
         if (fcst.log && fcst.log.length) fcLog.push('', ...fcst.log.slice(-300));
         setConsole('pipeline-console', fcLog.join('\n'));
       } else if (lastTask && lastTask.log_tail && lastTask.log_tail.length > 0) {
-        if (card) card.style.display = 'block';
+        if (card) card.style.removeProperty('display');
         const isDone = lastTask.exit_code === 0;
         const isUserStop = isStopped(lastTask.exit_code);
         const diskFailed = lastTask === diskTask ? Number((s.disk_speed || {}).failed || 0) : 0;
@@ -5579,13 +5863,13 @@ async function refresh(){
         setConsole('pipeline-console', (lastTask.log_tail || []).join('\n'));
       } else if (s.last_unlim_log && s.last_unlim_log.length > 0 && s.unlim?.summary?.is_ready) {
         // Показываем последний успешный лог даже после обновления страницы (F5)
-        if (card) card.style.display = 'block';
+        if (card) card.style.removeProperty('display');
         if (ps) { setText(ps, 'база готова'); ps.className = 'badge ok'; }
         setText(pStep, `Безлимит: база данных полностью собрана (${(s.unlim.summary.total_files || 0).toLocaleString('ru')} файлов в базе)`);
         setText(pTime, 'завершено');
         setConsole('pipeline-console', s.last_unlim_log.join('\n'));
       } else if (pl.state === 'done' || pl.state === 'failed' || pl.state === 'stopped') {
-        if (card) card.style.display = 'block';
+        if (card) card.style.removeProperty('display');
         if (ps) {
           if (pl.state === 'done') { setText(ps, 'готово'); ps.className = 'badge ok'; }
           else if (pl.state === 'failed') { setText(ps, 'ошибка'); ps.className = 'badge err'; }
@@ -5595,7 +5879,7 @@ async function refresh(){
         setText(pTime, dur(pl.elapsed));
         setConsole('pipeline-console', (pl.log || []).join('\n'));
       } else {
-        if (card) card.style.display = 'block';
+        if (card) card.style.removeProperty('display');
       }
     }
 
@@ -5613,7 +5897,7 @@ async function refresh(){
     const manualCard = document.getElementById('launch-manual-card');
     if (manualCard) manualCard.classList.toggle('beast-locked', !!b.running);
     if (beastShown) {
-      if (card) card.style.display = 'block';
+      if (card) card.style.removeProperty('display');
       if (ps) {
         setText(ps, b.running ? 'зверь работает'
           : b.state === 'done' ? 'зверь: всё скачано'
@@ -6549,6 +6833,136 @@ async function openUpdatePage(){
 }
 
 // ── Проверка файлов (C1) ──
+// ── «Что не скачалось»: список для ручного поиска файлов ──────────────────
+let _failedData = null;
+let _failedTab = 'disk';
+
+function switchFailedTab(name){
+  _failedTab = name === 'unlim' ? 'unlim' : 'disk';
+  const card = document.getElementById('failed-card');
+  if(card){
+    card.querySelectorAll('.ctab').forEach(b=>{
+      const on = b.dataset.ftab === _failedTab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+  renderFailedList();
+}
+
+async function loadFailedList(force){
+  const box = document.getElementById('failed-list');
+  if(!box) return;
+  if(!force && _failedData){ renderFailedList(); return; }
+  box.innerHTML = '<div class="failed-empty">Загружаю…</div>';
+  try{
+    const r = await fetch('/api/failed?limit=400');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    _failedData = await r.json();
+    renderFailedList();
+  }catch(e){
+    box.innerHTML = '<div class="failed-empty">Не удалось получить список: '
+      + esc(e.message) + '</div>';
+  }
+}
+
+function _failedCountsText(section){
+  const labels = {
+    failed: 'ошибки', skipped: 'не скачались', lost: 'ждут Яндекса',
+    denied: 'нет доступа', deleted: 'нет в облаке'
+  };
+  const parts = Object.keys(section.counts || {})
+    .sort()
+    .map(k => (labels[k] || k) + ': ' + section.counts[k]);
+  return parts.length ? parts.join(' · ') : 'нет';
+}
+
+function renderFailedList(){
+  const box = document.getElementById('failed-list');
+  const summary = document.getElementById('failed-summary');
+  const diskCount = document.getElementById('failed-disk-count');
+  const unlimCount = document.getElementById('failed-unlim-count');
+  if(!box || !_failedData) return;
+
+  const disk = _failedData.disk || {total: 0, counts: {}, items: []};
+  const unlim = _failedData.unlim || {total: 0, counts: {}, items: []};
+  if(diskCount) diskCount.textContent = disk.total;
+  if(unlimCount) unlimCount.textContent = unlim.total;
+
+  const section = _failedTab === 'unlim' ? unlim : disk;
+  if(summary){
+    summary.textContent = section.total
+      ? 'Всего: ' + section.total + ' — ' + _failedCountsText(section)
+      : 'Не скачанных файлов нет.';
+  }
+  if(!section.items.length){
+    box.innerHTML = '<div class="failed-empty">'
+      + (section.total ? 'Список пуст.' : 'Здесь пока пусто — всё скачано.')
+      + '</div>';
+    return;
+  }
+
+  const rows = section.items.map(it => {
+    const name = (_failedTab === 'disk' && it.url)
+      ? '<a class="failed-name link" href="#" data-url="' + esc(it.url)
+        + '" onclick="openFailedUrl(this.dataset.url);return false">'
+        + esc(it.name) + '</a>'
+      : '<div class="failed-name">' + esc(it.name) + '</div>';
+    const meta = [
+      it.date ? '📅 ' + esc(it.date) : '',
+      '📁 ' + esc(it.local_path),
+      it.size_text && it.size_text !== '—' ? esc(it.size_text) : '',
+      'попыток: ' + (it.attempts || 0)
+    ].filter(Boolean).join(' · ');
+    const err = '<div class="failed-err">' + esc(it.status_label)
+      + (it.error ? ': ' + esc(it.error) : '') + '</div>';
+    return '<div class="failed-row">' + name
+      + '<div class="failed-meta">' + meta + '</div>' + err + '</div>';
+  }).join('');
+
+  const more = section.total > section.items.length
+    ? '<div class="failed-more">Показаны первые ' + section.items.length
+      + ' из ' + section.total + '. Полный список — в TXT или CSV.</div>'
+    : '';
+  box.innerHTML = rows + more;
+}
+
+async function openFailedUrl(url){
+  try{
+    const r = await fetch('/api/open_url', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) toast(d.error || 'Не удалось открыть ссылку', 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }
+}
+
+async function exportFailed(fmt){
+  try{
+    toast('Готовлю список…', 'ok');
+    const r = await fetch('/api/failed/export?fmt=' + encodeURIComponent(fmt));
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const disposition = r.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const name = match ? match[1] : (fmt === 'csv' ? 'failed.csv' : 'failed.txt');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('Список сохранён: ' + name, 'ok');
+  }catch(e){
+    toast('Не удалось подготовить список: ' + e.message, 'err');
+  }
+}
+
 async function startVerify(){
   const scope = (document.getElementById('verify-scope') || {}).value || 'disk';
   const deep = !!(document.getElementById('verify-deep') || {}).checked;
@@ -7409,6 +7823,7 @@ function _findStatus(text, cls){
 function _findResetResult(){
   _findPlan = null;
   _findListText = '';
+  hideFindFolderWarning();
   const box = document.getElementById('find-result');
   if(box) box.style.display = 'none';
   const apply = document.getElementById('find-apply-btn');
@@ -7426,6 +7841,7 @@ function _findResetResult(){
 }
 
 function findScopeChanged(){
+  hideFindFolderWarning();
   _findResetResult();
   _findStatus('');
   renderFindRoots();
@@ -7540,7 +7956,80 @@ function toggleFindList(){
   if(btn) btn.textContent = show ? 'Скрыть список' : 'Показать список';
 }
 
+// После «Применить» показываем, совпадает ли папка перепривязки с той,
+// куда программа будет качать новые файлы. Молча менять настройку нельзя:
+// предлагаем кнопку, человек решает сам.
+let _findFolderSwitchTarget = null;
+let _findFolderSwitchDir = '';
+
+function _normDirPath(p){
+  return String(p || '').trim().replace(/[\\/]+$/, '').toLowerCase();
+}
+
+function hideFindFolderWarning(){
+  const box = document.getElementById('find-folder-warning');
+  if(box) box.style.display = 'none';
+  _findFolderSwitchTarget = null;
+  _findFolderSwitchDir = '';
+}
+
+function updateFindFolderWarning(dir, scope){
+  const box = document.getElementById('find-folder-warning');
+  const text = document.getElementById('find-folder-warning-text');
+  const btn = document.getElementById('find-folder-switch-btn');
+  if(!box || !text || !btn) return;
+  const cfg = (window._lastStatus || {}).config || {};
+  const one = scope === 'disk'
+    ? {target: 'disk', current: cfg.disk_dir || '', label: 'Диска'}
+    : (scope === 'unlim'
+      ? {target: 'unlim', current: cfg.unlim_dir || '', label: 'Безлимита'}
+      : null);
+  _findFolderSwitchTarget = null;
+  _findFolderSwitchDir = '';
+  if(one){
+    if(_normDirPath(one.current) === _normDirPath(dir)){
+      hideFindFolderWarning();
+      return;
+    }
+    text.innerHTML = one.current
+      ? `База перепривязана к папке <code>${esc(dir)}</code>, но в «Папках выгрузки» `
+        + `для ${one.label} указана <code>${esc(one.current)}</code>. Новые файлы `
+        + 'продолжат качаться в старую папку — переключить?'
+      : `База перепривязана к папке <code>${esc(dir)}</code>, но папка ${one.label} `
+        + 'ещё не задана в настройках. Записать её?';
+    _findFolderSwitchTarget = one.target;
+    _findFolderSwitchDir = dir;
+    btn.style.display = '';
+    btn.textContent = `Переключить на ${dir}`;
+  } else {
+    const parts = [];
+    if(cfg.disk_dir) parts.push(`Диск — ${cfg.disk_dir}`);
+    if(cfg.unlim_dir) parts.push(`Безлимит — ${cfg.unlim_dir}`);
+    text.innerHTML = 'Новые файлы качаются в папки из «Настроек»: '
+      + esc(parts.join(' · ') || 'пути ещё не заданы')
+      + '. Если после переезда это не та папка, переключите её в «Папках выгрузки» — '
+      + 'иначе новые файлы пойдут в старое место.';
+    btn.style.display = 'none';
+  }
+  box.style.display = '';
+}
+
+async function switchDownloadDirFromFind(){
+  const target = _findFolderSwitchTarget;
+  const dir = _findFolderSwitchDir;
+  if(!target || !dir) return;
+  const m = _dirMeta(target);
+  const input = document.getElementById(m.input);
+  if(input) input.value = dir;
+  const ok = await saveDirSetting(target, {});
+  if(ok){
+    hideFindFolderWarning();
+    if(input) input.value = dir;
+  }
+}
+
 async function previewFindFiles(){
+  hideFindFolderWarning();
   const dir = _findDirValue();
   const scope = (document.getElementById('find-scope') || {}).value || 'both';
   if(!dir){ _findStatus('Укажите папку, где сейчас лежат файлы', 'err'); return; }
@@ -7602,6 +8091,7 @@ async function applyFindFiles(){
     const backup = d.backup && (d.backup.disk || d.backup.unlim);
     _findStatus(`${d.msg || 'Готово'}.` + (backup ? ` Копия базы: ${backup}` : ''), 'ok');
     toast('Пути в базе обновлены', 'ok');
+    updateFindFolderWarning(dir, scope);
     const apply = document.getElementById('find-apply-btn');
     if(apply) apply.disabled = true;
     refresh();
@@ -8223,8 +8713,9 @@ function makeResizable(el, opts){
   if(both) bindDrag(corner, true);
 }
 
-// Журнал тянется в обе стороны, диагностика и примечания обновления — по высоте.
-makeResizable(document.getElementById('pipeline-console'), {axis: 'both'});
+// Журнал «Выполнение процесса» растягивается вместе с внешней карточкой
+// (pipeline-card ниже), отдельная ручка у самого журнала больше не нужна:
+// иначе видимая снизу ручка двигала внутреннее окно, а не всё окно целиком.
 makeResizable(document.getElementById('diag-output'), {axis: 'y'});
 
 // Карточки: тянутся только по высоте и без обёртки — они лежат в сетках и
@@ -8234,10 +8725,214 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
  'pipeline-card', 'organize-card', 'backups-card', 'profiles-card',
  'export-dirs-card', 'watchdog-card', 'access-card',
  'previews-card', 'picker-card', 'diag-report-card',
- 'verify-card', 'cloud-audit-card', 'reports-card', 'reset-queue-card',
- 'db-card', 'find-files-card', 'update-card'].forEach(id => {
+ 'verify-card', 'failed-card', 'cloud-audit-card', 'reports-card',
+ 'reset-queue-card', 'db-card', 'find-files-card', 'update-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
 });
+
+// ── Раскладка карточек: перенос между левой и правой колонками ──
+// Каждая вкладка состоит из двух .tab-col. Карточку тянем за ручку ⠿ на
+// верхней грани; порядок запоминается в localStorage отдельно для вкладки.
+// При выходе новой версии карточки, которых нет в сохранённой раскладке,
+// встают в свою стандартную колонку — ничего не теряется.
+const CARD_LAYOUT_PREFIX = 'ui-card-layout:v1:';
+const _defaultCardLayout = {};
+let _dragCard = null;
+
+function _layoutPanel(name){
+  return document.querySelector(`.panel[data-panel="${name}"]`);
+}
+
+function _layoutKey(name){ return CARD_LAYOUT_PREFIX + name; }
+
+function _readCardLayout(name){
+  try{
+    const raw = JSON.parse(localStorage.getItem(_layoutKey(name)) || 'null');
+    return raw && typeof raw === 'object' ? raw : null;
+  }catch(e){ return null; }
+}
+
+function _writeCardLayout(name, data){
+  try{ localStorage.setItem(_layoutKey(name), JSON.stringify(data)); }catch(e){ /* приватный режим */ }
+}
+
+function _saveCurrentCardLayout(name){
+  const panel = _layoutPanel(name);
+  if(!panel) return;
+  const data = {};
+  panel.querySelectorAll('.tab-grid > .tab-col').forEach(col => {
+    data[col.dataset.col] = Array.from(col.children)
+      .filter(el => el.classList.contains('card') && el.id)
+      .map(el => el.id);
+  });
+  _writeCardLayout(name, data);
+}
+
+function _applyCardLayout(name){
+  const panel = _layoutPanel(name);
+  if(!panel) return;
+  const cols = Array.from(panel.querySelectorAll('.tab-grid > .tab-col'));
+  if(!cols.length) return;
+
+  // Стандартную раскладку запоминаем один раз — из исходной разметки.
+  if(!_defaultCardLayout[name]){
+    _defaultCardLayout[name] = {};
+    cols.forEach(col => {
+      _defaultCardLayout[name][col.dataset.col] = Array.from(col.children)
+        .filter(el => el.classList.contains('card') && el.id)
+        .map(el => el.id);
+    });
+  }
+
+  const saved = _readCardLayout(name);
+  const placed = new Set();
+  cols.forEach(col => {
+    const ids = saved && Array.isArray(saved[col.dataset.col]) ? saved[col.dataset.col] : [];
+    for(const id of ids){
+      const card = document.getElementById(id);
+      if(card && panel.contains(card) && !placed.has(id)){
+        col.appendChild(card);
+        placed.add(id);
+      }
+    }
+  });
+  // Карточки, которых нет в сохранённой раскладке (например, новые в версии),
+  // возвращаем в их стандартную колонку.
+  cols.forEach(col => {
+    const ids = (_defaultCardLayout[name] || {})[col.dataset.col] || [];
+    for(const id of ids){
+      if(placed.has(id)) continue;
+      const card = document.getElementById(id);
+      if(card && panel.contains(card)){
+        col.appendChild(card);
+        placed.add(id);
+      }
+    }
+  });
+}
+
+function resetCardLayout(name){
+  try{ localStorage.removeItem(_layoutKey(name)); }catch(e){ /* не критично */ }
+  _applyCardLayout(name);
+  toast('Раскладка карточек восстановлена', 'ok');
+}
+
+function _cardAfter(col, y){
+  // Первая карточка, середина которой ниже курсора. Саму перетаскиваемую
+  // карточку не учитываем — она стоит на старом месте и не мешает расчёту.
+  const cards = Array.from(col.querySelectorAll(':scope > .card:not(.dnd-dragging)'));
+  for(const card of cards){
+    const box = card.getBoundingClientRect();
+    if(y < box.top + box.height / 2) return card;
+  }
+  return null;
+}
+
+// Перетаскивание — на pointer-событиях, а не на HTML5 drag-and-drop:
+// в WebView2 и в тестах так надёжнее, и не нужен драконий призрак браузера.
+let _dragGhost = null;
+let _dragPlaceholder = null;
+let _dragStart = null;
+let _dragPanel = null;
+let _dragActive = false;
+
+function _finishPointerDrag(ev, move){
+  const card = _dragCard;
+  const panel = _dragPanel;
+  const active = _dragActive;
+  if(card && active && move && _dragPlaceholder && _dragPlaceholder.parentElement){
+    _dragPlaceholder.parentElement.insertBefore(card, _dragPlaceholder);
+  }
+  if(_dragPlaceholder) _dragPlaceholder.remove();
+  if(_dragGhost) _dragGhost.remove();
+  if(card) card.classList.remove('dnd-dragging');
+  if(panel) panel.querySelectorAll('.tab-col').forEach(c => c.classList.remove('dnd-over'));
+  document.body.style.userSelect = '';
+  if(active && move && panel) _saveCurrentCardLayout(panel.dataset.panel);
+  _dragGhost = null;
+  _dragPlaceholder = null;
+  _dragStart = null;
+  _dragPanel = null;
+  _dragActive = false;
+  _dragCard = null;
+}
+
+function _ensureCardDragHandles(name){
+  const panel = _layoutPanel(name);
+  if(!panel) return;
+  panel.querySelectorAll('.tab-grid > .tab-col > .card').forEach(card => {
+    if(card.querySelector(':scope > .card-drag')) return;
+    const grip = document.createElement('div');
+    grip.className = 'card-drag';
+    grip.textContent = '⠿';
+    grip.title = 'Перетащите карточку в другую колонку';
+    grip.setAttribute('aria-hidden', 'true');
+    card.appendChild(grip);
+
+    grip.addEventListener('pointerdown', ev => {
+      if(ev.button !== 0) return;
+      ev.preventDefault();
+      _dragCard = card;
+      _dragPanel = panel;
+      _dragActive = false;
+      _dragStart = {
+        x: ev.clientX, y: ev.clientY,
+        rect: card.getBoundingClientRect()
+      };
+      try{ grip.setPointerCapture(ev.pointerId); }catch(e){ /* не критично */ }
+      card.classList.add('dnd-dragging');
+    });
+
+    grip.addEventListener('pointermove', ev => {
+      if(!_dragCard || _dragCard !== card || !_dragStart) return;
+      const dx = ev.clientX - _dragStart.x;
+      const dy = ev.clientY - _dragStart.y;
+      if(!_dragActive){
+        if(Math.abs(dx) + Math.abs(dy) < 6) return;
+        _dragActive = true;
+        // Лёгкий призрак карточки следует за курсором, а настоящая карточка
+        // остаётся на месте и гаснет; на отпускании она переедет в колонку.
+        _dragGhost = card.cloneNode(true);
+        _dragGhost.removeAttribute('id');
+        _dragGhost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        _dragGhost.querySelectorAll('.card-drag,.resize-grip,.resize-corner').forEach(el => el.remove());
+        _dragGhost.classList.add('card-drag-ghost');
+        _dragGhost.classList.remove('dnd-dragging');
+        _dragGhost.style.width = _dragStart.rect.width + 'px';
+        _dragGhost.style.left = _dragStart.rect.left + 'px';
+        _dragGhost.style.top = _dragStart.rect.top + 'px';
+        document.body.appendChild(_dragGhost);
+        _dragPlaceholder = document.createElement('div');
+        _dragPlaceholder.className = 'card-drop-line';
+        document.body.style.userSelect = 'none';
+      }
+      if(_dragGhost) _dragGhost.style.transform = `translate(${dx}px, ${dy}px)`;
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      const col = under && under.closest ? under.closest('.tab-col') : null;
+      const inside = col && panel.contains(col);
+      panel.querySelectorAll('.tab-col').forEach(c => c.classList.toggle('dnd-over', inside && c === col));
+      if(inside){
+        const after = _cardAfter(col, ev.clientY);
+        if(after) col.insertBefore(_dragPlaceholder, after);
+        else col.appendChild(_dragPlaceholder);
+      }
+    });
+
+    grip.addEventListener('pointerup', ev => _finishPointerDrag(ev, true));
+    grip.addEventListener('pointercancel', ev => _finishPointerDrag(ev, false));
+  });
+}
+
+function initCardLayouts(){
+  ['home', 'organize', 'setup', 'diagnostics'].forEach(name => {
+    const panel = _layoutPanel(name);
+    if(!panel) return;
+    _applyCardLayout(name);
+    _ensureCardDragHandles(name);
+  });
+}
+
+initCardLayouts();
 
 // ── «Что качать»: проводник облака и выбор папок/файлов (35.7.2) ──────────
 
