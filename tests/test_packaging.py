@@ -327,18 +327,21 @@ def test_exit_code_one_is_not_treated_as_user_stop():
     assert codes == [-15, -2, 143, 130, 15]
 
 
-def test_console_scroll_sticks_only_when_user_is_at_bottom():
-    """Журнал не должен прыгать вниз, пока пользователь читает выше."""
+def test_console_scroll_sticks_only_when_user_is_at_top():
+    """35.9.0: новые строки журнала сверху; журнал не прыгает при чтении старых."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     assert 'id="pipeline-console" tabindex="0"' in html
     assert "const CONSOLE_STICK_PX = 24;" in html
-    assert "_consoleStick[id] = consoleNearBottom(el);" in html
+    assert "_consoleStick[id] = consoleNearTop(el);" in html
 
     marker = html.index("function setConsole(id, text){")
     body = html[marker : html.index("\n}\n", marker)]
     assert "const stick = _consoleStick[id] !== false;" in body
-    assert "if(stick)" in body
+    assert "text.split('\\n').reverse().join('\\n')" in body
+    assert "el.scrollTop = 0;" in body
+    # При чтении старых строк место сохраняется с поправкой на высоту.
+    assert "const added = el.scrollHeight - prevHeight;" in body
 
 
 def test_backup_buttons_are_equal_and_lock_while_copying():
@@ -883,7 +886,7 @@ def test_cards_can_be_stretched_by_height():
     """Все перечисленные карточки тянутся по высоте без обёртки (не ломает сетку)."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     for card_id in ("export-dirs-card", "access-card",
-                    "previews-card", "cloud-card", "launch-all-card",
+                    "previews-card", "picker-card", "launch-all-card",
                     "launch-manual-card"):
         assert f'id="{card_id}"' in html
     assert "opts.inline ? el : document.createElement('div')" in html
@@ -1000,7 +1003,7 @@ def test_profile_avatars_live_in_the_profile_pill_and_under_a_spoiler():
 
     profiles_src = (PROJECT_DIR / "profiles.py").read_text(encoding="utf-8")
     import profiles as profiles_mod
-    assert len(profiles_mod.AVATARS) == 26
+    assert len(profiles_mod.AVATARS) == 41
     for avatar in profiles_mod.AVATARS:
         assert avatar in profiles_src
         assert f'<symbol id="{avatar}"' in html, avatar
@@ -1411,7 +1414,10 @@ def test_cloud_audit_card_sits_between_verify_and_relocate():
     # Выбор баз за один проход и обе кнопки действий.
     for option in ('value="both"', 'value="disk"', 'value="unlim"'):
         assert option in diag
-    for fn in ("startCloudAudit()", "stopCloudAudit()", "auditAddNew()",
+    # 35.9.0: одна переключающаяся кнопка вместо пары старт/стоп.
+    assert 'id="audit-stop-btn"' not in diag
+    assert 'id="audit-start-btn" onclick="toggleCloudAudit()"' in diag
+    for fn in ("toggleCloudAudit()", "auditAddNew()",
                "auditMarkGone()", "toggleAuditList('same')",
                "toggleAuditList('new')", "toggleAuditList('changed')",
                "toggleAuditList('gone')", "toggleAuditReport()"):
@@ -1471,9 +1477,8 @@ def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
         "home-unlim-card", "home-disk-card", "launch-all-card",
         "launch-manual-card", "pipeline-card", "organize-card", "backups-card",
         "profiles-card", "export-dirs-card", "watchdog-card", "access-card",
-        "previews-card", "cloud-card", "picker-card",
-        "unlim-dates-card", "notify-card", "diag-report-card",
-        "diag-key-card", "verify-card", "cloud-audit-card", "reports-card",
+        "previews-card", "picker-card", "diag-report-card",
+        "verify-card", "cloud-audit-card", "reports-card",
         "reset-queue-card", "db-card", "find-files-card", "update-card",
     ]
     start = html.index("['home-unlim-card'")
@@ -1537,12 +1542,19 @@ def test_token_is_fetched_automatically_manual_input_is_secondary():
     assert webui.WORKER_SCRIPTS["fetch_token.py"] == "fetch_token"
 
 
-def test_feedback_form_lives_in_report_card_and_explains_privacy():
-    """35.8.1: «Написать разработчику» — в одной карточке с отчётом."""
+def test_feedback_form_is_a_header_modal_not_a_diag_card():
+    """35.9.0: «Написать разработчику» — кнопка в шапке и отдельное окно."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    card_start = html.index('id="diag-report-card"')
-    card_end = html.index('id="diag-key-card"')
-    card = html[card_start:card_end]
+    modal_start = html.index('id="feedback-modal"')
+    modal_end = html.index('id="guide-modal"')
+    card = html[modal_start:modal_end]
+
+    assert 'id="feedback-btn"' in html
+    assert 'onclick="openFeedback()"' in html
+    assert "function openFeedback(" in html
+    assert "function closeFeedback(" in html
+    diag = _panel_html(html, "diagnostics")
+    assert 'id="feedback-name"' not in diag
 
     for marker in ('id="feedback-name"', 'id="feedback-email"',
                    'id="feedback-phone"', 'id="feedback-message"',
@@ -1651,3 +1663,38 @@ def test_watchdog_threshold_saves_without_enabling():
     assert "if(!st || !st.running) return;" not in html
     # Порог показывается и у выключенного сторожа.
     assert "document.activeElement !== sel" in html
+
+
+def test_35_9_0_exclusions_resume_and_old_folder_ui():
+    """Новые элементы 35.9.0: дерево исключений, «Продолжить», старая папка."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    # Исключения: кнопка на «Главной», модальное дерево, сохранение.
+    assert 'onclick="openExclusions()"' in html
+    assert 'id="exclusions-modal"' in html
+    assert "function openExclusions(" in html
+    assert "function saveExclusions(" in html
+    assert "/api/config/exclusions" in html
+
+    # Продолжение после заполнения/отключения диска — с проверкой на сервере.
+    assert 'onclick="resumeAfterDisk(this)"' in html
+    assert "function resumeAfterDisk(" in html
+    assert "/api/disk/resume" in html
+
+    # «Старая папка» уходит в запрос перепривязки.
+    assert 'id="find-old-dir"' in html
+    assert "old_dir: _findOldDirValue()" in html
+    assert "function _findOldDirValue(" in html
+
+    # Проводник складывается той же кнопкой.
+    assert 'id="picker-open-btn" onclick="pickerToggle()"' in html
+    assert "Свернуть облако" in html
+    assert "function pickerSetExpanded(" in html
+
+    # Одна кнопка сверки и колокольчик-пилюля в шапке.
+    assert 'id="audit-start-btn" onclick="toggleCloudAudit()"' in html
+    assert 'id="notify-btn"' in html and 'id="notify-card"' not in html
+
+    # Обратная связь — в шапке, отдельным окном.
+    assert 'id="feedback-btn"' in html
+    assert 'id="feedback-modal"' in html

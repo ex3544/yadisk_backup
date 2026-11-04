@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field
 import backups
 import cloud_audit as cloud_audit_mod
 import diagnostics
+import exclusions
 import guide
 import monitor
 import paths
@@ -1359,6 +1360,8 @@ class Beast:
         tm.stop(slot)
 
     def _start_lane(self, kind: str, strategy: dict) -> tuple[bool, str]:
+        if self._stop:
+            return False, "Зверь остановлен"
         cfg = get_config()
         if kind == "disk":
             workers = int(strategy.get("disk_workers") or 0) or auto_workers()
@@ -1395,6 +1398,8 @@ class Beast:
         Возвращает (сколько скачано, была ли остановка по застою, фатальная
         ошибка или пустая строка).
         """
+        if self._stop:
+            return 0, False, ""
         self._log("   возвращаю отложенные и обнуляю счётчики…")
         returned = self._reset_lost()
         if returned:
@@ -2089,6 +2094,12 @@ class DiskWatchdog:
         self.state = "stopped"
 
     def _stop_everything(self, free: float):
+        # «Зверь» останавливаем первым: иначе он тут же запускает новый круг,
+        # и диск продолжает заполняться уже после срабатывания сторожа.
+        try:
+            beast.stop()
+        except Exception:  # noqa: BLE001 — остановка не должна мешать остальным
+            pass
         full_cycle.stop()
         pipeline.stop()
         tm.stop_all()
@@ -2128,7 +2139,7 @@ def db_stats(db_file: Path, table: str = "files",
     if not db_file.exists():
         return {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                 "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-                "lost": 0, "denied": 0, "deleted": 0,
+                "lost": 0, "denied": 0, "deleted": 0, "excluded": 0,
                 "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}, "recent": []}
     c = None
     try:
@@ -2136,7 +2147,7 @@ def db_stats(db_file: Path, table: str = "files",
         c.row_factory = sqlite3.Row
         out = {"total": 0, "pending": 0, "downloaded": 0, "skipped": 0,
                "failed": 0, "in_progress": 0, "waiting": 0, "waiting_host": "",
-               "lost": 0, "denied": 0, "deleted": 0,
+               "lost": 0, "denied": 0, "deleted": 0, "excluded": 0,
                "bytes_total": 0, "bytes_done": 0, "bytes_by_status": {}}
         for r in c.execute(
             f"SELECT status, COUNT(*) AS n, COALESCE(SUM(size),0) AS b "
@@ -2907,6 +2918,52 @@ def api_download_start(payload: DownloadControlPayload):
         return {"ok": ok, "msg": msg, "mode": "disk"}
 
 
+class DiskResumePayload(BaseModel):
+    scope: str = "auto"
+
+
+@app.post("/api/disk/resume")
+def api_disk_resume(payload: DiskResumePayload):
+    """«Продолжить» после заполнения диска или его отключения.
+
+    Запуск разрешён только когда места действительно хватает: иначе первый же
+    крупный файл снова упрётся в ноль. Порог берём у сторожа плюс 1 ГБ запаса.
+    """
+    log_action("/api/disk/resume", payload)
+    if beast.is_running():
+        return {"ok": False, "msg": "Включён режим «Зверь» — он остановлен сторожем. "
+                                    "Освободите место и включите его снова"}
+    cfg = get_config()
+    scope = (payload.scope or "auto").strip().lower()
+    if scope not in ("disk", "unlim"):
+        # Авто: заполненный диск Безлимита пишет download_error, обычный —
+        # disk_state. Если оба молчат, продолжаем Безлимит как более частый.
+        try:
+            disk_state = json.loads(paths.DISK_STATUS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            disk_state = {}
+        scope = "disk" if str(disk_state.get("state") or "") in (
+            "disk_full", "disk_offline"
+        ) else "unlim"
+    folder = (cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)) if scope == "unlim" \
+        else (cfg.get("disk_dir") or cfg.get("download_dir") or str(paths.DEFAULT_DISK_DIR))
+    problem = check_target_dir(folder)
+    if problem:
+        return {"ok": False, "msg": problem, "scope": scope}
+    free = _free_gb([folder])
+    need = float(watchdog.threshold_gb) + 1.0
+    if free is not None and free < need:
+        return {"ok": False, "scope": scope,
+                "msg": f"Свободно {free:.1f} ГБ, нужно хотя бы {need:.1f} ГБ. "
+                       f"Освободите место и нажмите «Продолжить» ещё раз."}
+    if scope == "unlim":
+        return api_download_start(DownloadControlPayload(
+            mode="unlim", media=cfg.get("unlim_media") or "all",
+            target="all", workers=10, from_end=True,
+        ))
+    return api_download_start(DownloadControlPayload(mode="disk"))
+
+
 class DownloadAllPayload(BaseModel):
     workers: int = 10
     # Сколько проходов по сбойным делать за запуск. Ровно столько и будет.
@@ -3398,6 +3455,54 @@ def api_set_unlim_media(payload: UnlimMediaPayload):
     load_dotenv(ENV_FILE, override=True)
     log_action("/api/config/unlim_media", {"media": media})
     return {"ok": True, "msg": "Сохранено: " + MEDIA_LABELS[media], "media": media}
+
+
+# ── Исключения из выгрузки Диска (35.9.0) ──────────────────────────────────
+
+class ExclusionsPayload(BaseModel):
+    items: list[str] = []
+
+
+@app.get("/api/config/exclusions")
+def api_get_exclusions():
+    """Список облачных путей, которые не нужно скачивать."""
+    items = exclusions.load()
+    return {"ok": True, "items": items, "count": len(items)}
+
+
+@app.post("/api/config/exclusions")
+def api_set_exclusions(payload: ExclusionsPayload):
+    """Сохраняет исключения и сразу приводит статусы строк Диска.
+
+    Уже скачанные файлы не трогаются. Снятое исключение возвращает строки
+    в очередь. Перед изменением базы сохраняется копия.
+    """
+    if _any_task_running(("disk", "unlim", "verify", "organize", "audit")):
+        return {"ok": False,
+                "msg": "Сначала остановите выгрузку и проверки — иначе статусы "
+                       "файлов могут разойтись"}
+    items = exclusions.normalize_items(payload.items)
+    ok, item, err = _auto_backup("before-exclusions", ("disk",))
+    if not ok:
+        return {"ok": False,
+                "msg": f"Не удалось сохранить копию базы: {err}"}
+    try:
+        changed = exclusions.sync_db(items)
+        saved = exclusions.save(items)
+    except (OSError, sqlite3.Error) as exc:
+        return {"ok": False, "msg": f"Не удалось сохранить исключения: {exc}"}
+    log_action("/api/config/exclusions", {"count": len(saved)})
+    parts = [f"Исключено из очереди: {changed['excluded']}"]
+    if changed["returned"]:
+        parts.append(f"возвращено в очередь: {changed['returned']}")
+    return {
+        "ok": True,
+        "msg": "Сохранено. " + " · ".join(parts),
+        "items": saved,
+        "count": len(saved),
+        "backup": item["id"] if item else "",
+        **changed,
+    }
 
 
 def cloud_folders_from(items) -> list[dict]:
@@ -4087,6 +4192,8 @@ class DbRebuildPayload(BaseModel):
 class DbRelocatePayload(BaseModel):
     scope: str = ""
     new_dir: str = ""
+    # «Старая папка»: обрабатывать только строки, чей путь лежит внутри неё.
+    old_dir: str = ""
     preview: bool = False
 
 
@@ -4256,7 +4363,7 @@ def db_relocate(payload: DbRelocatePayload):
     for one in scopes:
         try:
             plans.append(relocate_mod.plan_relocate(
-                one, new_dir, _scope_dir_setting(one)
+                one, new_dir, _scope_dir_setting(one), payload.old_dir
             ))
         except relocate_mod.RelocateError as exc:
             return {"ok": False, "msg": str(exc)}
@@ -5257,7 +5364,13 @@ def api_cloud_audit_report():
 def _cloud_audit_status(tasks: dict) -> dict:
     out = dict(cloud_audit_mod.read_status() or {})
     task = (tasks or {}).get("audit") or {}
-    out["running"] = bool(task.get("running"))
+    stage = str(out.get("stage") or "").lower()
+    # Кнопка и подпись должны жить по одному источнику. Файл статуса пишет
+    # «stopped» сразу, а процесс ещё секунду-две завершается: если верить
+    # только `task.running`, старт остаётся серым при подписи «остановлена».
+    finished_stage = stage in ("stopped", "done", "finished", "error")
+    out["running"] = bool(task.get("running")) and not finished_stage
+    out["state"] = stage or ("running" if out["running"] else "idle")
     out["report_available"] = paths.CLOUD_AUDIT_REPORT_FILE.exists()
     return out
 

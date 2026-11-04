@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+import exclusions
 import paths
 from utils import human_bytes, human_duration, volume_ready
 
@@ -105,6 +106,7 @@ def scan_disk_cloud(
     files: dict[str, dict] = {}
     queue = ["disk:/"]
     dirs = 0
+    excluded = exclusions.load()
     client = yadisk.Client(token=token)
     try:
         with client:
@@ -129,6 +131,8 @@ def scan_disk_cloud(
                 for entry in entries:
                     entry_path = entry.path
                     if _is_skipped(entry_path):
+                        continue
+                    if exclusions.is_excluded(entry_path, excluded):
                         continue
                     if entry.type == "dir":
                         queue.append(entry_path)
@@ -298,6 +302,10 @@ def load_db_rows(scope: str) -> dict[str, dict]:
     for row in rows:
         key = row["key"]
         if not key:
+            continue
+        # Исключённые файлы не участвуют в сверке: их нет ни в облаке, ни в
+        # очереди по замыслу, и показывать их как «пропало» незачем.
+        if row["status"] == "excluded":
             continue
         out[str(key)] = {
             "name": row["name"] or str(key).rsplit("/", 1)[-1],

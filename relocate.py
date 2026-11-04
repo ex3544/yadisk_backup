@@ -257,8 +257,18 @@ class _Index:
         return None, ""
 
 
-def plan_relocate(scope: str, new_root: str, old_root_hint: str = "") -> Plan:
-    """Предпросмотр: что будет привязано к новой папке. Ничего не меняет."""
+def plan_relocate(
+    scope: str,
+    new_root: str,
+    old_root_hint: str = "",
+    only_under: str = "",
+) -> Plan:
+    """Предпросмотр: что будет привязано к новой папке. Ничего не меняет.
+
+    `only_under` — фильтр «Старая папка»: если задан, в план попадают только
+    строки, чей текущий `local_path` лежит внутри этой папки. Так переезд
+    одного диска не трогает строки других дисков и старые Linux-пути.
+    """
     scope = (scope or "").strip().lower()
     if scope not in SCOPES:
         raise RelocateError("Неизвестная база: ожидается disk или unlim")
@@ -268,10 +278,13 @@ def plan_relocate(scope: str, new_root: str, old_root_hint: str = "") -> Plan:
             "Новая папка не найдена или диск не подключён: " + new_root
         )
     rows = load_rows(scope)
+    only_under = os.path.abspath((only_under or "").strip()) if only_under else ""
+    if only_under:
+        rows = [r for r in rows if relative_under(r.local, only_under) is not None]
     plan = Plan(scope=scope, old_root="", new_root=new_root, total=len(rows))
     if not rows:
         return plan
-    old_root = detect_old_root(rows, new_root, old_root_hint)
+    old_root = only_under or detect_old_root(rows, new_root, old_root_hint)
     plan.old_root = old_root
     index: Optional[_Index] = None
 

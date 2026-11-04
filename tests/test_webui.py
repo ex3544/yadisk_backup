@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import exclusions
 import guide
 import paths
 import webui
@@ -1989,3 +1990,33 @@ def test_beast_gives_dead_hosts_a_few_probes(monkeypatch):
     ok, _ = beast._start_lane("disk", {})
     assert ok
     assert calls["kwargs"]["env_extra"] == {"YADISK_DEAD_HOST_PROBES": "3"}
+
+
+def test_exclusions_api_saves_and_syncs(monkeypatch, tmp_path):
+    monkeypatch.setattr(exclusions, "FILE", tmp_path / "exclusions.json")
+    monkeypatch.setattr(webui, "_any_task_running", lambda prefixes: False)
+    monkeypatch.setattr(webui, "_auto_backup",
+                        lambda kind, tasks: (True, {"id": "copy-1"}, ""))
+    monkeypatch.setattr(webui, "log_action", lambda *a, **k: None)
+    synced = {}
+    monkeypatch.setattr(exclusions, "sync_db",
+                        lambda items: synced.update(items=list(items))
+                        or {"excluded": 2, "returned": 1})
+    monkeypatch.setattr(webui, "refresh", lambda: None, raising=False)
+
+    out = webui.api_set_exclusions(webui.ExclusionsPayload(
+        items=["disk:/Photos/", "Photos"])
+    )
+    assert out["ok"] is True
+    assert out["items"] == ["disk:/Photos"]
+    assert out["excluded"] == 2
+    assert out["returned"] == 1
+    assert synced["items"] == ["disk:/Photos"]
+    assert exclusions.load() == ["disk:/Photos"]
+
+
+def test_exclusions_api_refuses_while_tasks_run(monkeypatch):
+    monkeypatch.setattr(webui, "_any_task_running", lambda prefixes: True)
+    out = webui.api_set_exclusions(webui.ExclusionsPayload(items=["disk:/a"]))
+    assert out["ok"] is False
+    assert "остановите" in out["msg"]

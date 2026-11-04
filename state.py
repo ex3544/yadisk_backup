@@ -169,6 +169,31 @@ class State:
                 (remote_path, size, md5),
             )
 
+    def mark_excluded(
+        self,
+        remote_path: str,
+        size: Optional[int],
+        md5: Optional[str],
+    ) -> None:
+        """Файл исключён из выгрузки: в очередь не встаёт, сбойным не считается."""
+        with self._tx() as conn:
+            conn.execute(
+                """
+                INSERT INTO files (remote_path, size, md5, status)
+                VALUES (?, ?, ?, 'excluded')
+                ON CONFLICT(remote_path) DO UPDATE SET
+                    size = excluded.size,
+                    md5 = COALESCE(excluded.md5, files.md5),
+                    status = CASE
+                        WHEN files.status IN ('downloaded', 'skipped', 'deleted')
+                        THEN files.status
+                        ELSE 'excluded'
+                    END,
+                    error = NULL
+                """,
+                (remote_path, size, md5),
+            )
+
     def mark_downloaded(
         self, remote_path: str, local_path: str, storage_host: Optional[str] = None
     ) -> Optional[str]:

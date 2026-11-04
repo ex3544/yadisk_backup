@@ -235,3 +235,31 @@ def test_restore_cloud_counts_already_correct(data):
 def test_restore_cloud_only_for_disk(data):
     with pytest.raises(relocate.RelocateError):
         relocate.plan_restore_cloud("unlim", str(data))
+
+
+def test_relocate_only_under_old_folder(data):
+    r"""35.9.0: «Старая папка» перепривязывает только записи из неё.
+
+    Так переезд C:\Unlim -> D:\Unlim не трогает уже правильные D:\Unlim
+    и старые Linux-пути.
+    """
+    old_c = data / "oldC"
+    old_d = data / "oldD"
+    new = data / "new"
+    # Старые файлы уже удалены/перенесены — на старом месте их нет.
+    _write(new / "a.jpg", b"a")
+    _write(new / "b.jpg", b"b")
+    _make_db(data / "state.db", [
+        ("disk:/a.jpg", 1, None, "downloaded", str(old_c / "a.jpg")),
+        ("disk:/b.jpg", 1, None, "downloaded", str(old_d / "b.jpg")),
+    ])
+
+    plan = relocate.plan_relocate("disk", str(new), str(old_c), str(old_c))
+    assert plan.total == 1
+    assert plan.old_root == str(old_c)
+    assert plan.updates == [("disk:/a.jpg", str(new / "a.jpg"))]
+
+    # Без фильтра обе записи находятся в новой папке.
+    everything = relocate.plan_relocate("disk", str(new), str(old_c))
+    assert everything.total == 2
+    assert {key for key, _ in everything.updates} == {"disk:/a.jpg", "disk:/b.jpg"}

@@ -48,6 +48,10 @@ AVATARS = (
     "av-snowboard", "av-skis", "av-tennis",
     "av-microphone", "av-note", "av-drum",
     "av-letter-ya", "av-jager",
+    # 35.9.0: ещё 15 ярких — всего 41 на выбор. av-tennis теперь пинг-понг.
+    "av-sun", "av-star", "av-rainbow", "av-rocket", "av-planet",
+    "av-flame", "av-lightning", "av-heart", "av-cherry", "av-watermelon",
+    "av-pizza", "av-icecream", "av-guitar", "av-paint", "av-camera",
 )
 DEFAULT_AVATAR = "av-fox"
 # Символы, недопустимые в имени профиля: имя попадает в списки и файлы,

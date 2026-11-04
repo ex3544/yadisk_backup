@@ -17,9 +17,11 @@ def html() -> str:
 # ── C3: уведомления и заголовок вкладки ─────────────────────────────────────
 
 
-def test_notification_card_and_api(html):
-    assert 'id="notify-card"' in html
+def test_notification_pill_and_api(html):
+    """35.9.0: колокольчик-пилюля в шапке вместо отдельной карточки."""
+    assert 'id="notify-card"' not in html
     assert 'id="notify-btn"' in html
+    assert 'onclick="toggleNotifications()"' in html
     assert "Notification.requestPermission()" in html
     assert "new Notification(" in html
     assert "localStorage.getItem('yad.notify')" in html

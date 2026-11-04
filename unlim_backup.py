@@ -495,10 +495,21 @@ def reset_skipped_files(
     return count
 
 
-def check_free_space(path_str: str, min_mb: int = 500) -> bool:
+def check_free_space(path_str: str, required_bytes: int = 0) -> bool:
+    """Хватает ли места на файл с запасом (см. downloader.check_free_space).
+
+    Раньше здесь проверялись только «500 МБ вообще», без размера файла: на
+    большом видео диск успевал заполниться вплотную. Теперь от 100 МБ просим
+    ещё 10% и 512 МБ, для мелких — 256 МБ.
+    """
+    big = 100 * 1024 * 1024
+    if required_bytes >= big:
+        need = int(required_bytes * 1.1) + 512 * 1024 * 1024
+    else:
+        need = required_bytes + 256 * 1024 * 1024
     try:
         usage = shutil.disk_usage(path_str)
-        return (usage.free / (1024 * 1024)) >= min_mb
+        return usage.free >= need
     except Exception:
         return True
 
@@ -846,7 +857,11 @@ def download_one_file(
     if DISK_FULL.is_set():
         return False, 0, "disk_full"
 
-    if not check_free_space(str(out_dir)):
+    try:
+        need_bytes = int(item.get("size") or 0)
+    except (TypeError, ValueError):
+        need_bytes = 0
+    if not check_free_space(str(out_dir), need_bytes):
         # Диск заполнен: не помечаем файл skipped (остаётся in_progress), а гасим
         # загрузку; recover_stuck вернёт его в pending при следующем старте.
         DISK_FULL.set()

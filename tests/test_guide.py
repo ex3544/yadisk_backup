@@ -17,7 +17,8 @@ def test_instruction_file_is_in_place_and_covers_the_main_sections():
         assert section in text
     # Самые важные функции, которые люди ищут в справке.
     for feature in ("Сверка с облаком", "Файлы переехали?", "Проверка файлов",
-                    "Cookies браузера", "Даты Безлимита"):
+                    "Cookies браузера", "Выборочная выгрузка",
+                    "Не выгружать из диска"):
         assert feature in text
 
 

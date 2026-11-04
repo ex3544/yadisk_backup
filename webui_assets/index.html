@@ -13,6 +13,8 @@
     --surface3:#3a3a3c;
     --hairline:rgba(255,255,255,.08);
     --hairline-strong:rgba(255,255,255,.14);
+    /* Рамки карточек: заметнее волосяных линий, но всё ещё спокойные. */
+    --card-line:rgba(255,255,255,.17);
     --text:#f5f5f7;
     --text-secondary:#aeaeb2;
     --text-tertiary:#8e8e93;
@@ -44,6 +46,7 @@
     --surface3:#d9d9de;
     --hairline:rgba(0,0,0,.08);
     --hairline-strong:rgba(0,0,0,.16);
+    --card-line:rgba(0,0,0,.19);
     --text:#1c1c1e;
     --text-secondary:#48484a;
     --text-tertiary:#6c6c70;
@@ -302,7 +305,7 @@
   /* ── Card ── */
   .card{
     background:var(--surface);
-    border:0.5px solid var(--hairline);
+    border:1px solid var(--card-line);
     border-radius:14px;
     padding:16px;
     margin-bottom:12px;
@@ -416,7 +419,9 @@
     box-shadow:0 3px 10px rgba(0,0,0,.35);
     align-self:stretch;
   }
-  .beast-btn:hover{background:#9d5a6c;transform:translateY(-1px)}
+  /* Без transform: он создавал stacking context и прятал подсказку под
+     соседними карточками. Подсветка остаётся за счёт цвета и тени. */
+  .beast-btn:hover{background:#9d5a6c;box-shadow:0 5px 14px rgba(0,0,0,.45)}
   /* Работающий «Зверь» — ярко-красная кнопка со свечением и надписью «стоп»:
      видно с первого взгляда, что режим включён и как его выключить. */
   .beast-btn.on{
@@ -515,7 +520,7 @@
   }
 
   .stat{
-    background:var(--surface);border:0.5px solid var(--hairline);
+    background:var(--surface);border:1px solid var(--card-line);
     border-radius:14px;padding:18px;
   }
   .stat-label{font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:600}
@@ -873,6 +878,18 @@
   .setup-hint.ok{color:var(--green)}
   .setup-hint.err{color:var(--red)}
   .setup-hint.warn{color:var(--orange)}
+  /* Свёрнутый блок внутри карточки: вторая карточка не нужна, а редкие
+     настройки (ключ отчётов) не занимают место на виду. */
+  .fold{margin-top:16px;border-top:1px solid var(--hairline);padding-top:12px}
+  .fold summary{
+    cursor:pointer;font-size:13.5px;font-weight:600;color:var(--text-secondary);
+    list-style:none;display:flex;align-items:center;gap:7px;
+  }
+  .fold summary::-webkit-details-marker{display:none}
+  .fold summary::before{content:"▸";font-size:11px;color:var(--text-tertiary)}
+  .fold[open] summary::before{content:"▾"}
+  .fold summary:hover{color:var(--text)}
+  .feedback-box{max-width:600px}
   /* Выбор облачных папок (C2): список «фишек» с крестиком. */
   .root-list{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px;min-height:2px}
   .root-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;
@@ -883,6 +900,17 @@
   .root-chip button:hover{color:var(--red,#e0533d);background:rgba(255,255,255,.08)}
   .root-chip.pick button{color:var(--accent);font-size:15px}
   /* Проводник облака «Что качать» (35.7.2): папки и файлы с галочками. */
+  /* Компактная карточка выборочной выгрузки на «Главной» */
+  .vpick-card{padding:12px 14px}
+  .vpick-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .vp-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .vp-tab{
+    background:var(--surface2);border:1px solid var(--hairline-strong);
+    color:var(--text-secondary);border-radius:999px;padding:5px 12px;
+    font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  }
+  .vp-tab:hover{color:var(--text);border-color:var(--card-line)}
+  .vp-tab.on{background:rgba(10,132,255,.16);border-color:rgba(10,132,255,.55);color:var(--accent)}
   .picker-bar{display:flex;align-items:center;gap:8px;margin:2px 0 8px;flex-wrap:wrap}
   .picker-path{flex:1;min-width:110px;font-size:12.5px;color:var(--text-tertiary);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1282,19 +1310,20 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <g transform="rotate(-28 32 32)"><rect x="29" y="6" width="6" height="52" rx="3" fill="#ef4444"/></g>
       <circle cx="32" cy="32" r="4" fill="#f8fafc"/>
     </symbol>
+    <!-- 35.9.0: теннис заменён на пинг-понг — две ракетки и лёгкий мячик. -->
     <symbol id="av-tennis" viewBox="0 0 64 64">
-      <circle cx="32" cy="32" r="30" fill="#dcfce7"/>
-      <g transform="rotate(-12 22 28)">
-        <ellipse cx="22" cy="22" rx="9" ry="11" fill="#ffffff" stroke="#15803d" stroke-width="2.2"/>
-        <path d="M14 18h16M14 24h16M18 12v18M26 12v18" stroke="#86efac" stroke-width="1.1"/>
-        <rect x="20" y="32" width="4" height="20" rx="2" fill="#166534"/>
+      <circle cx="32" cy="32" r="30" fill="#fee2e2"/>
+      <g transform="rotate(-24 22 22)">
+        <ellipse cx="22" cy="20" rx="11" ry="9" fill="#ef4444" stroke="#991b1b" stroke-width="2.2"/>
+        <rect x="20" y="27" width="4" height="18" rx="2" fill="#7f1d1d"/>
       </g>
-      <g transform="rotate(12 42 28)">
-        <ellipse cx="42" cy="22" rx="9" ry="11" fill="#ffffff" stroke="#f97316" stroke-width="2.2"/>
-        <path d="M34 18h16M34 24h16M38 12v18M46 12v18" stroke="#fdba74" stroke-width="1.1"/>
-        <rect x="40" y="32" width="4" height="20" rx="2" fill="#c2410c"/>
+      <g transform="rotate(24 42 22)">
+        <ellipse cx="42" cy="20" rx="11" ry="9" fill="#111827" stroke="#000000" stroke-width="2.2"/>
+        <rect x="40" y="27" width="4" height="18" rx="2" fill="#374151"/>
       </g>
-      <circle cx="32" cy="50" r="5.5" fill="#facc15" stroke="#ca8a04" stroke-width="1.5"/>
+      <circle cx="32" cy="43" r="7" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
+      <path d="M27 41c3-2 7-2 10 0" stroke="#fde68a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      <circle cx="47" cy="48" r="2" fill="#ffffff" opacity=".8"/>
     </symbol>
     <symbol id="av-microphone" viewBox="0 0 64 64">
       <circle cx="32" cy="32" r="30" fill="#f3e8ff"/>
@@ -1332,6 +1361,119 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <circle cx="28" cy="39" r="1.6" fill="#14503a"/><circle cx="36" cy="39" r="1.6" fill="#14503a"/>
       <ellipse cx="32" cy="47" rx="2.6" ry="2" fill="#14503a"/>
     </symbol>
+    <!-- 35.9.0: ещё 15 ярких аватарок — всего 41 на выбор. -->
+    <symbol id="av-sun" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef9c3"/>
+      <circle cx="32" cy="32" r="13" fill="#fbbf24" stroke="#d97706" stroke-width="2"/>
+      <g stroke="#f59e0b" stroke-width="3" stroke-linecap="round">
+        <path d="M32 8v7M32 49v7M8 32h7M49 32h7M15 15l5 5M44 44l5 5M49 15l-5 5M20 44l-5 5"/>
+      </g>
+      <circle cx="27" cy="30" r="2" fill="#92400e"/><circle cx="37" cy="30" r="2" fill="#92400e"/>
+      <path d="M27 37q5 4 10 0" stroke="#92400e" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-star" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#ede9fe"/>
+      <path d="M32 9l7 14 15 2-11 11 3 15-14-7-14 7 3-15-11-11 15-2z" fill="#a855f7" stroke="#6b21a8" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="27" cy="30" r="2" fill="#fff"/><circle cx="37" cy="30" r="2" fill="#fff"/>
+      <path d="M28 37q4 3 8 0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-rainbow" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#e0f2fe"/>
+      <path d="M10 45a22 22 0 0 1 44 0" stroke="#ef4444" stroke-width="5" fill="none"/>
+      <path d="M15 45a17 17 0 0 1 34 0" stroke="#f59e0b" stroke-width="5" fill="none"/>
+      <path d="M20 45a12 12 0 0 1 24 0" stroke="#22c55e" stroke-width="5" fill="none"/>
+      <path d="M25 45a7 7 0 0 1 14 0" stroke="#3b82f6" stroke-width="5" fill="none"/>
+      <circle cx="13" cy="48" r="5" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <circle cx="51" cy="48" r="5" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="av-rocket" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#1e1b4b"/>
+      <path d="M32 8c9 8 12 20 8 32H24C20 28 23 16 32 8z" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+      <circle cx="32" cy="24" r="5" fill="#38bdf8" stroke="#0369a1" stroke-width="2"/>
+      <path d="M24 30l-8 9 10-2M40 30l8 9-10-2" fill="#ef4444"/>
+      <path d="M28 40h8l-4 8z" fill="#f59e0b"/>
+      <path d="M30 48l2 9 2-9" fill="#fbbf24"/>
+    </symbol>
+    <symbol id="av-planet" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#0f172a"/>
+      <circle cx="32" cy="32" r="16" fill="#8b5cf6" stroke="#4c1d95" stroke-width="2"/>
+      <path d="M6 40c7 5 43 2 52-8" stroke="#fbbf24" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <circle cx="27" cy="29" r="2" fill="#ddd6fe"/><circle cx="38" cy="34" r="2" fill="#ddd6fe"/>
+      <circle cx="15" cy="18" r="1.6" fill="#fff"/><circle cx="50" cy="15" r="1.4" fill="#fff"/>
+      <circle cx="52" cy="46" r="1.8" fill="#fff"/><circle cx="12" cy="50" r="1.4" fill="#fff"/>
+    </symbol>
+    <symbol id="av-flame" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fff7ed"/>
+      <path d="M32 7c3 11-8 14-4 24 2-4 5-6 8-8 7 7 12 14 12 22 0 8-7 14-16 14S16 53 16 45c0-11 10-20 16-38z" fill="#f97316" stroke="#c2410c" stroke-width="2"/>
+      <path d="M32 30c2 6-4 8-2 13 3-3 7-5 8-9 2 5 4 8 4 12 0 4-4 7-9 7s-9-3-9-7c0-6 5-11 8-16z" fill="#fbbf24"/>
+    </symbol>
+    <symbol id="av-lightning" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef3c7"/>
+      <path d="M37 6L15 36h13l-3 22 24-31H36z" fill="#facc15" stroke="#ca8a04" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M33 14L23 30h8l-1 10" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".8"/>
+    </symbol>
+    <symbol id="av-heart" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fce7f3"/>
+      <path d="M32 52S10 39 10 24a11 11 0 0 1 22-3 11 11 0 0 1 22 3c0 15-22 28-22 28z" fill="#ec4899" stroke="#9d174d" stroke-width="2"/>
+      <circle cx="22" cy="26" r="3" fill="#fff" opacity=".55"/>
+      <circle cx="33" cy="28" r="2" fill="#be185d"/><circle cx="41" cy="28" r="2" fill="#be185d"/>
+      <path d="M31 34q5 4 10 0" stroke="#be185d" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="av-cherry" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef2f2"/>
+      <path d="M32 8c0 12-12 18-10 28M32 8c2 12 12 16 12 26" stroke="#166534" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M32 8c6-6 14-4 17 2-7 3-13 3-17-2z" fill="#22c55e" stroke="#15803d" stroke-width="1.5"/>
+      <circle cx="21" cy="41" r="9" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+      <circle cx="43" cy="38" r="9" fill="#ef4444" stroke="#991b1b" stroke-width="2"/>
+      <circle cx="18" cy="38" r="2.4" fill="#fff" opacity=".6"/>
+      <circle cx="40" cy="35" r="2.4" fill="#fff" opacity=".6"/>
+    </symbol>
+    <symbol id="av-watermelon" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#dcfce7"/>
+      <path d="M8 26c6-14 22-20 36-14L26 54C16 49 8 38 8 26z" fill="#22c55e" stroke="#15803d" stroke-width="2"/>
+      <path d="M14 25c5-10 17-15 27-12L24 48C17 43 13 34 14 25z" fill="#f87171"/>
+      <path d="M18 25c4-7 12-11 19-10L23 42C19 38 17 31 18 25z" fill="#fca5a5"/>
+      <g fill="#7f1d1d"><circle cx="28" cy="24" r="1.6"/><circle cx="33" cy="31" r="1.6"/><circle cx="24" cy="33" r="1.6"/><circle cx="29" cy="39" r="1.6"/></g>
+    </symbol>
+    <symbol id="av-pizza" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fef3c7"/>
+      <path d="M32 6L11 51c12 7 30 7 42 0z" fill="#fbbf24" stroke="#b45309" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M17 44c9 4 21 4 30 0" stroke="#dc2626" stroke-width="3" fill="none"/>
+      <circle cx="27" cy="30" r="4" fill="#dc2626"/><circle cx="38" cy="38" r="4" fill="#dc2626"/>
+      <circle cx="35" cy="23" r="3" fill="#dc2626"/><circle cx="24" cy="41" r="3" fill="#dc2626"/>
+      <circle cx="31" cy="33" r="1.5" fill="#166534"/><circle cx="40" cy="29" r="1.5" fill="#166534"/>
+    </symbol>
+    <symbol id="av-icecream" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fce7f3"/>
+      <path d="M22 30h20l-10 26z" fill="#f59e0b" stroke="#b45309" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="26" cy="24" r="9" fill="#fda4af" stroke="#be123c" stroke-width="2"/>
+      <circle cx="38" cy="24" r="9" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+      <circle cx="32" cy="17" r="7" fill="#a5f3fc" stroke="#0e7490" stroke-width="2"/>
+      <circle cx="32" cy="9" r="3" fill="#ef4444"/>
+    </symbol>
+    <symbol id="av-guitar" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#fff7ed"/>
+      <path d="M32 8v24" stroke="#78350f" stroke-width="3" stroke-linecap="round"/>
+      <path d="M32 22c9 0 14 6 14 13 0 10-7 17-14 17s-14-7-14-17c0-7 5-13 14-13z" fill="#f59e0b" stroke="#92400e" stroke-width="2"/>
+      <circle cx="32" cy="36" r="4" fill="#451a03"/>
+      <path d="M27 8h10M27 12h10" stroke="#78350f" stroke-width="2" stroke-linecap="round"/>
+      <path d="M32 26v27" stroke="#fef3c7" stroke-width="1.2" opacity=".8"/>
+    </symbol>
+    <symbol id="av-paint" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#f1f5f9"/>
+      <path d="M32 7a25 25 0 1 0 4 50c4-1 4-5 2-7-3-3 0-7 4-6l6 1c5 1 8-3 8-8A25 25 0 0 0 32 7z" fill="#3b82f6" stroke="#1d4ed8" stroke-width="2"/>
+      <circle cx="21" cy="24" r="3.5" fill="#ef4444"/><circle cx="32" cy="18" r="3.5" fill="#facc15"/>
+      <circle cx="43" cy="24" r="3.5" fill="#22c55e"/><circle cx="19" cy="36" r="3.5" fill="#a855f7"/>
+      <circle cx="29" cy="41" r="3.5" fill="#f97316"/>
+    </symbol>
+    <symbol id="av-camera" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#e0e7ff"/>
+      <rect x="9" y="18" width="46" height="32" rx="7" fill="#4f46e5" stroke="#312e81" stroke-width="2"/>
+      <path d="M23 18l4-6h10l4 6z" fill="#312e81"/>
+      <circle cx="32" cy="34" r="10" fill="#c7d2fe" stroke="#1e1b4b" stroke-width="2"/>
+      <circle cx="32" cy="34" r="5" fill="#312e81"/>
+      <circle cx="47" cy="25" r="2" fill="#fef08a"/>
+    </symbol>
   </defs>
 </svg>
 </head>
@@ -1354,6 +1496,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <button id="guide-btn" class="ghost tipnode" onclick="openGuide()"
           data-tip="Инструкция: быстрый старт и что делает каждая кнопка. Открывается сама один раз после установки."
           style="padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:99px;margin-left:6px;vertical-align:baseline">📖 Инструкция</button>
+        <button id="feedback-btn" class="ghost tipnode" onclick="openFeedback()"
+          data-tip="Проблема или предложение? Напишите разработчику — сообщение придёт в Telegram, можно приложить диагностический отчёт."
+          style="padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:99px;margin-left:4px;vertical-align:baseline">✉️ Написать</button>
       </div>
     </div>
   </div>
@@ -1370,6 +1515,11 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       data-tip="Светлая или тёмная тема. Выбор запоминается."
       aria-label="Переключить тему" aria-pressed="false"
       style="padding:3px 9px;font-size:14px;line-height:1.2;border-radius:99px">🌙</button>
+    <button id="notify-btn" class="ghost tipnode" onclick="toggleNotifications()"
+      data-tip="Уведомления о завершении выгрузки: сообщение Windows, даже если окно свёрнуто."
+      aria-label="Уведомления о завершении" aria-pressed="false"
+      style="padding:3px 9px;font-size:14px;line-height:1.2;border-radius:99px">🔕</button>
+    <span id="notify-status" style="display:none">—</span>
     <span class="active-tasks clickable" id="active-tasks" role="button" tabindex="0" data-tip="Идут фоновые задачи. Нажмите — откроет журнал выполнения на «Главной».">
       <div class="spinner spinner-sm"></div>
       <span id="active-tasks-text">—</span>
@@ -1400,8 +1550,12 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 <div id="disk-full-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
   💾 Недостаточно места на диске — скачивание остановлено.<br>
   <span style="font-weight:400; font-size:14px; margin-top:6px; display:inline-block;">
-    Остальные файлы остались в очереди (pending). Освободите место на диске и запустите скачивание заново — оно продолжится с того же места.
+    Остальные файлы остались в очереди (pending). Освободите место на диске и нажмите
+    «Продолжить» — выгрузка пойдёт с того же места.
   </span>
+  <div style="margin-top:10px">
+    <button class="primary" id="disk-full-resume" onclick="resumeAfterDisk(this)">▶ Продолжить</button>
+  </div>
 </div>
 
 <div id="legacy-install-banner" style="display:none; background:#ff9f0a; color:#fff; padding:16px 20px; border-radius:14px; margin-bottom:20px; font-weight:600; box-shadow:0 8px 24px rgba(255,159,10,.35);">
@@ -1421,6 +1575,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     Программа остановила проход, чтобы не тратить попытки на каждом файле. Ничего не
     потеряно: файлы остались в очереди, после подключения диска выгрузка продолжится.
   </span>
+  <div style="margin-top:10px">
+    <button class="primary" id="disk-offline-resume" onclick="resumeAfterDisk(this)">▶ Продолжить</button>
+  </div>
 </div>
 
 <div class="tabs" id="tabs" role="tablist" aria-label="Разделы программы">
@@ -1464,6 +1621,10 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         data-tip="Оценка: сколько файлов ждёт в очереди и сколько это займёт места. Считается по среднему размеру уже скачанных файлов — цифра приблизительная. Отдельно — сколько свободно на диске выгрузки."
         style="display:none; align-items:center; gap:8px; padding:4px 10px; border-radius:9px; margin-bottom:10px; font-size:12.5px; color:var(--text-secondary); background:rgba(255,255,255,.04); border:0.5px solid var(--hairline)">
         <span>📦</span><span id="queue-estimate-text"></span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="ghost tipnode tip-right" onclick="openExclusions()"
+          data-tip="Отметьте папки и файлы Обычного Диска, которые не нужно скачивать. Они не удаляются с компьютера и остаются в облаке — просто пропускаются. Безлимит это не касается.">🚫 Не выгружать из диска…</button>
       </div>
       <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:230px">
@@ -1511,17 +1672,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
           <strong style="color:var(--purple);margin-left:6px">🟣 Безлимит (фото/видео с телефона)</strong>
         </label>
         <label class="opt-pill" style="cursor:pointer;flex:1;text-align:center;padding:10px 14px;background:var(--surface2)">
-          <input type="radio" name="ctrl-mode" value="disk" onchange="toggleModeOpts()"> 
+          <input type="radio" name="ctrl-mode" value="disk" onchange="toggleModeOpts()">
           <strong style="color:var(--accent);margin-left:6px">🔵 Обычный Диск (файлы и папки)</strong>
         </label>
       </div>
+      <button type="button" class="ghost" onclick="openExclusions()"
+        style="margin-top:6px;padding:2px 8px;font-size:12px">🚫 Не выгружать из диска…</button>
     </div>
 
     <!-- 2. Параметры для Безлимита -->
     <div id="unlim-opts-row" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-bottom:10px">
       <div class="tipnode" data-tip="Фото — jpg, heic, raw и другие картинки. Видео — mp4, mov и т.п. «Фото и видео» берёт всё медиа.">
         <label class="field-label">Тип медиа:</label>
-        <select id="ctrl-media" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
+        <select id="ctrl-media" onchange="saveUnlimMedia()" style="width:100%;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
           <option value="photos" selected>Фото (jpg, heic…)</option>
           <option value="videos">Видео (mp4, mov…)</option>
           <option value="all">Фото и видео</option>
@@ -1608,6 +1771,67 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
     </div>
     </div><!-- /launch-card manual -->
+
+    <!-- Выборочная выгрузка: облачный проводник Диска и календарь Безлимита
+         в одной компактной карточке. Свёрнута, чтобы не отодвигать журнал. -->
+    <div class="card vpick-card" id="picker-card">
+      <div class="vpick-head">
+        <div class="card-title" style="font-size:15px;margin:0">Выборочная выгрузка</div>
+        <span class="card-sub" style="margin:0">Скачать только отмеченное, не трогая очередь.</span>
+      </div>
+      <div class="vp-tabs" role="tablist" aria-label="Что выбираем">
+        <button type="button" class="vp-tab on" data-vp="disk" role="tab"
+          aria-selected="true" onclick="vpickTab('disk')">Выборочно из Диска</button>
+        <button type="button" class="vp-tab" data-vp="unlim" role="tab"
+          aria-selected="false" onclick="vpickTab('unlim')">Выборочно из Безлимита</button>
+      </div>
+
+      <div id="vpick-disk" class="vp-panel active">
+        <div class="picker-bar">
+          <button class="ghost" id="picker-open-btn" onclick="pickerToggle()">Открыть облако</button>
+          <button class="ghost" id="picker-up" onclick="pickerUp()" disabled>↑ Вверх</button>
+          <span class="picker-path" id="picker-path">—</span>
+        </div>
+        <div id="picker-list" class="picker-list">
+          <div class="setup-hint" style="margin:10px">Нажмите «Открыть облако», чтобы выбрать папки и файлы.</div>
+        </div>
+        <div class="picker-summary" id="picker-summary">Ничего не выбрано</div>
+        <div class="actions" style="margin-top:8px">
+          <button class="primary" onclick="pickerDownload()">
+            <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранное
+          </button>
+          <button class="ghost" onclick="pickerClear()">Снять всё</button>
+        </div>
+        <div id="picker-status" class="setup-hint" role="status" aria-live="polite"></div>
+      </div>
+
+      <div id="vpick-unlim" class="vp-panel" style="display:none">
+        <details class="fold" id="unlim-dates-card" style="margin-top:0;border-top:0;padding-top:0">
+          <summary>Календарь дат Безлимита</summary>
+          <div class="card-sub" style="margin-top:8px">
+            Отметьте дни — скачаются только файлы этих дней (фото и видео).
+            Уже скачанное повторно не берётся, а остальная очередь остаётся как была.
+            День считается по времени начала съёмки: снимок, снятый около полуночи,
+            попадает в тот день, когда начался.
+          </div>
+          <div class="udates-nav">
+            <button class="ghost" id="udates-prev" onclick="udatesMonth(-1)">‹</button>
+            <span class="udates-month" id="udates-month">—</span>
+            <button class="ghost" id="udates-next" onclick="udatesMonth(1)">›</button>
+            <button class="ghost" onclick="udatesToday()">Сегодня</button>
+          </div>
+          <div class="udates-grid" id="udates-grid"></div>
+          <div class="udates-summary" id="udates-summary">Ничего не выбрано</div>
+          <div class="actions" style="margin-top:8px">
+            <button class="primary" onclick="udatesDownload()">
+              <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранные даты
+            </button>
+            <button class="ghost" onclick="udatesClear()">Снять всё</button>
+          </div>
+          <div id="udates-status" class="setup-hint" role="status" aria-live="polite"></div>
+        </details>
+      </div>
+    </div>
 
   </div><!-- /home-control -->
 
@@ -2058,109 +2282,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <!-- Облачные папки и типы файлов (C2) -->
-  <div class="card" id="cloud-card">
-    <div class="card-title">Что копировать из облака</div>
-    <div class="card-sub">
-      Какие папки Диска обходить и что брать из Безлимита. По умолчанию — весь Диск
-      и только фото.
-    </div>
-
-    <label class="field-label">Папки Диска</label>
-    <div id="scan-roots-list" class="root-list"></div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <input type="text" id="scan-root-input" placeholder="например: /Фото" style="flex:1">
-      <button class="ghost" onclick="addScanRoot()" style="white-space:nowrap">Добавить</button>
-    </div>
-    <div class="actions">
-      <button class="ghost" onclick="loadCloudFolders()">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Папки в облаке
-      </button>
-      <button class="primary" onclick="saveScanRoots()">
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить папки
-      </button>
-    </div>
-    <div id="scan-roots-status" class="setup-hint" role="status" aria-live="polite"></div>
-    <div id="cloud-folders" class="root-list" style="margin-top:6px"></div>
-
-    <label class="field-label" style="margin-top:14px">Тип контента Безлимита</label>
-    <div style="display:flex;gap:8px">
-      <select id="unlim-media-select" style="flex:1;padding:8px 10px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text)">
-        <option value="photos">Только фото</option>
-        <option value="videos">Только видео</option>
-        <option value="all">Фото и видео</option>
-      </select>
-      <button class="primary" onclick="saveUnlimMedia()" style="white-space:nowrap">Сохранить</button>
-    </div>
-    <div id="unlim-media-status" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
-
-  <!-- Проводник облака: что именно качать (35.7.2) -->
-  <div class="card" id="picker-card">
-    <div class="card-title">Что качать</div>
-    <div class="card-sub">
-      Откройте облако и отметьте папки или отдельные файлы — скачается только
-      выбранное. Уже скачанное отметить нельзя. Остальное из очереди остаётся
-      как есть: ничего не помечается и не теряется.
-    </div>
-    <div class="picker-bar">
-      <button class="ghost" id="picker-open-btn" onclick="pickerOpen('disk:/')">Открыть облако</button>
-      <button class="ghost" id="picker-up" onclick="pickerUp()" disabled>↑ Вверх</button>
-      <span class="picker-path" id="picker-path">—</span>
-    </div>
-    <div id="picker-list" class="picker-list">
-      <div class="setup-hint" style="margin:10px">Нажмите «Открыть облако», чтобы выбрать папки и файлы.</div>
-    </div>
-    <div class="picker-summary" id="picker-summary">Ничего не выбрано</div>
-    <div class="actions" style="margin-top:8px">
-      <button class="primary" onclick="pickerDownload()">
-        <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранное
-      </button>
-      <button class="ghost" onclick="pickerClear()">Снять всё</button>
-    </div>
-    <div id="picker-status" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
-
-  <!-- Календарь дат Безлимита: что именно качать (35.7.3) -->
-  <div class="card" id="unlim-dates-card">
-    <div class="card-title">Даты Безлимита</div>
-    <div class="card-sub">
-      Отметьте дни в календаре — скачаются только файлы этих дней (фото и видео).
-      Уже скачанное повторно не берётся, а остальная очередь остаётся как была.
-      День считается по времени начала съёмки: снимок, снятый около полуночи,
-      попадает в тот день, когда начался.
-    </div>
-    <div class="udates-nav">
-      <button class="ghost" id="udates-prev" onclick="udatesMonth(-1)">‹</button>
-      <span class="udates-month" id="udates-month">—</span>
-      <button class="ghost" id="udates-next" onclick="udatesMonth(1)">›</button>
-      <button class="ghost" onclick="udatesToday()">Сегодня</button>
-    </div>
-    <div class="udates-grid" id="udates-grid"></div>
-    <div class="udates-summary" id="udates-summary">Ничего не выбрано</div>
-    <div class="actions" style="margin-top:8px">
-      <button class="primary" onclick="udatesDownload()">
-        <svg class="ico-sm"><use href="#i-cloud"/></svg>Скачать выбранные даты
-      </button>
-      <button class="ghost" onclick="udatesClear()">Снять всё</button>
-    </div>
-    <div id="udates-status" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
-
-  <!-- Уведомления о завершении (C3) -->
-  <div class="card" id="notify-card">
-    <div class="watchdog-line">
-      <span class="watchdog-title tipnode" data-tip="Программа покажет сообщение Windows, когда выгрузка закончится или остановится с ошибкой — даже если окно свёрнуто в трей. Заголовок вкладки во время работы показывает прогресс.">🔔 Уведомления о завершении</span>
-      <button id="notify-btn" class="ghost" onclick="toggleNotifications()">Включить</button>
-      <span id="notify-status" class="badge">—</span>
-    </div>
-    <div class="card-sub" style="margin-top:8px">
-      Сообщим о конце работы и при остановке — например, если диск отключился.
-      Сообщение Windows показывается из значка программы в трее; разрешений
-      в настройках окна не требуется.
-    </div>
-  </div>
-
   </div><!-- /setup-col -->
 
 </div>
@@ -2198,51 +2319,27 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <pre id="diag-output" class="diag-pre" style="display:none"></pre>
     </div>
 
-    <hr style="margin:18px 0 14px">
-    <div class="card-title" style="font-size:16px;margin-bottom:4px">✉️ Написать разработчику</div>
-    <div class="card-sub">Опишите проблему своими словами — сообщение придёт в Telegram. Можно приложить диагностический отчёт.</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0">
-      <input type="text" id="feedback-name" placeholder="Ваше имя" maxlength="80" autocomplete="name">
-      <input type="email" id="feedback-email" placeholder="Почта для ответа" maxlength="120" autocomplete="email">
-      <input type="tel" id="feedback-phone" placeholder="Телефон (необязательно)" maxlength="40" autocomplete="tel">
-    </div>
-    <textarea id="feedback-message" placeholder="Что случилось? Что вы ожидали и что произошло?" maxlength="4000" style="min-height:96px"></textarea>
-    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13.5px;margin:10px 0;cursor:pointer">
-      <input type="checkbox" id="feedback-attach" checked style="margin-top:2px;flex:none">
-      <span>Приложить диагностический отчёт — так проще найти причину. В нём нет токена, кук и файлов.</span>
-    </label>
-    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--text-secondary);margin:10px 0;cursor:pointer">
-      <input type="checkbox" id="feedback-consent" style="margin-top:2px;flex:none">
-      <span>Согласен отправить сообщение. Имя и контакт нужны только чтобы ответить. Отдельной базы или файла с вашими данными у разработчика нет: сообщение придёт в Telegram и останется в переписке.</span>
-    </label>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button class="primary" id="feedback-send-btn" onclick="sendFeedback()">
-        <svg class="ico-sm"><use href="#i-cloud"/></svg>Отправить сообщение
-      </button>
-    </div>
-    <div id="feedback-status" class="setup-hint" role="status" aria-live="polite"></div>
-  </div>
+    <details class="fold" id="diag-key-card">
+      <summary>Ключ отправки и адрес сервера</summary>
+      <div class="card-sub" style="margin-top:8px">Нужны только для кнопки «Отправить отчёт».</div>
+      <div id="diag-key-state" class="badge" style="margin-bottom:10px">проверяю…</div>
+      <label class="field-label">Ключ Cloudflare Worker</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="password" id="diag-report-key" placeholder="вставьте ключ, чтобы включить отправку" autocomplete="off" style="flex:1;min-width:220px">
+        <button onclick="saveReportKey()">Сохранить ключ</button>
+        <button class="ghost" onclick="clearReportKey()">Удалить</button>
+      </div>
+      <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске. Ключ хранится только на этом компьютере и в отчёт не включается.</div>
 
-  <div class="card" id="diag-key-card">
-    <div class="card-title">Ключ отправки</div>
-    <div class="card-sub">Нужен только для кнопки «Отправить отчёт».</div>
-    <div id="diag-key-state" class="badge" style="margin-bottom:10px">проверяю…</div>
-    <label class="field-label">Ключ Cloudflare Worker</label>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <input type="password" id="diag-report-key" placeholder="вставьте ключ, чтобы включить отправку" autocomplete="off" style="flex:1;min-width:220px">
-      <button onclick="saveReportKey()">Сохранить ключ</button>
-      <button class="ghost" onclick="clearReportKey()">Удалить</button>
-    </div>
-    <div class="setup-hint">ключ выдаёт ex3544; без него отчёт остаётся на диске. Ключ хранится только на этом компьютере и в отчёт не включается.</div>
-
-    <label class="field-label" style="margin-top:14px">Адрес сервера отчётов</label>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <input type="text" id="diag-report-url" placeholder="https://…" autocomplete="off" style="flex:1;min-width:220px">
-      <button onclick="saveReportUrl()">Сохранить адрес</button>
-      <button class="ghost" onclick="pingReportServer()">Проверить связь</button>
-    </div>
-    <div id="diag-url-state" class="setup-hint" role="status" aria-live="polite">загружаю…</div>
-    <div class="setup-hint">Нужен, только если провайдер блокирует штатный адрес: тогда впишите другой и нажмите «Сохранить адрес». Кнопка «Проверить связь» покажет, доходит ли программа до сервера.</div>
+      <label class="field-label" style="margin-top:14px">Адрес сервера отчётов</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="diag-report-url" placeholder="https://…" autocomplete="off" style="flex:1;min-width:220px">
+        <button onclick="saveReportUrl()">Сохранить адрес</button>
+        <button class="ghost" onclick="pingReportServer()">Проверить связь</button>
+      </div>
+      <div id="diag-url-state" class="setup-hint" role="status" aria-live="polite">загружаю…</div>
+      <div class="setup-hint">Нужен, только если провайдер блокирует штатный адрес: тогда впишите другой и нажмите «Сохранить адрес». Кнопка «Проверить связь» покажет, доходит ли программа до сервера.</div>
+    </details>
   </div>
 
   <div class="card" id="verify-card">
@@ -2303,11 +2400,10 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <option value="disk">Обычный Диск</option>
         <option value="unlim">Безлимит</option>
       </select>
-      <button class="primary tipnode" id="audit-start-btn" onclick="startCloudAudit()"
+      <button class="primary tipnode" id="audit-start-btn" onclick="toggleCloudAudit()"
               data-tip="Обходит облако онлайн и только читает список файлов. Ничего не скачивается, статусы в базе не меняются. На большом облаке занимает несколько минут.">
-        <svg class="ico-sm"><use href="#i-search"/></svg>Проверить облако
+        <svg class="ico-sm"><use href="#i-search"/></svg><span id="audit-toggle-text">Проверить облако</span>
       </button>
-      <button class="ghost" id="audit-stop-btn" onclick="stopCloudAudit()" style="display:none">Остановить</button>
     </div>
 
     <div id="audit-status" class="setup-hint" role="status" aria-live="polite" style="margin-top:10px"></div>
@@ -2474,6 +2570,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
       </button>
     </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <input type="text" id="find-old-dir"
+             placeholder="Старая папка (необязательно), например: C:\NeUnlim"
+             style="flex:1;min-width:180px;padding:9px 12px;background:var(--surface2);border:0.5px solid var(--hairline-strong);border-radius:8px;color:var(--text);font-size:14px">
+      <button class="ghost" onclick="browseFolder('find-old','find-old-dir')" style="white-space:nowrap">
+        <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+      </button>
+    </div>
+    <div class="setup-hint" style="margin:-4px 0 8px">
+      Если файлы переезжали с одного диска на другой, укажите <strong>старую папку</strong> —
+      перепривяжутся только записи из неё. Например, <code>C:\NeUnlim</code> → <code>D:\NeUnlim</code>
+      или <code>C:\Unlim</code> → <code>D:\Unlim</code>; остальные пути не тронутся.
+    </div>
     <div id="find-roots" class="setup-hint"></div>
 
     <div class="actions" style="margin-top:10px">
@@ -2564,6 +2673,61 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="modal-actions">
       <button class="ghost" id="update-modal-close" onclick="closeUpdateModal()">Закрыть</button>
       <button class="primary" id="update-modal-action" onclick="updateModalAction()">Закрыть и обновить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============= ИСКЛЮЧЕНИЯ ИЗ ВЫГРУЗКИ ============= -->
+<div class="modal-backdrop" id="exclusions-modal" onclick="if(event.target===this) closeExclusions()">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="exclusions-modal-title">
+    <div class="modal-kicker">Обычный Диск · дерево облака</div>
+    <div class="modal-title" id="exclusions-modal-title">🚫 Не выгружать из диска</div>
+    <div class="modal-sub">Отметьте папки или отдельные файлы — они не будут скачиваться.
+      Уже скачанное останется на месте, а очередь остальных файлов не изменится.
+      Исключения действуют только для Обычного Диска.</div>
+    <div class="picker-bar">
+      <button class="ghost" id="ex-up" onclick="exclusionsUp()" disabled>↑ Вверх</button>
+      <span class="picker-path" id="ex-path">disk:/</span>
+      <span class="badge" id="ex-count">0</span>
+    </div>
+    <div id="ex-list" class="picker-list">
+      <div class="setup-hint" style="margin:10px">Запрашиваю список у Яндекса…</div>
+    </div>
+    <div id="ex-status" class="setup-hint" role="status" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button class="primary" id="ex-save-btn" onclick="saveExclusions()">Сохранить</button>
+      <button class="ghost" onclick="closeExclusions()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============= НАПИСАТЬ РАЗРАБОТЧИКУ ============= -->
+<div class="modal-backdrop" id="feedback-modal" onclick="if(event.target===this) closeFeedback()">
+  <div class="modal-box feedback-box" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title">
+    <div class="modal-kicker">Yad.backup · обратная связь</div>
+    <div class="modal-title" id="feedback-modal-title">✉️ Написать разработчику</div>
+    <div class="modal-sub">Опишите проблему своими словами — сообщение придёт в Telegram.
+      Можно приложить диагностический отчёт.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0">
+      <input type="text" id="feedback-name" placeholder="Ваше имя" maxlength="80" autocomplete="name">
+      <input type="email" id="feedback-email" placeholder="Почта для ответа" maxlength="120" autocomplete="email">
+      <input type="tel" id="feedback-phone" placeholder="Телефон (необязательно)" maxlength="40" autocomplete="tel">
+    </div>
+    <textarea id="feedback-message" placeholder="Что случилось? Что вы ожидали и что произошло?" maxlength="4000" style="min-height:96px"></textarea>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13.5px;margin:10px 0;cursor:pointer">
+      <input type="checkbox" id="feedback-attach" checked style="margin-top:2px;flex:none">
+      <span>Приложить диагностический отчёт — так проще найти причину. В нём нет токена, кук и файлов.</span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--text-secondary);margin:10px 0;cursor:pointer">
+      <input type="checkbox" id="feedback-consent" style="margin-top:2px;flex:none">
+      <span>Согласен отправить сообщение. Имя и контакт нужны только чтобы ответить. Отдельной базы или файла с вашими данными у разработчика нет: сообщение придёт в Telegram и останется в переписке.</span>
+    </label>
+    <div id="feedback-status" class="setup-hint" role="status" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button class="primary" id="feedback-send-btn" onclick="sendFeedback()">
+        <svg class="ico-sm"><use href="#i-cloud"/></svg>Отправить сообщение
+      </button>
+      <button class="ghost" onclick="closeFeedback()">Закрыть</button>
     </div>
   </div>
 </div>
@@ -2914,6 +3078,8 @@ let _verifiedToken = null;     // если совпадает с input → мо�
 let _verifiedCookies = null;   // массив проверенных
 
 document.addEventListener('DOMContentLoaded', ()=>{
+  // Карточка выборочной выгрузки стартует свёрнутой: журнал важнее.
+  if(typeof pickerSetExpanded === 'function') pickerSetExpanded(false);
   // Сбрасываем верификацию при изменении input
   const tokIn = document.getElementById('token-input');
   if(tokIn){
@@ -2933,6 +3099,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
       document.getElementById('btn-save-cookies').disabled = true;
     });
   }
+  // Подсказки у правого края окна разворачиваем влево: иначе они уезжают за
+  // экран (чаще всего это «Обзор…» и «Открыть папку» в карточках).
+  document.addEventListener('mouseover', (e)=>{
+    const node = e.target.closest && e.target.closest('.tipnode[data-tip]');
+    if(!node || node.classList.contains('tip-right')) return;
+    const rect = node.getBoundingClientRect();
+    const tip = node.getAttribute('data-tip') || '';
+    const width = Math.min(300, Math.max(180, tip.length * 6.6));
+    if(rect.left + width > window.innerWidth - 12){
+      node.classList.add('tip-right');
+    }
+  });
   // Ручное изменение числа потоков отключает автоподстановку рекомендации,
   // но подсказка «выбрано / рекомендую» пересчитывается сразу, а не по опросу.
   const wkIn = document.getElementById('ctrl-workers');
@@ -3718,14 +3896,14 @@ function updateSelectedSummary(kind, cats){
 
 // ────── Refresh ──────
 let _lastConsole = {};
-// Автопрокрутка консоли прилипает к низу только пока пользователь сам там
-// находится. Иначе обновление раз в 1.5 секунды возвращало бы журнал в конец,
-// стоило отпустить ползунок или нажать PageUp.
+// Журнал перевёрнут: новые строки сверху. Автопрокрутка прилипает к верху,
+// только пока пользователь сам там находится. Иначе обновление раз в 1,5
+// секунды дёргало бы журнал в начало, стоило отвести взгляд или нажать PageUp.
 const CONSOLE_STICK_PX = 24;
 const _consoleStick = {};
 
-function consoleNearBottom(el){
-  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= CONSOLE_STICK_PX;
+function consoleNearTop(el){
+  return el.scrollTop <= CONSOLE_STICK_PX;
 }
 
 function initConsoleStick(id, el){
@@ -3733,9 +3911,9 @@ function initConsoleStick(id, el){
   el.dataset.stickReady = '1';
   _consoleStick[id] = true;
   el.addEventListener('scroll', () => {
-    // Программная прокрутка в самый низ тоже вызывает событие — так
-    // прилипание восстанавливается само, когда пользователь вернулся вниз.
-    _consoleStick[id] = consoleNearBottom(el);
+    // Программная прокрутка наверх тоже вызывает событие — прилипание
+    // восстанавливается само, когда пользователь вернулся в начало.
+    _consoleStick[id] = consoleNearTop(el);
   }, {passive:true});
 }
 
@@ -3747,18 +3925,21 @@ function setConsole(id, text){
   initConsoleStick(id, el);
   const stick = _consoleStick[id] !== false;
   const prevTop = el.scrollTop;
-  el.textContent = text || '';
+  const prevHeight = el.scrollHeight;
   if(!text){
     el.innerHTML = '<div class="console-empty">жду запуска…</div>';
     _consoleStick[id] = true;
     return;
   }
+  // Строки пишутся старыми-сначала, а показываются новыми-сверху.
+  el.textContent = text.split('\n').reverse().join('\n');
   if(stick){
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = 0;
   }else{
-    // Пользователь читает выше — оставляем его место (с поправкой на
-    // изменившуюся высоту текста).
-    el.scrollTop = Math.min(prevTop, Math.max(0, el.scrollHeight - el.clientHeight));
+    // Пользователь читает старые строки ниже. Новые строки добавились над
+    // его местом — сдвигаем прокрутку на ту же высоту, чтобы текст не прыгал.
+    const added = el.scrollHeight - prevHeight;
+    el.scrollTop = Math.max(0, prevTop + Math.max(0, added));
   }
 }
 
@@ -4688,21 +4869,16 @@ async function saveScanRoots(){
 }
 
 async function saveUnlimMedia(){
-  const sel = document.getElementById('unlim-media-select');
-  const st = document.getElementById('unlim-media-status');
+  // Единственный селектор типа контента живёт в «Пошаговом режиме».
+  const sel = document.getElementById('ctrl-media');
+  if(!sel) return;
   try {
     const r = await fetch('/api/config/unlim_media', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({media: sel ? sel.value : 'all'})
+      body: JSON.stringify({media: sel.value})
     });
     const d = await r.json();
-    if(st){
-      st.className = 'setup-hint' + (d.ok ? '' : ' warn');
-      st.textContent = d.msg || '';
-    }
-    const formSel = document.getElementById('ctrl-media');
-    if(d.ok && formSel && sel) formSel.value = sel.value;
     toast(d.msg || (d.ok ? 'Тип контента сохранён' : 'Не удалось сохранить'), d.ok ? 'ok' : 'err');
   } catch(e){
     toast('Нет связи с программой: ' + e.message, 'err');
@@ -4717,8 +4893,6 @@ function renderCloudConfig(cfg){
   }
   if(!window._unlimMediaLoaded && cfg.unlim_media){
     window._unlimMediaLoaded = true;
-    const sel = document.getElementById('unlim-media-select');
-    if(sel) sel.value = cfg.unlim_media;
     const formSel = document.getElementById('ctrl-media');
     if(formSel) formSel.value = cfg.unlim_media;
   }
@@ -4785,19 +4959,22 @@ function renderNotify(){
   const chan = _notifyChannel();
   const usable = chan === 'native' || chan === 'browser' || chan === 'ask';
   const on = _notifyWanted() && usable;
+  // Кнопка-пилюля в шапке: значок показывает состояние, подробности — в подсказке.
   btn.disabled = !usable;
-  btn.textContent = on ? 'Выключить' : 'Включить';
-  btn.classList.toggle('ghost', !on);
-  btn.classList.toggle('danger', on);
+  btn.textContent = on ? '🔔' : '🔕';
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.style.opacity = usable ? '1' : '.45';
+  btn.dataset.tip = !usable
+    ? 'Это окно не умеет показывать уведомления Windows'
+    : (on
+        ? 'Уведомления включены: сообщим о конце выгрузки или остановке. Нажмите, чтобы выключить.'
+        : 'Уведомления выключены. Нажмите — будем сообщать о конце выгрузки, даже если окно свёрнуто.');
   if(!usable){
     st.textContent = 'недоступны';
-    st.className = 'badge warn';
   } else if(on){
     st.textContent = chan === 'native' ? 'включены · системные' : 'включены';
-    st.className = 'badge ok';
   } else {
     st.textContent = 'выключены';
-    st.className = 'badge';
   }
 }
 
@@ -6112,6 +6289,16 @@ function _renderGuide(text){
   if(!box.childNodes.length) box.textContent = 'Инструкция пуста.';
 }
 
+function openFeedback(){
+  const modal = document.getElementById('feedback-modal');
+  if(modal) modal.classList.add('show');
+}
+
+function closeFeedback(){
+  const modal = document.getElementById('feedback-modal');
+  if(modal) modal.classList.remove('show');
+}
+
 async function openGuide(){
   const modal = document.getElementById('guide-modal');
   if(!modal) return;
@@ -6506,6 +6693,32 @@ function renderVerify(v){
 // ── Сверка с облаком (35.7.6) ──
 const AUDIT_KIND_NAMES = {same:'совпадает', new:'новое', changed:'изменилось', gone:'пропало'};
 
+// «Продолжить» после заполнения диска или его отключения. Сервер сам ещё раз
+// проверит папку и запас места: кнопка не запустит выгрузку в ноль свободного.
+async function resumeAfterDisk(btn){
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch('/api/disk/resume', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scope:'auto'})
+    });
+    const d = await r.json();
+    if(d.ok) toast('Выгрузка продолжается', 'ok');
+    else toast(d.msg || 'Не удалось продолжить', 'err');
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+  }finally{
+    if(btn) btn.disabled = false;
+    refresh();
+  }
+}
+
+function toggleCloudAudit(){
+  const a = window._auditStatus || {};
+  if(a.running) stopCloudAudit();
+  else startCloudAudit();
+}
+
 async function startCloudAudit(){
   const scope = (document.getElementById('audit-scope') || {}).value || 'both';
   const status = document.getElementById('audit-status');
@@ -6648,10 +6861,22 @@ function renderCloudAudit(a){
   if(!status) return;
   window._auditStatus = a || {};
   const running = !!(a && a.running);
+  // Одна переключающаяся кнопка: состояние и надпись совпадают с тем, что
+  // сейчас происходит, — «Проверить облако» ↔ «Остановить сверку».
   const startBtn = document.getElementById('audit-start-btn');
-  const stopBtn = document.getElementById('audit-stop-btn');
-  if(startBtn) startBtn.disabled = running;
-  if(stopBtn) stopBtn.style.display = running ? 'inline-flex' : 'none';
+  const toggleText = document.getElementById('audit-toggle-text');
+  if(startBtn){
+    startBtn.classList.toggle('primary', !running);
+    startBtn.classList.toggle('danger', running);
+    startBtn.dataset.tip = running
+      ? 'Сверка идёт. Нажмите, чтобы остановить: база и файлы не изменятся, сверку можно запустить снова.'
+      : 'Обходит облако онлайн и только читает список файлов. Ничего не скачивается, статусы в базе не меняются. На большом облаке занимает несколько минут.';
+  }
+  if(toggleText) toggleText.textContent = running ? 'Остановить сверку' : 'Проверить облако';
+  if(running){
+    const counters = document.getElementById('audit-counters');
+    if(counters) counters.style.display = 'none';
+  }
 
   const same = +(a && a.same || 0);
   const nw = +(a && a.new || 0);
@@ -7224,6 +7449,11 @@ function _findDirValue(){
   return el ? el.value.trim() : '';
 }
 
+function _findOldDirValue(){
+  const el = document.getElementById('find-old-dir');
+  return el ? el.value.trim() : '';
+}
+
 function _planLine(name, p){
   if(!p) return `${name}: нет базы`;
   const bits = [
@@ -7320,7 +7550,8 @@ async function previewFindFiles(){
   const btn = document.getElementById('find-preview-btn');
   if(btn) btn.disabled = true;
   try{
-    const d = await _dbPost('/api/db/relocate', {scope, new_dir: dir, preview: true});
+    const d = await _dbPost('/api/db/relocate',
+      {scope, new_dir: dir, old_dir: _findOldDirValue(), preview: true});
     if(!d.ok){
       _findStatus(d.msg || 'Не удалось сверить файлы', 'err');
       return;
@@ -7361,7 +7592,8 @@ async function applyFindFiles(){
   }
   _findStatus('Записываю новые пути…');
   try{
-    const d = await _dbPost('/api/db/relocate', {scope, new_dir: dir, preview: false});
+    const d = await _dbPost('/api/db/relocate',
+      {scope, new_dir: dir, old_dir: _findOldDirValue(), preview: false});
     if(!d.ok){
       _findStatus(d.msg || 'Не удалось применить', 'err');
       return;
@@ -8001,8 +8233,7 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
 ['home-unlim-card', 'home-disk-card', 'launch-all-card', 'launch-manual-card',
  'pipeline-card', 'organize-card', 'backups-card', 'profiles-card',
  'export-dirs-card', 'watchdog-card', 'access-card',
- 'previews-card', 'cloud-card', 'picker-card', 'unlim-dates-card',
- 'notify-card', 'diag-report-card', 'diag-key-card',
+ 'previews-card', 'picker-card', 'diag-report-card',
  'verify-card', 'cloud-audit-card', 'reports-card', 'reset-queue-card',
  'db-card', 'find-files-card', 'update-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
@@ -8077,7 +8308,191 @@ async function pickerSaveSelection(){
   }
 }
 
+// ── Исключения: какие папки и файлы Диска не скачивать ──
+let _exSet = new Set();
+let _exPath = 'disk:/';
+let _exData = null;
+
+function _exCovered(path){
+  if(_exSet.has(path)) return true;
+  for(const item of _exSet){
+    if(path === item || path.startsWith(item + '/')) return true;
+  }
+  return false;
+}
+
+function _exRefreshCount(){
+  const el = document.getElementById('ex-count');
+  if(el) el.textContent = `${_exSet.size} исключ.`;
+}
+
+async function openExclusions(){
+  try{
+    const r = await fetch('/api/config/exclusions', {cache:'no-store'});
+    const d = await r.json();
+    _exSet = new Set((d && d.items) || []);
+  }catch(e){
+    toast('Нет связи с программой: ' + e.message, 'err');
+    return;
+  }
+  _exPath = 'disk:/';
+  _exRefreshCount();
+  const st = document.getElementById('ex-status');
+  if(st){ st.textContent = ''; st.className = 'setup-hint'; }
+  const modal = document.getElementById('exclusions-modal');
+  if(modal) modal.classList.add('show');
+  exclusionsLoad('disk:/');
+}
+
+function closeExclusions(){
+  const modal = document.getElementById('exclusions-modal');
+  if(modal) modal.classList.remove('show');
+}
+
+function exclusionsUp(){
+  if(_exData && _exData.parent && _exData.parent !== _exData.path){
+    exclusionsLoad(_exData.parent);
+  }
+}
+
+async function exclusionsLoad(path){
+  _exPath = path || 'disk:/';
+  const box = document.getElementById('ex-list');
+  if(box) box.textContent = 'Запрашиваю список у Яндекса…';
+  try{
+    const r = await fetch('/api/cloud/list?path=' + encodeURIComponent(_exPath));
+    const d = await r.json();
+    _exData = d;
+    const pathEl = document.getElementById('ex-path');
+    if(pathEl) pathEl.textContent = pickerLabel(d.path || _exPath);
+    const up = document.getElementById('ex-up');
+    if(up) up.disabled = !d || !d.ok || !d.parent || d.parent === d.path;
+    exclusionsRender(d);
+  }catch(e){
+    if(box) box.textContent = 'Нет связи с программой: ' + e.message;
+  }
+}
+
+function exclusionsRender(d){
+  const box = document.getElementById('ex-list');
+  if(!box) return;
+  box.innerHTML = '';
+  const note = (text, cls) => {
+    const div = document.createElement('div');
+    div.className = 'setup-hint' + (cls ? ' ' + cls : '');
+    div.style.margin = '10px';
+    div.textContent = text;
+    box.appendChild(div);
+  };
+  if(!d || !d.ok){ note((d && d.msg) || 'Не удалось получить список', 'err'); return; }
+  const rows = [];
+  (d.folders || []).forEach(f => rows.push({...f, kind:'folder'}));
+  (d.files || []).forEach(f => rows.push({...f, kind:'file'}));
+  if(!rows.length){ note('В этой папке пусто.'); return; }
+  rows.forEach(item => box.appendChild(_exclusionRow(item)));
+  _exRefreshCount();
+}
+
+function _exclusionRow(item){
+  const isFolder = item.kind === 'folder';
+  const own = _exSet.has(item.path);
+  const covered = !own && _exCovered(item.path);
+  const row = document.createElement('div');
+  row.className = 'picker-row' + (isFolder ? ' folder' : '');
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'picker-check';
+  cb.checked = own || covered;
+  cb.disabled = covered;   // снимать по одному внутри исключённой папки нельзя
+  cb.onchange = () => {
+    if(cb.checked) _exSet.add(item.path);
+    else _exSet.delete(item.path);
+    _exRefreshCount();
+    if(_exData) exclusionsRender(_exData);
+  };
+  row.appendChild(cb);
+
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'picker-name';
+  name.textContent = (isFolder ? '📁 ' : '📄 ') + item.name;
+  if(isFolder) name.onclick = () => exclusionsLoad(item.path);
+  else name.onclick = () => { cb.checked = !cb.checked; cb.onchange(); };
+  row.appendChild(name);
+
+  const meta = document.createElement('span');
+  meta.className = 'picker-meta';
+  meta.textContent = isFolder ? 'папка' : human(item.size || 0);
+  if(covered && !own) meta.textContent = 'в исключённой папке';
+  row.appendChild(meta);
+  return row;
+}
+
+async function saveExclusions(){
+  const st = document.getElementById('ex-status');
+  const btn = document.getElementById('ex-save-btn');
+  if(btn) btn.disabled = true;
+  if(st){ st.className = 'setup-hint'; st.textContent = 'Сохраняю…'; }
+  try{
+    const r = await fetch('/api/config/exclusions', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({items: Array.from(_exSet)})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.msg || 'Не удалось сохранить');
+    _exSet = new Set(d.items || Array.from(_exSet));
+    if(st){ st.className = 'setup-hint ok'; st.textContent = d.msg || 'Сохранено'; }
+    toast(d.msg || 'Исключения сохранены', 'ok');
+    _exRefreshCount();
+    if(_exData) exclusionsRender(_exData);
+  }catch(e){
+    if(st){ st.className = 'setup-hint err'; st.textContent = 'Ошибка: ' + e.message; }
+    toast('Не удалось сохранить исключения', 'err');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+  refresh();
+}
+
+// Две вкладки одной карточки: Диск и Безлимит не мешают друг другу.
+function vpickTab(name){
+  const which = name === 'unlim' ? 'unlim' : 'disk';
+  document.querySelectorAll('.vp-tab').forEach(b => {
+    const on = b.dataset.vp === which;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const disk = document.getElementById('vpick-disk');
+  const unlim = document.getElementById('vpick-unlim');
+  if(disk) disk.style.display = which === 'disk' ? '' : 'none';
+  if(unlim) unlim.style.display = which === 'unlim' ? '' : 'none';
+  if(which === 'unlim') renderUnlimCalendar();
+}
+
+// Проводник разворачивается и сворачивается одной и той же кнопкой: в свёрнутом
+// виде карточка занимает пару строк и не отодвигает календарь.
+let _pickerExpanded = false;
+
+function pickerSetExpanded(open){
+  _pickerExpanded = !!open;
+  const btn = document.getElementById('picker-open-btn');
+  const list = document.getElementById('picker-list');
+  const pathEl = document.getElementById('picker-path');
+  const up = document.getElementById('picker-up');
+  if(btn) btn.textContent = open ? 'Свернуть облако' : 'Открыть облако';
+  if(list) list.style.display = open ? '' : 'none';
+  if(pathEl) pathEl.style.display = open ? '' : 'none';
+  if(up) up.style.display = open ? '' : 'none';
+}
+
+function pickerToggle(){
+  if(_pickerExpanded) pickerSetExpanded(false);
+  else pickerOpen(window._pickerPath || 'disk:/');
+}
+
 async function pickerOpen(path){
+  pickerSetExpanded(true);
   window._pickerPath = path || 'disk:/';
   const box = document.getElementById('picker-list');
   if(box) box.textContent = 'Запрашиваю список у Яндекса…';

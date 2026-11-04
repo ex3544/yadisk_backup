@@ -63,6 +63,7 @@ from tenacity import (
 )
 from tqdm import tqdm
 
+import exclusions
 import paths
 import previews as preview_mod
 from fetch import DeadHosts, FetchFailure, fetch_to_file, part_path_for
@@ -224,6 +225,9 @@ def scan_tree(
     """
     files_count = 0
     bytes_total = 0
+    # Список исключений читаем один раз за обход: файл маленький, а при
+    # десятках тысяч записей перечитывать его на каждый файл незачем.
+    excluded = exclusions.load()
 
     # Очередь путей для обхода — итеративный BFS, не плодим рекурсию на 10 уровней
     queue: list[str] = [root]
@@ -251,14 +255,21 @@ def scan_tree(
                 continue
 
             if entry.type == "dir":
+                if exclusions.is_excluded(entry_path, excluded):
+                    continue
                 if on_dir:
                     on_dir(entry_path)
                 queue.append(entry_path)
             elif entry.type == "file":
+                size = int(entry.size) if entry.size is not None else None
+                md5 = getattr(entry, "md5", None)
+                if exclusions.is_excluded(entry_path, excluded):
+                    state.mark_excluded(remote_path=entry_path, size=size, md5=md5)
+                    continue
                 state.mark_pending(
                     remote_path=entry_path,
-                    size=int(entry.size) if entry.size is not None else None,
-                    md5=getattr(entry, "md5", None),
+                    size=size,
+                    md5=md5,
                 )
                 files_count += 1
                 if entry.size:
@@ -294,6 +305,7 @@ def scan_media(
     """
     files_count = 0
     bytes_total = 0
+    excluded = exclusions.load()
 
     for media_type in media_types:
         log.info("Запрашиваю media_type=%s...", media_type)
@@ -304,10 +316,15 @@ def scan_media(
             if entry.type != "file":
                 continue
 
+            size = int(entry.size) if entry.size is not None else None
+            md5 = getattr(entry, "md5", None)
+            if exclusions.is_excluded(entry_path, excluded):
+                state.mark_excluded(remote_path=entry_path, size=size, md5=md5)
+                continue
             state.mark_pending(
                 remote_path=entry_path,
-                size=int(entry.size) if entry.size is not None else None,
-                md5=getattr(entry, "md5", None),
+                size=size,
+                md5=md5,
             )
             files_count += 1
             if entry.size:
@@ -426,10 +443,21 @@ def _download_file(client: yadisk.Client, remote: str, local: str) -> None:
 
 
 def check_free_space(path: str, required_bytes: int = 0) -> bool:
-    """Проверяет наличие свободного места (требуемый размер + 50 МБ запас)."""
+    """Хватает ли места на файл с запасом.
+
+    Для крупных файлов одного размера мало: пока файл качается, рядом живут
+    временный `.part` и служебные записи. Без запаса диск заполнялся вплотную
+    (04.11 свободное место дошло до нуля на трёх `.part`). Поэтому от 100 МБ
+    требуем ещё 10% и 512 МБ сверху, для мелких — 256 МБ.
+    """
+    big = 100 * 1024 * 1024
+    if required_bytes >= big:
+        need = int(required_bytes * 1.1) + 512 * 1024 * 1024
+    else:
+        need = required_bytes + 256 * 1024 * 1024
     try:
         usage = shutil.disk_usage(path)
-        return usage.free >= (required_bytes + 50 * 1024 * 1024)
+        return usage.free >= need
     except OSError:
         return True
 
@@ -537,7 +565,7 @@ def _download_one(
         )
 
     # Проверка свободного места перед началом записи
-    if job.size and not check_free_space(download_dir, job.size):
+    if not check_free_space(download_dir, job.size or 0):
         dur = int((time.monotonic() - start) * 1000)
         return DownloadResult(
             job=job,

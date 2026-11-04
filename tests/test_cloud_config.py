@@ -196,15 +196,21 @@ def test_disk_folders_falls_back_to_db_when_cloud_is_down(tmp_path, monkeypatch)
 # ── окно и пример настроек ──────────────────────────────────────────────────
 
 
-def test_cloud_card_in_ui():
+def test_cloud_settings_moved_to_step_mode_and_picker():
+    """35.9.0: отдельная карточка «Что копировать из облака» убрана.
+
+    Папки обхода больше не настраиваются вручную, тип контента Безлимита
+    остался единственным селектором в «Пошаговом режиме», а выбор папок
+    и файлов живёт в компактной карточке «Выборочная выгрузка».
+    """
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
-    assert 'id="cloud-card"' in html
-    assert 'id="scan-root-input"' in html
-    assert 'id="unlim-media-select"' in html
-    assert "function renderScanRoots(" in html
-    assert "function saveScanRoots(" in html
+    assert 'id="cloud-card"' not in html
+    assert 'id="scan-root-input"' not in html
+    assert 'id="unlim-media-select"' not in html
+    assert 'id="ctrl-media" onchange="saveUnlimMedia()"' in html
+    assert 'id="picker-card"' in html
     assert "function saveUnlimMedia(" in html
-    assert "function loadCloudFolders(" in html
+    assert "function openExclusions(" in html
 
 
 def test_env_example_documents_cloud_settings():
