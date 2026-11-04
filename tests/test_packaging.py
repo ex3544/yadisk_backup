@@ -337,13 +337,17 @@ def test_console_follows_bottom_without_jumping():
     assert "function consoleAtBottom(el)" in html
     assert "_consoleStick[id] = consoleAtBottom(el);" in html
 
-    marker = html.index("function setConsole(id, text){")
+    marker = html.index("function renderConsole(id, lines, placeholder){")
     body = html[marker : html.index("\n}\n", marker)]
     assert "const stick = _consoleStick[id] !== false;" in body
-    assert "const onlyAppended =" in body
-    assert "prevLines.every((line, i) => line === lines[i])" in body
+    assert "const drop = prev.length - keep;" in body
+    assert "prev[prev.length - k + i] !== lines[i]" in body
     assert "el.appendChild(frag)" in body
     assert "el.replaceChildren(frag)" in body
+    # Изменился только хвост — начало журнала не пересобираем, иначе слетает
+    # выделение текста мышью.
+    assert "let same = 0;" in body
+    assert "while(el.children.length > same) el.lastElementChild.remove();" in body
     assert "if(stick) el.scrollTop = el.scrollHeight;" in body
     # Перевёрнутого журнала больше нет: старые строки сверху.
     assert "reverse().join('\\n')" not in body
@@ -787,25 +791,15 @@ def test_header_pills_navigate_to_their_settings():
     assert "pointer-events:none" in html
 
 
-def test_eta_box_counts_down_on_home_page():
+def test_eta_plate_removed_from_home_page():
+    """35.9.3: плашки с шагом, временем и ETA убраны — остался только журнал."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert 'id="eta-box"' in html
-    assert 'id="eta-text"' in html
-    assert "function etaSeconds(kind, s, now)" in html
-    # Скорость — только по успешным скачиваниям за окно в 3 минуты: повторы
-    # сбойных не считаются работой (иначе «~1 мин» при нуле скачанного).
-    assert "const ETA_WINDOW = 180;" in html
-    assert "if(dOk > 0) return d.remaining / (dOk / span);" in html
-    assert "const ETA_MIN_ELAPSED = 120;" in html
-    assert "function renderEta(s)" in html
-    assert "function fmtEta(sec)" in html
-    assert "#eta-box{" in html
-    # Одна цифра на всё задание = максимум по линиям, а не сумма: линии идут
-    # параллельно. Детали по линиям — в подсказке.
-    assert "lines.reduce((a, b) => (b.sec > a.sec ? b : a))" in html
-    assert "box.dataset.tip" in html
-    # Остаток считает сервер: UI не выдумывает, сколько файлов ещё впереди.
+    for gone in ('id="eta-box"', 'id="eta-text"', "function etaSeconds(",
+                 "function renderEta(", "function fmtEta(", "#eta-box{",
+                 "const ETA_WINDOW = 180;"):
+        assert gone not in html, gone
+    # Остаток по-прежнему считает сервер: UI не выдумывает, сколько файлов впереди.
     assert "session[\"remaining\"]" in (PROJECT_DIR / "webui.py").read_text(encoding="utf-8")
 
 
@@ -1394,16 +1388,17 @@ def test_unlim_schema_has_cluster_index():
 # ── 35.7.4: итог выполнения в панели, вкладки-кнопки, два ряда плашек ───────
 
 
-def test_run_summary_shows_numbers_not_green_badge():
-    """После выгрузки панель показывает итог числами, а не только «готово»."""
+def test_run_summary_plate_removed_from_home_page():
+    """35.9.3: отдельной плашки «итог запуска» больше нет.
+
+    Итоги читаются прямо в верхнем окне «Выполнение процесса»: строки
+    «ИТОГО В ЭТОМ ЗАПУСКЕ» приходят из журнала воркера.
+    """
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert 'id="run-summary" role="status" aria-live="polite"' in html
-    assert "function renderRunSummary(s)" in html
-    assert "function runNumbers(kind, s)" in html
-    assert "renderRunSummary(s);" in html
-    for text in ("✅ скачано", "⚠ сбойные", "🕓 ждут Яндекса", "⏳ отложено"):
-        assert text in html
+    for gone in ('id="run-summary"', "function renderRunSummary(",
+                 "function runNumbers(", "function _runItem("):
+        assert gone not in html, gone
 
 
 def test_selection_shows_custom_total_and_no_db_ready_badge():
@@ -1446,9 +1441,11 @@ def test_relocate_sorting_and_lost_queue_are_visible_in_ui():
                "applyRestoreCloud()", "requeueMissingFromPlan()", "findScopeChanged()"):
         assert fn in html or fn in diag
 
-    # Проверка файлов: отключённый диск отдельно и возврат отсутствующих.
+    # Проверка файлов: отключённый диск отдельно, отмеченные строки — в очередь.
     assert 'id="verify-requeue-btn"' in diag
-    assert "requeueVerifyMissing()" in html
+    assert "requeueVerifySelected()" in html
+    assert "requeueVerifyItems(" in html
+    assert 'id="verify-problems-list"' in diag
     assert "v.offline" in html
 
     # Сортировка: предупреждение, обновление базы и панель отчёта.
@@ -1880,23 +1877,29 @@ def test_cookies_pane_mirrors_token_pane():
     assert 'id="check-token"' in token
 
 
-def test_pipeline_resizes_as_whole_card_and_grip_stops_at_corners():
-    """35.9.1: тянется вся карточка журнала, полоска не выходит на скругления."""
+def test_pipeline_two_terminals_process_and_files():
+    """35.9.3: сверху «Выполнение процесса», снизу «Журнал скачивания»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     assert "#pipeline-card{display:flex;flex-direction:column;gap:12px}" in html
     assert ".pipe-log .console{" in html
-    assert "flex:1 1 auto;min-height:140px;max-height:none;height:320px" in html
-    # Два отдельных окошка: состояние процесса и журнал.
-    assert 'class="pipe-pane pipe-current" id="pipeline-status-pane"' in html
-    assert 'class="pipe-pane pipe-log"' in html
-    assert "Журнал процесса" in html
-    # 35.9.2: журнал тянется вниз почти без ограничения (было 85% экрана).
+    # Верх — вывод процесса, низ — файлы; низ забирает оставшуюся высоту.
+    assert 'id="pipeline-process-pane"' in html
+    assert 'id="pipeline-files-pane"' in html
+    assert "Выполнение процесса" in html
+    assert "Журнал скачивания" in html
+    assert "#pipeline-process-pane{flex:0 1 auto}" in html
+    assert "#pipeline-files-pane{flex:1 1 auto}" in html
+    assert 'id="pipeline-console"' in html
+    assert 'id="download-console"' in html
+    # Строки делятся на два окна по виду: ⬇/✅/⏸/↻ — файлы, остальное — процесс.
+    assert "function setPipelineConsole(text)" in html
+    assert "const FILE_LINE_RE = /^(⬇|✅|⏸|↻)\\s/;" in html
+    # Карточка тянется вниз почти без ограничения (с 35.9.2).
     assert "el.id === 'pipeline-card'" in html
     assert "? Math.max(minH, 5000)" in html
-    # Внутренний журнал отдельной ручкой больше не растягивается.
+    # Внутренние окна своей ручкой не растягиваются.
     assert "makeResizable(document.getElementById('pipeline-console')" not in html
-    assert "[['home-unlim-card'" not in html
     # Полоска захвата короче карточки на скругления.
     assert "left:12px;right:12px;bottom:2px;height:2.5px" in html
 

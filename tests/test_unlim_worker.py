@@ -183,6 +183,53 @@ def test_mark_done(db):
     assert status == "downloaded"
 
 
+def test_mark_done_records_local_path(db):
+    """Без пути строка выпадает из проверки и из перепривязки папок."""
+    uw.ensure_attempts_column()
+    uw.mark_done([("1", "/data/_unlim/a.jpg")])
+    con = sqlite3.connect(db)
+    status, local = con.execute(
+        "SELECT status, local_path FROM unlim_files WHERE file_id='1'"
+    ).fetchone()
+    con.close()
+    assert (status, local) == ("downloaded", "/data/_unlim/a.jpg")
+
+
+def test_mark_done_without_path_keeps_old_local_path(db):
+    uw.ensure_attempts_column()
+    uw.mark_done([("1", "/data/_unlim/a.jpg")])
+    uw.mark_done(["1"])  # старый вызов без пути не должен затирать путь
+    con = sqlite3.connect(db)
+    local = con.execute("SELECT local_path FROM unlim_files WHERE file_id='1'").fetchone()[0]
+    con.close()
+    assert local == "/data/_unlim/a.jpg"
+
+
+def test_match_extracted_returns_where_file_landed(tmp_path, monkeypatch):
+    monkeypatch.setattr(uw, "EXTRACT_DIR", str(tmp_path / "_unlim"))
+    batch = [{"file_id": "1", "name": "a.jpg", "size": 3}]
+    done, missing = uw.match_extracted(batch, [("2024/a.jpg", 3)])
+    assert missing == []
+    assert done == [("1", os.path.join(str(tmp_path / "_unlim"), "2024", "a.jpg"))]
+
+
+def test_split_sanitizes_illegal_names(tmp_path):
+    """Файл с '>' в архиве лёг под '_' — сопоставление по имени всё равно работает."""
+    batch = [{"file_id": "1", "name": "004. Весна G>A>H .jpg", "size": 3}]
+    done, missing = uw.split_by_extracted(
+        batch, [("004. Весна G_A_H .jpg", 3)]
+    )
+    assert done == ["1"]
+    assert missing == []
+
+
+def test_safe_extract_sanitizes_windows_illegal_chars(tmp_path):
+    base = str(tmp_path / "extract")
+    os.makedirs(base)
+    dst = uw.safe_extract_dst(base, "003./004. Весна G>A>H ?.jpg")
+    assert dst == os.path.join(base, "003", "004. Весна G_A_H _.jpg")
+
+
 # ── интеграция: злой архив не вылезает из папки ─────────────────────────────
 
 

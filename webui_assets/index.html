@@ -215,31 +215,6 @@
     35%{box-shadow:0 0 0 6px rgba(10,132,255,.3)}
     100%{box-shadow:0 0 0 0 rgba(10,132,255,0)}
   }
-  /* Окошко с оценкой времени до конца задания */
-  #eta-box{
-    display:none;margin-top:10px;padding:10px 14px;border-radius:10px;
-    background:rgba(10,132,255,.08);border:0.5px solid rgba(10,132,255,.3);
-    font-size:13.5px;color:var(--text);
-  }
-  #eta-box .eta-value{font-weight:600;color:var(--accent)}
-  #eta-box .eta-note{font-size:11.5px;color:var(--text-tertiary);margin-left:6px}
-
-  /* Итог запуска числами — рядом с журналом: видно и общее время, и результат.
-     Строка живёт и после остановки, пока не начнётся новый запуск. */
-  #run-summary{display:none;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
-  #run-summary .rs-lane{font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-right:2px}
-  .rs-item{
-    display:inline-flex;align-items:center;gap:5px;
-    padding:3px 9px;border-radius:99px;
-    background:var(--surface2);border:0.5px solid var(--hairline-strong);
-    font-size:12px;color:var(--text-secondary);
-  }
-  .rs-item.ok{color:var(--green)}
-  .rs-item.warn{color:var(--orange)}
-  .rs-item.wait{color:var(--yellow)}
-  .rs-item.bad{color:var(--red)}
-  .rs-item.sel{color:var(--accent);border-color:rgba(10,132,255,.4);background:rgba(10,132,255,.08)}
-
   /* ── Tabs (segmented control) ── */
   .tabs{
     display:flex;gap:6px;
@@ -540,16 +515,9 @@
   .grid-2{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-bottom:16px}
   @media (max-width:680px){.grid-2{grid-template-columns:1fr}}
 
-  /* ── Широкоформатный (16:9) расклад: две колонки на больших экранах ── */
-  @media (min-width:1200px){
-    /* Журнал выше: иначе под статистикой справа остаётся пол-экрана пустоты,
-       а лог всё равно обрезан до 320 px. */
-    #pipeline-card #pipeline-console{height:min(52vh, 560px)}
-  }
-
-  /* «Выполнение процесса» — два отдельных окошка: состояние процесса и
-     журнал. Карточка тянется за ручку, журнал занимает освободившееся место
-     и прокручивается сам. */
+  /* «Выполнение процесса» — два отдельных окна-терминала: вывод процесса и
+     журнал по файлам. Карточка тянется за ручку, окна делят освободившееся
+     место и прокручиваются сами. */
   #pipeline-card{display:flex;flex-direction:column;gap:12px}
   .pipe-pane{
     min-width:0;border:1px solid var(--card-line);border-radius:12px;
@@ -570,8 +538,20 @@
   .pipe-log-title{font-size:13px;margin-bottom:0}
   .pipe-log-hint{font-size:11.5px;color:var(--text-tertiary)}
   .pipe-log .console{
-    flex:1 1 auto;min-height:140px;max-height:none;height:320px;
+    flex:1 1 auto;min-height:120px;max-height:none;height:220px;
     border:0;border-radius:0;background:transparent;
+    overflow-anchor:none;  /* браузер не сдвигает текст сам — только мы */
+  }
+  #pipeline-process-pane{flex:0 1 auto}
+  #pipeline-files-pane{flex:1 1 auto}
+  #pipeline-process-pane .console{height:220px}
+  #pipeline-files-pane .console{height:300px}
+  /* ── Широкоформатный (16:9) расклад: две колонки на больших экранах ── */
+  @media (min-width:1200px){
+    /* Оба терминала выше: иначе под статистикой справа остаётся пол-экрана
+       пустоты, а журнал всё равно обрезан до 320 px. */
+    #pipeline-process-pane .console{height:min(26vh, 280px)}
+    #pipeline-files-pane .console{height:min(40vh, 420px)}
   }
   /* Цвет строк по типу операции: ошибки — красные, ожидание серверов —
      оранжевое, успехи — зелёные, ход работы — синий, заголовки — сиреневые. */
@@ -1143,6 +1123,36 @@
   .list-toggle-chevron{color:var(--text-tertiary);transition:transform .15s}
   .list-toggle.open .list-toggle-chevron{transform:rotate(90deg)}
   .list-toggle-hint{margin-left:auto;font-size:12px;color:var(--text-tertiary)}
+  /* Проблемные файлы проверки: отметка галочкой и «скачать заново» */
+  .verify-problems-list{
+    margin-top:8px;max-height:320px;overflow:auto;
+    border:0.5px solid var(--hairline);border-radius:10px;background:var(--surface2);
+  }
+  .vp-row{
+    display:flex;align-items:center;gap:10px;padding:7px 10px;
+    border-bottom:0.5px solid var(--hairline);font-size:12.5px;
+  }
+  .vp-row:last-child{border-bottom:none}
+  .vp-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);flex:0 0 auto}
+  .vp-main{flex:1 1 auto;min-width:0}
+  .vp-name{
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    color:var(--text-secondary);
+  }
+  .vp-detail{font-size:11.5px;color:var(--text-tertiary);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vp-tag{
+    flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;
+    border:0.5px solid var(--hairline-strong);color:var(--text-tertiary);
+  }
+  .vp-tag.size,.vp-tag.md5{color:#ff9f0a;border-color:rgba(255,159,10,.45)}
+  .vp-tag.missing,.vp-tag.error{color:#ff453a;border-color:rgba(255,69,58,.45)}
+  .vp-tag.offline{color:#0a84ff;border-color:rgba(10,132,255,.45)}
+  .vp-one{
+    flex:0 0 auto;border:none;background:none;color:var(--accent);
+    font-size:12px;cursor:pointer;padding:2px 4px;
+  }
+  .vp-one:hover{text-decoration:underline}
 
   .backup-row{
     display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
@@ -1962,27 +1972,22 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
 
   <div class="card" id="pipeline-card">
-    <!-- Два самостоятельных окошка: сверху — что делает процесс сейчас,
-         снизу — журнал строк. Раньше всё было одной простынёй. -->
-    <div class="pipe-pane pipe-current" id="pipeline-status-pane">
+    <!-- Два самостоятельных окна-терминала. Верхнее — вывод самого процесса:
+         баннер запуска, пачки, итоги. Нижнее — журнал по файлам: имя, вес,
+         проценты, скорость, сервер. Плашек со сводкой здесь больше нет. -->
+    <div class="pipe-pane pipe-log" id="pipeline-process-pane">
       <div class="pipe-pane-head">
-        <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
-        <span class="badge" id="pipeline-state">ожидание</span>
+        <div class="card-title pipe-log-title">Выполнение процесса</div>
+        <span class="pipe-log-hint">вывод процесса · прокручивается колесом</span>
       </div>
-      <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
-      <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
-      <div id="eta-box">
-        ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
-        <span class="eta-note">всего по заданию · оценка</span>
-      </div>
-      <div id="run-summary" role="status" aria-live="polite"></div>
+      <div class="console" id="pipeline-console" tabindex="0" aria-label="Вывод процесса"><div class="console-empty">жду запуска…</div></div>
     </div>
-    <div class="pipe-pane pipe-log">
+    <div class="pipe-pane pipe-log" id="pipeline-files-pane">
       <div class="pipe-pane-head">
-        <div class="card-title pipe-log-title">Журнал процесса</div>
+        <div class="card-title pipe-log-title">Журнал скачивания</div>
         <span class="pipe-log-hint">новые строки внизу · прокручивается колесом</span>
       </div>
-      <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
+      <div class="console" id="download-console" tabindex="0" aria-label="Журнал скачивания файлов"><div class="console-empty">файлы появятся, когда пойдёт выгрузка…</div></div>
     </div>
   </div>
   </div><!-- /tab-col right -->
@@ -2495,10 +2500,23 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       <pre id="verify-output" class="diag-pre" style="display:none"></pre>
     </div>
 
-    <div class="actions" id="verify-actions" style="margin-top:10px;display:none">
-      <button class="danger" id="verify-requeue-btn" onclick="requeueVerifyMissing()">
-        Вернуть отсутствующие в очередь
-      </button>
+    <div id="verify-problems" style="display:none;margin-top:10px">
+      <div class="list-toggle" id="verify-problems-toggle" onclick="toggleVerifyProblems()">
+        <span class="list-toggle-chevron" id="verify-problems-chevron">▸</span>
+        <span>Проблемные файлы</span>
+        <span class="list-toggle-hint" id="verify-problems-hint">показать</span>
+      </div>
+      <div id="verify-problems-box" style="display:none">
+        <div class="setup-hint" id="verify-problems-summary"></div>
+        <div class="verify-problems-list" id="verify-problems-list"></div>
+        <div class="actions" id="verify-actions" style="margin-top:8px">
+          <button class="danger" id="verify-requeue-btn" onclick="requeueVerifySelected()">
+            Скачать выбранные заново
+          </button>
+          <button class="ghost" onclick="verifySelectAll(true)">Отметить все</button>
+          <button class="ghost" onclick="verifySelectAll(false)">Снять отметки</button>
+        </div>
+      </div>
     </div>
     <div id="verify-hint-move" class="setup-hint" style="display:none">
       Файлы переехали или диск сменил букву? Откройте настройки → «Файлы переехали?» —
@@ -3914,10 +3932,6 @@ async function startCustomScan(){
 
   const card = document.getElementById('pipeline-card');
   if (card) card.style.removeProperty('display');
-  const ps = document.getElementById('pipeline-state');
-  if (ps) { ps.textContent = 'идёт сканирование'; ps.className = 'badge run'; }
-  const pStep = document.getElementById('pipeline-step');
-  if (pStep) pStep.textContent = `Сканирование: ${mode === 'unlim' ? 'Безлимит (unlim_backup.py)' : 'Обычный Диск (main.py)'}`;
   setConsole('pipeline-console', `[+] Запуск процесса сканирования ${label}...\n[+] Подключаюсь к облаку Яндекс.Диска... (расчётное время для 4800 кластеров ~2 мин)`);
 
   try {
@@ -4140,12 +4154,14 @@ function updateSelectedSummary(kind, cats){
 }
 
 // ────── Refresh ──────
-let _lastConsole = {};
-// Журнал как в терминале: старые строки сверху, новые внизу. Автопрокрутка
-// держится за низ, только пока человек сам у низа; если он поднялся читать
-// старые строки, обновление раз в 1,5 секунды больше не срывает прокрутку.
+// Журнал как в терминале: старые строки сверху, новые внизу. Сервер присылает
+// не весь лог, а последние N строк, поэтому «дописывание» распознаётся по
+// общему хвосту: сверху убираются уехавшие строки, снизу добавляются новые, а
+// остальные DOM-узлы не трогаются — выделение и прокрутка остаются целыми.
 const CONSOLE_STICK_PX = 24;
+const MAX_CONSOLE_LINES = 4000;   // больше в окне не держим: тормозит и не нужно
 const _consoleStick = {};
+const _consoleLines = {};
 
 function consoleAtBottom(el){
   return el.scrollHeight - el.scrollTop - el.clientHeight <= CONSOLE_STICK_PX;
@@ -4179,51 +4195,139 @@ function consoleLineClass(line){
   return '';
 }
 
-function setConsole(id, text){
+function _consoleRow(line){
+  const row = document.createElement('div');
+  row.className = ('console-line ' + consoleLineClass(line)).trim();
+  row.textContent = line || ' ';
+  return row;
+}
+
+function _clearConsole(id, el, placeholder){
+  _consoleLines[id] = [];
+  el.replaceChildren();
+  const empty = document.createElement('div');
+  empty.className = 'console-empty';
+  empty.textContent = placeholder || 'жду запуска…';
+  el.appendChild(empty);
+  _consoleStick[id] = true;
+}
+
+// Обновляет окно журнала. true — журнал пересобран целиком (другая задача),
+// false — строки только дописаны/убраны сверху.
+function renderConsole(id, lines, placeholder){
   const el = document.getElementById(id);
-  if(!el) return;
-  if(_lastConsole[id] === (text || '')) return;
+  if(!el) return false;
   initConsoleStick(id, el);
-  const prevText = _lastConsole[id] || '';
-  _lastConsole[id] = text || '';
+  lines = (lines || []).map(l => (l == null ? '' : String(l)));
+  if(!lines.length){
+    if((_consoleLines[id] || []).length) _clearConsole(id, el, placeholder);
+    return false;
+  }
+  const prev = _consoleLines[id] || [];
+  const stick = _consoleStick[id] !== false;
+  // Самый длинный хвост старого журнала, совпадающий с началом нового текста.
+  let keep = 0;
+  for(let k = Math.min(prev.length, lines.length); k > 0; k--){
+    let same = true;
+    for(let i = 0; i < k; i++){
+      if(prev[prev.length - k + i] !== lines[i]){ same = false; break; }
+    }
+    if(same){ keep = k; break; }
+  }
+  if(!keep){
+    // Общий префикс: обычно меняются только последние строки, а всё, что
+    // выше, остаётся прежним. Эти строки не пересобираем — выделение живёт.
+    let same = 0;
+    while(same < prev.length && same < lines.length && prev[same] === lines[same]) same++;
+    if(same > 0){
+      while(el.children.length > same) el.lastElementChild.remove();
+      if(lines.length > same){
+        const frag = document.createDocumentFragment();
+        for(let i = same; i < lines.length; i++) frag.appendChild(_consoleRow(lines[i]));
+        el.appendChild(frag);
+      }
+      _consoleLines[id] = lines.slice();
+      _capConsole(id, el, stick);
+      if(stick) el.scrollTop = el.scrollHeight;
+      return false;
+    }
+    // Другая задача или полностью новый текст — пересобираем окно.
+    const frag = document.createDocumentFragment();
+    lines.forEach(l => frag.appendChild(_consoleRow(l)));
+    el.replaceChildren(frag);
+    _consoleLines[id] = lines.slice();
+    _capConsole(id, el, stick);
+    if(stick) el.scrollTop = el.scrollHeight;
+    return true;
+  }
+  const drop = prev.length - keep;
+  const added = lines.slice(keep);
+  if(!drop && !added.length) return false;
+  // Уехавшие сверху строки убираем и на их высоту сдвигаем прокрутку, чтобы
+  // человек читал те же строки, а не «прыгал» вверх.
+  if(drop){
+    const beforeTop = el.scrollTop, beforeH = el.scrollHeight;
+    for(let i = 0; i < drop; i++){
+      const first = el.firstElementChild;
+      if(first) first.remove();
+    }
+    if(!stick) el.scrollTop = Math.max(0, beforeTop - (beforeH - el.scrollHeight));
+  }
+  if(added.length){
+    const frag = document.createDocumentFragment();
+    added.forEach(l => frag.appendChild(_consoleRow(l)));
+    el.appendChild(frag);
+  }
+  _consoleLines[id] = lines.slice();
+  _capConsole(id, el, stick);
+  if(stick) el.scrollTop = el.scrollHeight;
+  return false;
+}
+
+// В журнале не копим больше MAX_CONSOLE_LINES строк: старые уходят сверху.
+function _capConsole(id, el, stick){
+  const lines = _consoleLines[id] || [];
+  const extra = lines.length - MAX_CONSOLE_LINES;
+  if(extra <= 0) return;
+  const beforeTop = el.scrollTop, beforeH = el.scrollHeight;
+  for(let i = 0; i < extra; i++){
+    const first = el.firstElementChild;
+    if(first) first.remove();
+  }
+  _consoleLines[id] = lines.slice(extra);
+  if(!stick) el.scrollTop = Math.max(0, beforeTop - (beforeH - el.scrollHeight));
+}
+
+// Строки по файлам (⬇ / ✅ / ⏸ / ↻) уходят в нижнее окно «Журнал скачивания»,
+// служебный вывод процесса — в верхнее «Выполнение процесса».
+const FILE_LINE_RE = /^(⬇|✅|⏸|↻)\s/;
+const FILE_EMPTY = 'файлы появятся, когда пойдёт выгрузка…';
+
+function setPipelineConsole(text){
   if(!text){
-    el.replaceChildren();
-    const empty = document.createElement('div');
-    empty.className = 'console-empty';
-    empty.textContent = 'жду запуска…';
-    el.appendChild(empty);
-    _consoleStick[id] = true;
+    renderConsole('pipeline-console', [], 'жду запуска…');
+    renderConsole('download-console', [], FILE_EMPTY);
     return;
   }
-  const lines = text.split('\n');
-  const prevLines = prevText ? prevText.split('\n') : [];
-  // Обычно журнал только дописывается: тогда создаём лишь новые строки,
-  // а старые DOM-узлы не трогаем — прокрутка и выделение не сбиваются.
-  const onlyAppended = prevLines.length > 0
-    && lines.length >= prevLines.length
-    && prevLines.every((line, i) => line === lines[i]);
-  const stick = _consoleStick[id] !== false;
-
-  const makeLine = (line) => {
-    const row = document.createElement('div');
-    row.className = ('console-line ' + consoleLineClass(line)).trim();
-    row.textContent = line || ' ';
-    return row;
-  };
-
-  if(onlyAppended){
-    const frag = document.createDocumentFragment();
-    for(const line of lines.slice(prevLines.length)) frag.appendChild(makeLine(line));
-    el.appendChild(frag);
-  }else{
-    const prevTop = el.scrollTop;
-    const frag = document.createDocumentFragment();
-    for(const line of lines) frag.appendChild(makeLine(line));
-    el.replaceChildren(frag);
-    // Новые строки внизу, поэтому при чтении старых место не сдвигается.
-    if(!stick) el.scrollTop = prevTop;
+  const lines = String(text).split('\n');
+  const proc = [], files = [];
+  lines.forEach(line => (FILE_LINE_RE.test(line.trim()) ? files : proc).push(line));
+  // Пустой служебный вывод (в хвосте были только строки по файлам) не должен
+  // стирать верхнее окно.
+  if(proc.some(l => l.trim()) || !files.length){
+    const reopened = renderConsole('pipeline-console', proc, 'жду запуска…');
+    if(reopened && !files.length){
+      renderConsole('download-console', [], FILE_EMPTY);
+    }
   }
-  if(stick) el.scrollTop = el.scrollHeight;
+  if(files.length){
+    renderConsole('download-console', files, FILE_EMPTY);
+  }
+}
+
+function setConsole(id, text){
+  if(id === 'pipeline-console'){ setPipelineConsole(text); return; }
+  renderConsole(id, String(text || '').split('\n'), 'жду запуска…');
 }
 
 // ── Бережные обновления текста ──
@@ -4627,8 +4731,6 @@ function renderSessionCounters(s){
   renderSessionPill('pill-session', 'pill-session-text', sess.unlim, 'Безлимит', 'unlim', (s.unlim||{}).db);
   renderSessionPill('pill-disk-session', 'pill-disk-session-text', sess.disk, 'Диск', 'disk', (s.disk||{}).db);
   syncLivePills();
-  renderRunSummary(s);
-  renderEta(s);
 }
 
 // Ряд живых плашек скрывается целиком, если показывать нечего: пустой ряд
@@ -4638,70 +4740,6 @@ function syncLivePills(){
   if(!row) return;
   const any = Array.from(row.children).some(el => el.style.display !== 'none');
   row.style.display = any ? 'flex' : 'none';
-}
-
-// ── Итог запуска числами ──
-// Одни и те же цифры, что в плашках, но рядом с журналом: «скачано /
-// пропущено / сбойные / ждут Яндекса / отложено». Считаются по базе и по
-// файлу статуса, а не по строкам журнала — поэтому не врут после остановки.
-function runNumbers(kind, s){
-  const db = ((kind === 'disk' ? s.disk : s.unlim) || {}).db || {};
-  const st = (kind === 'disk' ? s.disk_speed : s.speed) || {};
-  const ses = (s.session || {})[kind] || null;
-  const failedKey = kind === 'unlim' ? 'skipped' : 'failed';
-  const fromFile = kind === 'unlim' ? (+st.success || 0) : (+st.downloaded || 0);
-  return {
-    downloaded: ses ? (+ses.success || 0) : fromFile,
-    skipped: +st.skipped || 0,
-    failed: ses ? (+ses.failed || 0) : (+db[failedKey] || 0),
-    waiting: ses ? (+ses.waiting || 0) : (+db.waiting || 0),
-    // «Отложено» — и 500 (lost), и 403 (denied): для счётчика это одно.
-    lost: (ses ? (+ses.lost || 0) : (+db.lost || 0)) + (+db.denied || 0),
-    mode: (ses && ses.mode) || st.mode || 'all',
-    total: (ses && +ses.total) || +st.total_files || 0,
-    active: !!st.active,
-  };
-}
-
-function _runItem(cls, text){
-  return `<span class="rs-item${cls ? ' ' + cls : ''}">${text}</span>`;
-}
-
-function renderRunSummary(s){
-  const box = document.getElementById('run-summary');
-  if(!box) return;
-  const sess = s.session || {};
-  const lanes = [];
-  ['disk', 'unlim'].forEach(kind => {
-    const n = runNumbers(kind, s);
-    const live = !!(sess[kind] && sess[kind].running) || n.active;
-    if(!live && !n.downloaded && !n.skipped && !n.failed && !n.waiting && !n.lost) return;
-    lanes.push([kind, n, live]);
-  });
-  if(!lanes.length){
-    box.style.display = 'none';
-    setSafeHTML(box, '');
-    return;
-  }
-  const ru = v => (+v || 0).toLocaleString('ru');
-  const items = [];
-  lanes.forEach(([kind, n, live]) => {
-    if(lanes.length > 1){
-      items.push(`<span class="rs-lane">${kind === 'disk' ? 'Диск' : 'Безлимит'}:</span>`);
-    }
-    if(n.mode === 'selection' && !live && n.total){
-      items.push(_runItem('sel',
-        `📥 Выбрано ${ru(n.total)}, скачано ${ru(n.downloaded)} из ${ru(n.total)}`));
-    } else {
-      items.push(_runItem('ok', `✅ скачано ${ru(n.downloaded)}`));
-    }
-    if(n.skipped) items.push(_runItem('', `⏭ пропущено ${ru(n.skipped)}`));
-    if(n.failed) items.push(_runItem('warn', `⚠ сбойные ${ru(n.failed)}`));
-    if(n.waiting) items.push(_runItem('wait', `🕓 ждут Яндекса ${ru(n.waiting)}`));
-    if(n.lost) items.push(_runItem('bad', `⏳ отложено ${ru(n.lost)}`));
-  });
-  setSafeHTML(box, items.join(''));
-  box.style.display = 'flex';
 }
 
 // Сколько ещё не получено: новые + зависшие + сбойные + отложенные. Раньше
@@ -4769,111 +4807,6 @@ function renderSessionPill(id, textId, d, label, kind, db){
     + `Осталось докачать: ${leftText}. `
     + (kind === 'unlim' ? 'Нажмите — откроет папку выгрузки Безлимита.'
                         : 'Нажмите — откроет папку выгрузки Диска.');
-}
-
-// ── Оценка времени до конца задания ──
-// Скорость считаем только по успешным скачиваниям за последние 3 минуты, а не
-// по всем попыткам с самого старта. Иначе повторы сбойных выдавались за работу:
-// 400 сбойных с `--retry` давали 800 «попыток» и оценку «~1 мин», хотя не
-// скачалось ничего. Для Диска — по байтам (файлы разного размера), для
-// Безлимита — по файлам, пока в базе нет размеров.
-const ETA_WINDOW = 180;       // секунды: окно усреднения
-const ETA_MIN_ELAPSED = 120;  // первые 2 минуты оценку не показываем
-const ETA_MIN_SPAN = 20;      // без 20 секунд наблюдений считать нечего
-const _etaSamples = {disk: [], unlim: []};
-const _etaSession = {disk: null, unlim: null};
-
-function fmtEta(sec){
-  if(!isFinite(sec) || sec <= 0) return null;
-  const total = Math.round(sec);
-  if(total < 60) return 'меньше минуты';
-  const mins = Math.round(total / 60);
-  if(mins < 60) return `~${mins} мин`;
-  const hours = Math.floor(mins / 60);
-  const rest = mins % 60;
-  return rest ? `~${hours} ч ${rest} мин` : `~${hours} ч`;
-}
-
-function _etaOk(st, kind){
-  return +(kind === 'unlim' ? st.success : st.downloaded) || 0;
-}
-
-function pushEtaSample(kind, st){
-  const t = Number((st || {}).updated_at || 0);
-  if(!t) return;
-  const buf = _etaSamples[kind];
-  const last = buf[buf.length - 1];
-  if(last && t <= last.t) return;   // тот же замер или часы поплыли
-  const ok = _etaOk(st, kind), bytes = +(st.bytes || 0);
-  // Счётчики сбросились (начался новый проход или процесс) — начинаем заново,
-  // иначе разница окажется отрицательной и оценка пропадёт надолго.
-  if(last && (ok < last.ok || bytes < last.bytes)) buf.length = 0;
-  buf.push({t, ok, bytes});
-  const cutoff = t - ETA_WINDOW;
-  while(buf.length > 2 && buf[0].t < cutoff) buf.shift();
-}
-
-// Сколько секунд осталось линии. null — оценить нельзя (нет данных,
-// остаток неизвестен, ничего не скачивается). now — текущее время, сек.
-function etaSeconds(kind, s, now){
-  const d = (s.session || {})[kind];
-  const st = (kind === 'unlim' ? s.speed : s.disk_speed) || {};
-  if(!d || !d.running || d.preparing) return null;
-  if(!(d.remaining > 0)) return null;
-  if(_etaSession[kind] !== d.started_at){
-    _etaSession[kind] = d.started_at;
-    _etaSamples[kind].length = 0;
-  }
-  pushEtaSample(kind, st);
-  // Статус не обновлялся две минуты — процесс завис, оценка была бы выдумкой.
-  const updated = Number(st.updated_at || 0);
-  if(updated && now - updated > 120) return null;
-  const started = Number(d.started_at || st.started_at || 0);
-  if(started && now - started < ETA_MIN_ELAPSED) return null;
-  const buf = _etaSamples[kind];
-  if(buf.length < 2) return null;
-  const first = buf[0], last = buf[buf.length - 1];
-  const span = last.t - first.t;
-  if(span < ETA_MIN_SPAN) return null;
-  const dBytes = last.bytes - first.bytes;
-  const dOk = last.ok - first.ok;
-  // Байты точнее, но только если известен остаток в байтах.
-  if(dBytes > 0 && (+d.remaining_bytes || 0) > 0){
-    return (+d.remaining_bytes) / (dBytes / span);
-  }
-  if(dOk > 0) return d.remaining / (dOk / span);
-  // За окно ничего не скачалось — честнее не показывать цифру.
-  return null;
-}
-
-function renderEta(s){
-  const box = document.getElementById('eta-box');
-  const txt = document.getElementById('eta-text');
-  if(!box || !txt) return;
-  const lines = [];
-  const now = Date.now() / 1000;
-  const diskSec = etaSeconds('disk', s, now);
-  const unlimSec = etaSeconds('unlim', s, now);
-  if(diskSec) lines.push({name: 'Диск', sec: diskSec});
-  if(unlimSec) lines.push({name: 'Безлимит', sec: unlimSec});
-  if(!lines.length){
-    box.style.display = 'none';
-    return;
-  }
-  // Линии работают параллельно, поэтому до конца задания останется столько,
-  // сколько нужно самой долгой из них: сумма была бы заведомо завышена.
-  // Подробности по каждой линии — в подсказке.
-  const longest = lines.reduce((a, b) => (b.sec > a.sec ? b : a));
-  box.style.display = 'block';
-  box.className = 'tipnode';
-  setText(txt, fmtEta(longest.sec));
-  const basis = 'Считается по успешным скачиваниям за последние 3 минуты; '
-    + 'если ничего не скачивается, цифры нет. Оценка приблизительная.';
-  box.dataset.tip = lines.length === 1
-    ? `Оценка по линии «${lines[0].name}». ${basis}`
-    : `Задание идёт по двум линиям сразу, останется столько, сколько нужно самой долгой: `
-      + lines.map(l => `${l.name} ${fmtEta(l.sec)}`).join(' · ')
-      + `. ${basis}`;
 }
 
 function renderFullCycle(fc){
@@ -6811,28 +6744,154 @@ function toggleVerifyReport(force){
   if(show) loadVerifyReport();
 }
 
-async function requeueVerifyMissing(){
-  const scope = (document.getElementById('verify-scope') || {}).value || 'disk';
-  if(!await askConfirm({
-    title: 'Вернуть отсутствующие файлы в очередь?',
-    text: 'Файлы, которых нет по записанному пути, будут скачаны заново. '
-      + 'Файлы на отключённом диске и с несовпадающим размером не трогаются.\n\n'
-      + 'Если файлы просто переехали — лучше сначала настройки → «Файлы переехали?».',
-    ok: 'Скачать заново'
-  })){
+// ── Проблемные файлы проверки: отметки и повторное скачивание ──
+const VERIFY_STATUS_NAMES = {
+  missing:'нет на диске', size:'размер не совпал', md5:'MD5 не совпал',
+  error:'не читается', offline:'диск не подключён'
+};
+let _verifyProblems = [];
+let _verifyProblemsSig = '';
+const _verifyPicked = new Set();
+
+function verifyProblemId(p){
+  return String((p && p.scope) || '') + '|' + String((p && (p.key || p.path)) || '');
+}
+
+function toggleVerifyProblems(force){
+  const box = document.getElementById('verify-problems-box');
+  const hint = document.getElementById('verify-problems-hint');
+  const chevron = document.getElementById('verify-problems-chevron');
+  const toggle = document.getElementById('verify-problems-toggle');
+  if(!box) return;
+  const show = force === undefined ? box.style.display === 'none' : !!force;
+  box.style.display = show ? 'block' : 'none';
+  if(hint) hint.textContent = show ? 'скрыть' : 'показать';
+  if(chevron) chevron.textContent = show ? '▾' : '▸';
+  if(toggle) toggle.classList.toggle('open', show);
+}
+
+function renderVerifyProblems(v){
+  const box = document.getElementById('verify-problems');
+  const list = document.getElementById('verify-problems-list');
+  if(!box || !list) return;
+  const problems = (v && v.problems) || [];
+  _verifyProblems = problems;
+  if(!problems.length){
+    box.style.display = 'none';
+    _verifyProblemsSig = '';
+    list.replaceChildren();
     return;
   }
+  box.style.display = '';
+  const sig = problems.length + '|'
+    + problems.map(p => verifyProblemId(p) + ':' + (p.status || '')).join(',');
+  if(sig === _verifyProblemsSig) return;
+  _verifyProblemsSig = sig;
+  // По чистой копии: в Set попадают только отметки, которые ещё есть в отчёте.
+  const alive = new Set(problems.map(verifyProblemId));
+  for(const id of Array.from(_verifyPicked)) if(!alive.has(id)) _verifyPicked.delete(id);
+
+  const frag = document.createDocumentFragment();
+  problems.slice(0, 500).forEach(p => {
+    const id = verifyProblemId(p);
+    const row = document.createElement('label');
+    row.className = 'vp-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = _verifyPicked.has(id);
+    cb.addEventListener('change', () => {
+      if(cb.checked) _verifyPicked.add(id); else _verifyPicked.delete(id);
+    });
+    const main = document.createElement('div');
+    main.className = 'vp-main';
+    const name = document.createElement('div');
+    name.className = 'vp-name';
+    name.textContent = p.path || '';
+    if(p.local) name.title = 'искали здесь: ' + p.local;
+    const det = document.createElement('div');
+    det.className = 'vp-detail';
+    det.textContent = p.detail || '';
+    main.append(name, det);
+    const tag = document.createElement('span');
+    tag.className = 'vp-tag ' + (p.status || '');
+    tag.textContent = VERIFY_STATUS_NAMES[p.status] || p.status || '';
+    const one = document.createElement('button');
+    one.type = 'button';
+    one.className = 'vp-one';
+    one.textContent = 'скачать заново';
+    one.title = 'Вернуть этот файл в очередь';
+    one.addEventListener('click', ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      requeueVerifyItems([p]);
+    });
+    row.append(cb, main, tag, one);
+    frag.append(row);
+  });
+  list.replaceChildren(frag);
+  const summary = document.getElementById('verify-problems-summary');
+  if(summary){
+    const total = +(v.problems_total || problems.length);
+    summary.textContent = total > problems.length
+      ? `Показаны первые ${problems.length.toLocaleString('ru')} из ${total.toLocaleString('ru')}.`
+      : '';
+  }
+}
+
+function verifySelectAll(flag){
+  const list = document.getElementById('verify-problems-list');
+  if(!list) return;
+  const boxes = list.querySelectorAll('input[type=checkbox]');
+  _verifyProblems.forEach(p => {
+    const id = verifyProblemId(p);
+    if(flag) _verifyPicked.add(id); else _verifyPicked.delete(id);
+  });
+  boxes.forEach(cb => { cb.checked = !!flag; });
+}
+
+async function requeueVerifyItems(items){
+  items = (items || []).filter(p => p && (p.key || p.path));
+  if(!items.length){
+    toast('Сначала отметьте файлы галочками', 'err');
+    return;
+  }
+  const scope = (document.getElementById('verify-scope') || {}).value || 'disk';
+  const title = items.length === 1
+    ? 'Скачать этот файл заново?'
+    : `Скачать заново ${items.length.toLocaleString('ru')} файлов?`;
+  if(!await askConfirm({
+    title,
+    text: 'Выбранные файлы вернутся в очередь и будут скачаны снова, '
+      + 'даже если они на отключённом диске или не совпал размер.\n\n'
+      + 'Если файлы просто переехали — лучше сначала настройки → «Файлы переехали?».',
+    ok: 'Скачать заново'
+  })) return;
   try{
     const r = await fetch('/api/verify/requeue_missing', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({scope, keys: []})
+      body: JSON.stringify({
+        scope,
+        items: items.map(p => ({scope: p.scope || scope, key: p.key || p.path}))
+      })
     });
     const d = await r.json();
     toast(d.msg || 'Готово', d.ok ? 'ok' : 'err');
-    if(d.ok) refresh();
+    if(d.ok){
+      items.forEach(p => _verifyPicked.delete(verifyProblemId(p)));
+      refresh();
+    }
   }catch(e){
     toast('Нет связи с программой: ' + e.message, 'err');
   }
+}
+
+function requeueVerifySelected(){
+  const items = _verifyProblems.filter(p => _verifyPicked.has(verifyProblemId(p)));
+  if(!items.length){
+    toast('Сначала отметьте файлы галочками', 'err');
+    return;
+  }
+  requeueVerifyItems(items);
 }
 
 function renderVerify(v){
@@ -6876,16 +6935,17 @@ function renderVerify(v){
   }
   if(wrap) wrap.style.display = (v && v.started_at) ? 'block' : 'none';
 
-  // «Отсутствующие» есть смысл вернуть в очередь; «отключённый диск» — нет.
-  const actions = document.getElementById('verify-actions');
-  if(actions) actions.style.display = (!running && missing) ? '' : 'none';
+  // Каждую проблемную строку можно отметить и скачать заново — включая
+  // «размер не совпал» и «диск не подключён».
+  renderVerifyProblems(running ? null : v);
   const moveHint = document.getElementById('verify-hint-move');
   if(moveHint) moveHint.style.display = (!running && (missing || offline)) ? '' : 'none';
 
-  // Один раз после окончания раскрываем готовый отчёт.
+  // Один раз после окончания раскрываем готовый отчёт и список проблем.
   if(!running && v && v.finished_at && window._verifyDoneAt !== v.finished_at){
     window._verifyDoneAt = v.finished_at;
     toggleVerifyReport(true);
+    if((v.problems || []).length) toggleVerifyProblems(true);
   }
 }
 
@@ -8654,7 +8714,8 @@ function _ensureCardDragHandles(name){
     if(card.querySelector(':scope > .card-drag')) return;
     const grip = document.createElement('div');
     grip.className = 'card-drag';
-    grip.textContent = '⠿';
+    // Сам символ ⠿ рисует CSS (::before). Текстом его вставлять нельзя:
+    // рядом с пилюлей появлялась вторая, лишняя группа точек.
     grip.title = 'Перетащите карточку в другую колонку';
     grip.setAttribute('aria-hidden', 'true');
     card.appendChild(grip);

@@ -24,7 +24,12 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 import paths
-from utils import compute_md5, resolve_local_path, volume_ready
+from utils import (
+    compute_md5,
+    resolve_local_path,
+    sanitize_component,
+    volume_ready,
+)
 
 SCOPES = ("disk", "unlim")
 DB_TABLES = {"disk": "files", "unlim": "unlim_files"}
@@ -169,7 +174,13 @@ def detect_old_root(rows: list[Row], new_root: str, hint: str = "") -> str:
 
 
 def load_rows(scope: str) -> list[Row]:
-    """Скачанные файлы выбранной базы с непустым локальным путём."""
+    """Скачанные файлы выбранной базы — и с локальным путём, и без него.
+
+    Строки без пути появлялись у старого режима «воркер»: он ставил статус
+    «скачано», но адрес файла не записывал. Такие файлы тоже нужно находить по
+    имени и размеру в новой папке — иначе они навсегда остаются невидимыми для
+    проверки и для этой перепривязки.
+    """
     scope = (scope or "").strip().lower()
     if scope not in SCOPES:
         raise RelocateError("Неизвестная база: ожидается disk или unlim")
@@ -182,26 +193,35 @@ def load_rows(scope: str) -> list[Row]:
         if scope == "disk":
             rows = list(con.execute(
                 "SELECT remote_path, local_path, size, md5 FROM files "
-                "WHERE status IN ('downloaded', 'skipped') "
-                "AND local_path IS NOT NULL AND local_path <> ''"
+                "WHERE status IN ('downloaded', 'skipped')"
             ))
-            return [
-                Row(key=r["remote_path"], remote=r["remote_path"],
-                    local=r["local_path"], size=r["size"], md5=r["md5"],
-                    name=os.path.basename(str(r["local_path"]).replace("/", os.sep)))
-                for r in rows
-            ]
+            out = []
+            for r in rows:
+                local = str(r["local_path"] or "")
+                remote = str(r["remote_path"] or "")
+                name = os.path.basename(
+                    (local or remote).replace("/", os.sep).rstrip("\\/")
+                )
+                out.append(Row(
+                    key=r["remote_path"], remote=remote, local=local,
+                    size=r["size"], md5=r["md5"], name=name,
+                ))
+            return out
         rows = list(con.execute(
             "SELECT file_id, name, local_path, size, md5 FROM unlim_files "
-            "WHERE status = 'downloaded' "
-            "AND local_path IS NOT NULL AND local_path <> ''"
+            "WHERE status = 'downloaded'"
         ))
-        return [
-            Row(key=r["file_id"], remote=r["name"] or r["file_id"],
-                local=r["local_path"], size=r["size"], md5=r["md5"],
-                name=r["name"] or os.path.basename(str(r["local_path"]).replace("/", os.sep)))
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            local = str(r["local_path"] or "")
+            name = str(r["name"] or "") or os.path.basename(
+                local.replace("/", os.sep).rstrip("\\/")
+            )
+            out.append(Row(
+                key=r["file_id"], remote=str(r["name"] or r["file_id"]),
+                local=local, size=r["size"], md5=r["md5"], name=name,
+            ))
+        return out
     finally:
         con.close()
 
@@ -213,6 +233,9 @@ class _Index:
         self.root = root
         self.by_name: dict[tuple[str, Optional[int]], list[str]] = defaultdict(list)
         self.by_norm: dict[tuple[str, Optional[int]], list[str]] = defaultdict(list)
+        # Файлы, сохранённые под очищенным именем ('>' → '_'): в базе имя
+        # яндексовое, на диске — безопасное, искать надо уметь по обоим.
+        self.by_safe: dict[tuple[str, Optional[int]], list[str]] = defaultdict(list)
         self._md5: dict[str, Optional[str]] = {}
         self._built = False
 
@@ -229,6 +252,7 @@ class _Index:
                     continue
                 self.by_name[(name.casefold(), size)].append(full)
                 self.by_norm[(_name_key(name), size)].append(full)
+                self.by_safe[(sanitize_component(name).casefold(), size)].append(full)
 
     def find(self, name: str, size: Optional[int],
              md5: Optional[str]) -> tuple[Optional[str], str]:
@@ -237,6 +261,8 @@ class _Index:
         cands = self.by_name.get(key) or []
         if not cands:
             cands = self.by_norm.get((_name_key(name), size)) or []
+        if not cands:
+            cands = self.by_safe.get((sanitize_component(name).casefold(), size)) or []
         if len(cands) == 1:
             return cands[0], "name"
         if len(cands) > 1 and md5:
@@ -280,7 +306,10 @@ def plan_relocate(
     rows = load_rows(scope)
     only_under = os.path.abspath((only_under or "").strip()) if only_under else ""
     if only_under:
-        rows = [r for r in rows if relative_under(r.local, only_under) is not None]
+        # Строки без пути к старой папке не относятся: их надо искать всегда,
+        # иначе фильтр навсегда оставит их невидимыми.
+        rows = [r for r in rows
+                if not r.local or relative_under(r.local, only_under) is not None]
     plan = Plan(scope=scope, old_root="", new_root=new_root, total=len(rows))
     if not rows:
         return plan
@@ -306,6 +335,13 @@ def plan_relocate(
             plan.updates.append((row.key, exact))
             continue
 
+        if not row.name:
+            plan.missing += 1
+            plan.missing_items.append(
+                {"path": row.remote, "local": local, "size": row.size, "name": row.name}
+            )
+            plan.missing_keys.append(row.key)
+            continue
         if index is None:
             index = _Index(new_root)
         found, how = index.find(row.name, row.size, row.md5)
@@ -322,7 +358,7 @@ def plan_relocate(
         if how == "conflict":
             plan.conflicts += 1
             plan.conflict_items.append(item)
-        elif volume_ready(local):
+        elif not local or volume_ready(local):
             plan.missing += 1
             plan.missing_items.append(item)
             plan.missing_keys.append(row.key)

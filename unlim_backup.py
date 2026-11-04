@@ -48,7 +48,7 @@ import unlim_dates
 import unlim_schema
 from fetch import DeadHosts, part_path_for
 from progress import FileProgress
-from utils import check_target_dir, file_size_safe
+from utils import check_target_dir, file_size_safe, sanitize_component
 
 # Принудительно отключаем IPv6 для исключения таймаутов на неработающем IPv6 (VirtualBox / NAT)
 urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
@@ -848,6 +848,9 @@ def download_one_file(
 ) -> tuple[bool, int, str]:
     fid = item["file_id"]
     name = item["name"]
+    # В базе имя остаётся как у Яндекса, а на диск кладём безопасное:
+    # '>' и ':' в имени — WinError 123 на каждом запуске.
+    save_name = sanitize_component(name)
 
     # Сессия уже протухла — не ходим в сеть, сразу сдаёмся (загрузка гасится наверху).
     if AUTH_EXPIRED.is_set():
@@ -913,14 +916,14 @@ def download_one_file(
         return False, 0, f"{DEFERRED_PREFIX}: сервер {host} не отвечает"
 
     # 2. Локальный путь
-    dst_path = out_dir / name
+    dst_path = out_dir / save_name
     if dst_path.exists():
         expected_size = item.get("size")
         if expected_size and dst_path.stat().st_size == expected_size:
             mark_done(db_path, fid, str(dst_path), dst_path.stat().st_size)
             return True, dst_path.stat().st_size, "Уже скачан"
         safe_fid = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', fid.strip("/"))
-        dst_path = out_dir / f"{safe_fid}_{name}"
+        dst_path = out_dir / f"{safe_fid}_{save_name}"
 
     tmp_path = _part_path_for_file(dst_path)
     resume_from = file_size_safe(tmp_path) or 0

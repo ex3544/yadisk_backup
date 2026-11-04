@@ -168,6 +168,74 @@ def test_relocate_unlim_by_name(data):
     assert plan.updates == [("file-1", str(dst))]
 
 
+def test_relocate_finds_pathless_unlim_row_by_name(data):
+    """Строки из старого «воркера» без local_path тоже находятся по имени и размеру."""
+    new = data / "new"
+    dst = _write(new / "2024" / "VID_1.mp4", b"12345")
+    _make_db(data / "unlim_state.db", [
+        ("file-1", "VID_1.mp4", 5, None, "downloaded", None),
+    ], table="unlim_files")
+
+    plan = relocate.plan_relocate("unlim", str(new))
+    assert plan.by_name == 1
+    assert plan.updates == [("file-1", str(dst))]
+    assert plan.missing == 0
+
+
+def test_relocate_finds_pathless_disk_row_by_name(data):
+    new = data / "new"
+    dst = _write(new / "Photos" / "a.jpg", b"aaa")
+    _make_db(data / "state.db", [
+        ("disk:/Photos/a.jpg", 3, None, "downloaded", ""),
+    ])
+
+    plan = relocate.plan_relocate("disk", str(new))
+    assert plan.by_name == 1
+    assert plan.updates == [("disk:/Photos/a.jpg", str(dst))]
+
+
+def test_pathless_row_not_found_is_missing_not_offline(data):
+    """Без пути нечего проверять на диске — это «не найдено», а не «диск отключён»."""
+    new = data / "new"
+    new.mkdir()
+    _make_db(data / "unlim_state.db", [
+        ("file-1", "gone.mp4", 5, None, "downloaded", None),
+    ], table="unlim_files")
+
+    plan = relocate.plan_relocate("unlim", str(new))
+    assert plan.missing == 1
+    assert plan.offline == 0
+    assert plan.missing_keys == ["file-1"]
+
+
+def test_pathless_row_survives_old_folder_filter(data):
+    """Фильтр «Старая папка» не прячет строки без пути."""
+    old = data / "old"
+    new = data / "new"
+    dst = _write(new / "x.mp4", b"12")
+    _make_db(data / "unlim_state.db", [
+        ("file-1", "x.mp4", 2, None, "downloaded", None),
+        ("file-2", "y.mp4", 2, None, "downloaded", str(old / "y.mp4")),
+    ], table="unlim_files")
+
+    plan = relocate.plan_relocate("unlim", str(new), only_under=str(old))
+    assert plan.by_name == 1
+    assert plan.updates == [("file-1", str(dst))]
+
+
+def test_relocate_matches_sanitized_file_name(data):
+    """На диске имя очищено ('>' → '_'), в базе — яндексовое. Найти надо."""
+    new = data / "new"
+    dst = _write(new / "004. Весна G_A_H .jpg", b"12345")
+    _make_db(data / "unlim_state.db", [
+        ("file-1", "004. Весна G>A>H .jpg", 5, None, "downloaded", None),
+    ], table="unlim_files")
+
+    plan = relocate.plan_relocate("unlim", str(new))
+    assert plan.by_name == 1
+    assert plan.updates == [("file-1", str(dst))]
+
+
 def test_relocate_refuses_missing_new_folder(data):
     with pytest.raises(relocate.RelocateError):
         relocate.plan_relocate("disk", str(data / "nope"))

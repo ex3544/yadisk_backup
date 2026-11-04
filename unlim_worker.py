@@ -33,6 +33,7 @@ import selection
 import unlim_dates
 import unlim_schema
 from progress import FileProgress
+from utils import sanitize_component
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -113,15 +114,32 @@ def take_batch(
         c.close()
 
 
-def mark_done(file_ids: list[str]):
+def mark_done(items: list):
+    """Помечает файлы скачанными и запоминает, где именно они лежат.
+
+    Принимает список `(file_id, local_path)`; голая строка тоже допустима —
+    тогда путь не пишется (старые вызовы и тесты). Без пути строка выпадает
+    из проверки и из перепривязки папок: именно так у тестера накопились
+    тысячи «скачанных» файлов, которые нечем проверить.
+    """
+    if not items:
+        return
+    rows = []
+    for it in items:
+        if isinstance(it, (tuple, list)):
+            fid, path = it[0], str(it[1] or "")
+        else:
+            fid, path = it, ""
+        rows.append((path or None, fid))
     c = sqlite3.connect(DB_FILE, timeout=60)
     c.execute("PRAGMA journal_mode=WAL")
     try:
         c.execute("BEGIN IMMEDIATE")
         c.executemany(
             "UPDATE unlim_files SET status='downloaded', downloaded_at=CURRENT_TIMESTAMP, "
-            "worker_id=NULL, error=NULL WHERE file_id=?",
-            [(i,) for i in file_ids],
+            "worker_id=NULL, error=NULL, local_path=COALESCE(?, local_path) "
+            "WHERE file_id=?",
+            rows,
         )
         c.execute("COMMIT")
     finally:
@@ -240,6 +258,10 @@ def safe_extract_dst(base_dir: str, member_name: str) -> str | None:
             continue
         if ":" in part:  # 'C:', 'C:evil.txt' — не даём подменить диск
             continue
+        # '>' и '?' в имени из архива — WinError 123 на распаковке.
+        part = sanitize_component(part)
+        if part in (".", ".."):
+            continue
         parts.append(part)
     if not parts:
         return None
@@ -255,8 +277,9 @@ def safe_extract_dst(base_dir: str, member_name: str) -> str | None:
 def download_and_extract(s, url: str, worker_id: int, batch_idx: int) -> tuple[list[tuple[str, int]], int]:
     """Качает ZIP пачки и распаковывает.
 
-    Возвращает (список успешно распакованных (имя_файла, размер), суммарные байты).
-    Имена нужны наверху, чтобы пометить downloaded ТОЛЬКО реально приехавшие файлы.
+    Возвращает (список успешно распакованных (путь_внутри _unlim, размер),
+    суммарные байты). Путь нужен наверху, чтобы пометить downloaded ТОЛЬКО
+    реально приехавшие файлы и сразу записать в базу, где они лежат.
     """
     os.makedirs(ZIP_TMP_DIR, exist_ok=True)
     os.makedirs(EXTRACT_DIR, exist_ok=True)
@@ -305,8 +328,9 @@ def download_and_extract(s, url: str, worker_id: int, batch_idx: int) -> tuple[l
                 if dst is None:
                     logging.warning(f"w{worker_id} пропускаю опасное имя в архиве: {m.filename!r}")
                     continue
+                rel = os.path.relpath(dst, EXTRACT_DIR)
                 if os.path.exists(dst) and os.path.getsize(dst) == m.file_size:
-                    extracted.append((os.path.basename(dst), m.file_size))
+                    extracted.append((rel, m.file_size))
                     total_bytes += m.file_size
                     continue
                 os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
@@ -317,7 +341,7 @@ def download_and_extract(s, url: str, worker_id: int, batch_idx: int) -> tuple[l
                             if not chunk:
                                 break
                             f.write(chunk)
-                    extracted.append((os.path.basename(dst), m.file_size))
+                    extracted.append((rel, m.file_size))
                     total_bytes += m.file_size
                 except Exception as e:
                     logging.warning(f"w{worker_id} extract {m.filename}: {e}")
@@ -333,12 +357,19 @@ def download_and_extract(s, url: str, worker_id: int, batch_idx: int) -> tuple[l
     return extracted, total_bytes
 
 
-def split_by_extracted(
+def _extract_abs(rel: str) -> str:
+    """Путь внутри папки распаковки — для записи в `local_path`."""
+    parts = [p for p in str(rel or "").replace("\\", "/").split("/") if p]
+    return os.path.join(EXTRACT_DIR, *parts) if parts else EXTRACT_DIR
+
+
+def match_extracted(
     batch: list[dict],
     extracted: list[tuple[str, int]],
-) -> tuple[list[str], list[str]]:
-    """Делит пачку на реально приехавшие и не приехавшие файлы.
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Сопоставляет пачку с тем, что реально приехало в архиве.
 
+    Возвращает `[(file_id, где_лежит), ...]` и список id недостающих.
     Сопоставляем по (имя файла, размер) — то, что есть и в БД, и в архиве.
     Каждая запись архива «закрывает» ровно один файл пачки.
     При несовпадении имени (переименование Яндексом) сначала сверяем MD5
@@ -347,21 +378,24 @@ def split_by_extracted(
     from utils import compute_md5
 
     available_extracted: list[tuple[str, int]] = list(extracted)
-    done: list[str] = []
+    done: list[tuple[str, str]] = []
     unmatched: list[dict] = []
 
-    # Проход 1: точное совпадение по (имя, размер)
+    # Проход 1: точное совпадение по (имя, размер). Имена сравниваем уже
+    # очищенными: в архиве файл лежит под безопасным именем, в базе — под
+    # яндексовым, а '>' и '?' при распаковке превратились в '_'.
     for item in batch:
-        item_name = os.path.basename(item.get("name") or "").lower()
+        item_name = sanitize_component(os.path.basename(item.get("name") or "")).lower()
         item_size = int(item.get("size") or 0)
         found_idx = None
         for i, (name, size) in enumerate(available_extracted):
-            if os.path.basename(name).lower() == item_name and int(size or 0) == item_size:
+            if sanitize_component(os.path.basename(name)).lower() == item_name \
+                    and int(size or 0) == item_size:
                 found_idx = i
                 break
         if found_idx is not None:
-            available_extracted.pop(found_idx)
-            done.append(item["file_id"])
+            name = available_extracted.pop(found_idx)[0]
+            done.append((item["file_id"], _extract_abs(name)))
         else:
             unmatched.append(item)
 
@@ -375,13 +409,13 @@ def split_by_extracted(
         if item_md5:
             for i, (name, size) in enumerate(available_extracted):
                 if int(size or 0) == item_size:
-                    local_candidate = os.path.join(EXTRACT_DIR, name)
+                    local_candidate = _extract_abs(name)
                     if os.path.exists(local_candidate):
                         try:
                             cand_md5 = compute_md5(local_candidate).lower()
                             if cand_md5 == item_md5:
-                                available_extracted.pop(i)
-                                done.append(item["file_id"])
+                                name = available_extracted.pop(i)[0]
+                                done.append((item["file_id"], _extract_abs(name)))
                                 matched_by_md5 = True
                                 break
                         except OSError:
@@ -390,21 +424,30 @@ def split_by_extracted(
             still_unmatched.append(item)
 
     # Проход 3: fallback по размеру (для файлов без MD5 или в тестах)
-    leftovers_by_size: dict[int, int] = {}
-    for name, size in available_extracted:
-        s = int(size or 0)
-        leftovers_by_size[s] = leftovers_by_size.get(s, 0) + 1
-
     missing: list[str] = []
     for item in still_unmatched:
         item_size = int(item.get("size") or 0)
-        if leftovers_by_size.get(item_size, 0) > 0:
-            leftovers_by_size[item_size] -= 1
-            done.append(item["file_id"])
+        found_idx = next(
+            (i for i, (_, size) in enumerate(available_extracted)
+             if int(size or 0) == item_size),
+            None,
+        )
+        if found_idx is not None:
+            name = available_extracted.pop(found_idx)[0]
+            done.append((item["file_id"], _extract_abs(name)))
         else:
             missing.append(item["file_id"])
 
     return done, missing
+
+
+def split_by_extracted(
+    batch: list[dict],
+    extracted: list[tuple[str, int]],
+) -> tuple[list[str], list[str]]:
+    """Только id: что приехало и что нет (обёртка над `match_extracted`)."""
+    done, missing = match_extracted(batch, extracted)
+    return [fid for fid, _ in done], missing
 
 
 def main():
@@ -465,9 +508,10 @@ def main():
 
         # Помечаем downloaded ТОЛЬКО те файлы, которые реально нашлись в архиве.
         # Остальные возвращаем в очередь — иначе бэкап «зелёный», а файлов нет.
-        done_ids, missing_ids = split_by_extracted(batch, extracted)
-        if done_ids:
-            mark_done(done_ids)
+        done, missing_ids = match_extracted(batch, extracted)
+        done_ids = [fid for fid, _ in done]
+        if done:
+            mark_done(done)
             total_files += len(done_ids)
             total_bytes += bytes_
         if missing_ids:

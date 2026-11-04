@@ -5195,32 +5195,54 @@ def api_verify_stop():
     return {"ok": ok, "msg": msg}
 
 
+class RequeueItem(BaseModel):
+    scope: str = ""
+    key: str = ""
+
+
 class RequeueMissingPayload(BaseModel):
     scope: str = "disk"
     keys: list[str] = Field(default_factory=list)
+    items: list[RequeueItem] = Field(default_factory=list)
 
 
 @app.post("/api/verify/requeue_missing")
 def api_verify_requeue_missing(payload: RequeueMissingPayload):
     """Возвращает в очередь файлы, которых нет по записанному пути.
 
-    Берём только статус «missing» из последней проверки: файлы на отключённом
-    диске и несовпадения размера/MD5 не трогаем.
+    Без явного выбора берём только статус «missing» из последней проверки:
+    файлы на отключённом диске и несовпадения размера/MD5 не трогаем.
+    Если же человек сам отметил строки в отчёте (`items` или `keys`), качаем
+    заново именно их — любой статус, по его решению.
     """
     scope = (payload.scope or "disk").strip().lower()
     if scope not in ("disk", "unlim", "both"):
         return {"ok": False, "msg": "Неизвестная база"}
     if _any_task_running(("disk", "unlim", "verify", "organize")):
         return {"ok": False, "msg": "Сначала остановите выгрузку и проверку"}
+    by_scope: dict[str, list[str]] = {}
+    for it in (payload.items or []):
+        one = (it.scope or scope).strip().lower()
+        key = str(it.key or "")
+        if one in ("disk", "unlim") and key:
+            by_scope.setdefault(one, []).append(key)
     keys = [str(k) for k in (payload.keys or []) if k]
-    if not keys:
+    if keys:
+        for one in (("disk", "unlim") if scope == "both" else (scope,)):
+            by_scope.setdefault(one, []).extend(keys)
+    if not by_scope:
         data = verify_mod.read_status()
-        keys = [
-            str(item.get("path"))
-            for item in (data.get("problems") or [])
-            if item.get("status") == "missing" and item.get("path")
-        ]
-    scopes = ["disk", "unlim"] if scope == "both" else [scope]
+        for item in (data.get("problems") or []):
+            if item.get("status") == "missing" and item.get("path"):
+                one = str(item.get("scope") or scope).strip().lower()
+                if one == "both":
+                    one = scope
+                if one in ("disk", "unlim"):
+                    by_scope.setdefault(one, []).append(str(item["path"]))
+    scopes = [s for s in ("disk", "unlim") if by_scope.get(s)]
+    if not scopes:
+        return {"ok": True, "updated": 0, "backup": "",
+                "msg": "Нечего возвращать в очередь"}
     ok, item, err = _auto_backup("before-requeue", scopes)
     if not ok:
         return {"ok": False,
@@ -5228,13 +5250,13 @@ def api_verify_requeue_missing(payload: RequeueMissingPayload):
     updated = 0
     try:
         for one in scopes:
-            updated += relocate_mod.requeue_missing(one, keys)
+            updated += relocate_mod.requeue_missing(one, by_scope[one])
     except relocate_mod.RelocateError as exc:
         return {"ok": False, "msg": str(exc)}
     except sqlite3.Error as exc:
         return {"ok": False, "msg": f"Ошибка базы: {exc}"}
     log_action(f"verify/requeue_missing/{scope}")
-    for one in (("disk", "unlim") if scope == "both" else (scope,)):
+    for one in scopes:
         reset_session_counters(one)
     return {"ok": True, "updated": updated,
             "backup": item["id"] if item else "",

@@ -147,6 +147,22 @@ def test_run_disk_counts_and_status_file(temp_paths):
     assert verify.read_status()["checked"] == 3
 
 
+def test_problems_carry_scope_and_key(temp_paths):
+    """Из отчёта видно, в какой базе искать файл и что вернуть в очередь."""
+    disk_db, unlim_db, root = temp_paths
+    _make_disk_db(disk_db, [
+        ("disk:/bad.txt", 5, None, "downloaded", str(root / "files/bad.txt")),
+    ])
+    _make_unlim_db(unlim_db, [
+        ("file-1", "bad.bin", 5, None, "downloaded", str(root / "unlim/bad.bin")),
+    ])
+
+    data = verify.run("both")
+    by_scope = {p["scope"]: p for p in data["problems"]}
+    assert by_scope["disk"]["key"] == "disk:/bad.txt"
+    assert by_scope["unlim"]["key"] == "file-1"
+
+
 def test_run_counts_offline_drive_separately(temp_paths, monkeypatch):
     """Отключённый диск — не «файл пропал», а отдельный статус."""
     disk_db, _, root = temp_paths
@@ -314,6 +330,102 @@ def test_api_verify_report_reads_file(temp_paths, monkeypatch):
     assert webui.api_verify_report()["report"] == ""
     report.write_text("# Проверка файлов", encoding="utf-8")
     assert "Проверка файлов" in webui.api_verify_report()["report"]
+
+
+def _make_requeue_dbs(disk_db: Path, unlim_db: Path, disk_rows, unlim_rows) -> None:
+    """Схемы с колонками, которые трогает `requeue_missing`."""
+    con = sqlite3.connect(disk_db)
+    con.executescript(
+        """
+        CREATE TABLE files (
+            remote_path TEXT PRIMARY KEY, size INTEGER, md5 TEXT,
+            status TEXT NOT NULL DEFAULT 'pending', local_path TEXT,
+            error TEXT, attempts INTEGER DEFAULT 0, downloaded_at TEXT,
+            retry_after INTEGER, server_fails INTEGER DEFAULT 0
+        );
+        """
+    )
+    con.executemany(
+        "INSERT INTO files (remote_path, size, md5, status, local_path) "
+        "VALUES (?, ?, ?, ?, ?)", disk_rows,
+    )
+    con.commit()
+    con.close()
+    con = sqlite3.connect(unlim_db)
+    con.executescript(
+        """
+        CREATE TABLE unlim_files (
+            file_id TEXT, name TEXT, size INTEGER, md5 TEXT,
+            status TEXT NOT NULL DEFAULT 'pending', local_path TEXT,
+            error TEXT, attempts INTEGER DEFAULT 0, downloaded_at TEXT,
+            worker_id INTEGER, assigned_at TEXT
+        );
+        """
+    )
+    con.executemany(
+        "INSERT INTO unlim_files (file_id, name, size, md5, status, local_path) "
+        "VALUES (?, ?, ?, ?, ?, ?)", unlim_rows,
+    )
+    con.commit()
+    con.close()
+
+
+def test_api_requeue_explicit_items_any_status(temp_paths, monkeypatch):
+    """Отмеченные в отчёте строки возвращаются в очередь, даже если размер не совпал."""
+    disk_db, unlim_db, root = temp_paths
+    _make_requeue_dbs(disk_db, unlim_db, [
+        ("disk:/bad.txt", 5, None, "downloaded", str(root / "files/bad.txt")),
+        ("disk:/ok.txt", 5, None, "downloaded", str(root / "files/ok.txt")),
+    ], [
+        ("file-1", "bad.bin", 5, None, "downloaded", str(root / "unlim/bad.bin")),
+    ])
+    # Сначала прогоняем проверку — статус отчёта содержит проблемные строки.
+    verify.run("both")
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+    monkeypatch.setattr(webui, "_auto_backup", lambda tag, scopes: (True, None, ""))
+    monkeypatch.setattr(webui, "reset_session_counters", lambda scope: None)
+
+    payload = webui.RequeueMissingPayload(scope="both", items=[
+        webui.RequeueItem(scope="disk", key="disk:/bad.txt"),
+        webui.RequeueItem(scope="unlim", key="file-1"),
+    ])
+    res = webui.api_verify_requeue_missing(payload)
+    assert res["ok"] is True
+    assert res["updated"] == 2
+
+    con = sqlite3.connect(disk_db)
+    assert dict(con.execute("SELECT remote_path, status FROM files")) == {
+        "disk:/bad.txt": "pending", "disk:/ok.txt": "downloaded",
+    }
+    con.close()
+    con = sqlite3.connect(unlim_db)
+    assert con.execute("SELECT status FROM unlim_files").fetchone()[0] == "pending"
+    con.close()
+
+
+def test_api_requeue_without_choice_still_takes_only_missing(temp_paths, monkeypatch):
+    """Старая кнопка «Вернуть отсутствующие» не трогает несовпадения размера."""
+    disk_db, unlim_db, root = temp_paths
+    bad_size = _write(root, "files/bad.txt", b"1")
+    _make_requeue_dbs(disk_db, unlim_db, [
+        ("disk:/bad.txt", 5, None, "downloaded", str(bad_size)),
+        ("disk:/gone.txt", 5, None, "downloaded", str(root / "files/gone.txt")),
+    ], [])
+    verify.run("disk")
+    monkeypatch.setattr(webui, "_any_task_running", lambda slots: False)
+    monkeypatch.setattr(webui, "_auto_backup", lambda tag, scopes: (True, None, ""))
+    monkeypatch.setattr(webui, "reset_session_counters", lambda scope: None)
+
+    res = webui.api_verify_requeue_missing(
+        webui.RequeueMissingPayload(scope="disk")
+    )
+    assert res["ok"] is True
+    assert res["updated"] == 1
+    con = sqlite3.connect(disk_db)
+    assert dict(con.execute("SELECT remote_path, status FROM files")) == {
+        "disk:/bad.txt": "downloaded", "disk:/gone.txt": "pending",
+    }
+    con.close()
 
 
 # ── упаковка и окно ─────────────────────────────────────────────────────────

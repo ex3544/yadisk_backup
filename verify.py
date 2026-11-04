@@ -92,8 +92,8 @@ def check_one(
     return "ok", ""
 
 
-def _disk_rows() -> Iterable[tuple[str, str, Optional[int], Optional[str]]]:
-    """(remote_path, local_path, size, md5) скачанных файлов обычного Диска."""
+def _disk_rows() -> Iterable[tuple[str, str, str, Optional[int], Optional[str]]]:
+    """(scope, key, local_path, size, md5) скачанных файлов обычного Диска."""
     if not paths.DB_FILE.exists():
         return []
     con = sqlite3.connect(f"file:{paths.DB_FILE}?mode=ro", uri=True, timeout=30)
@@ -109,12 +109,13 @@ def _disk_rows() -> Iterable[tuple[str, str, Optional[int], Optional[str]]]:
     finally:
         con.close()
     return [
-        (r["remote_path"], r["local_path"], r["size"], r["md5"]) for r in rows
+        ("disk", r["remote_path"], r["local_path"], r["size"], r["md5"])
+        for r in rows
     ]
 
 
-def _unlim_rows() -> Iterable[tuple[str, str, Optional[int], Optional[str]]]:
-    """(file_id, local_path, size, md5) скачанных файлов Безлимита."""
+def _unlim_rows() -> Iterable[tuple[str, str, str, Optional[int], Optional[str]]]:
+    """(scope, key, local_path, size, md5) скачанных файлов Безлимита."""
     if not paths.UNLIM_DB_FILE.exists():
         return []
     con = sqlite3.connect(f"file:{paths.UNLIM_DB_FILE}?mode=ro", uri=True, timeout=30)
@@ -129,7 +130,7 @@ def _unlim_rows() -> Iterable[tuple[str, str, Optional[int], Optional[str]]]:
     finally:
         con.close()
     return [
-        (r["file_id"] or r["name"] or "", r["local_path"], r["size"], r["md5"])
+        ("unlim", r["file_id"] or r["name"] or "", r["local_path"], r["size"], r["md5"])
         for r in rows
     ]
 
@@ -169,7 +170,7 @@ def run(
     if scope not in ("disk", "unlim", "both"):
         raise ValueError(f"неизвестная база: {scope}")
 
-    rows: list[tuple[str, str, Optional[int], Optional[str]]] = []
+    rows: list[tuple[str, str, str, Optional[int], Optional[str]]] = []
     if scope in ("disk", "both"):
         rows += _disk_rows()
     if scope in ("unlim", "both"):
@@ -180,7 +181,7 @@ def run(
     counts = VerifyCounts(total=len(rows), started_at=time.time())
     _write_status(counts.as_dict(active=True, scope=scope, deep=deep))
 
-    for i, (remote, local, size, md5) in enumerate(rows, start=1):
+    for i, (row_scope, remote, local, size, md5) in enumerate(rows, start=1):
         if not volume_ready(local):
             status, detail = "offline", "диск с этим файлом не подключён"
         else:
@@ -201,7 +202,8 @@ def run(
             counts.errors += 1
         if status != "ok":
             counts.problems.append(
-                {"path": remote, "local": local, "status": status, "detail": detail}
+                {"path": remote, "key": remote, "scope": row_scope,
+                 "local": local, "status": status, "detail": detail}
             )
         if on_progress is not None:
             on_progress(counts)
