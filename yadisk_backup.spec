@@ -85,6 +85,13 @@ hidden_imports = [
     'cloud_audit',
     'cloud_audit_worker',
     'guide',
+    'failed_list',
+    # XLSX-отчёт «Что не скачалось»: openpyxl импортируется внутри функции,
+    # поэтому добавляем явно, вместе с его зависимостью et_xmlfile.
+    'openpyxl',
+    'openpyxl.styles',
+    'openpyxl.utils',
+    'et_xmlfile',
 ]
 
 datas = [

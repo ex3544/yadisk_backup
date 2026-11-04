@@ -12,3 +12,5 @@ playwright==1.64.0
 pywebview==6.2.1
 pystray==0.19.5
 Pillow==13.0.0
+# Отчёт «Что не скачалось» в Excel с настоящими гиперссылками
+openpyxl==3.1.5

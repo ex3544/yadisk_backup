@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv, set_key
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -5493,64 +5493,51 @@ def api_open_reports():
 # ── Файлы, которые не удалось скачать ──────────────────────────────────────
 # Только чтение баз: список нужен, чтобы вручную найти файл на сайте Яндекса.
 
-def _failed_data(limit: int | None = None) -> dict:
-    cfg = get_config()
-    disk_dir = (cfg.get("disk_dir") or cfg.get("download_dir")
-                or str(paths.DEFAULT_DISK_DIR))
-    unlim_dir = cfg.get("unlim_dir") or str(paths.DEFAULT_UNLIM_DIR)
-    return failed_list.collect(
-        DB_FILE, UNLIM_DB_FILE, disk_dir, unlim_dir, limit=limit)
+def _failed_data() -> dict:
+    """Все невыгруженные файлы обеих линий. Только чтение баз."""
+    return failed_list.collect(DB_FILE, UNLIM_DB_FILE)
+
+
+def _failed_summary(data: dict) -> dict:
+    return {
+        "generated_at": data.get("generated_at", ""),
+        "disk": {"total": data["disk"]["total"],
+                 "counts": dict(data["disk"]["counts"])},
+        "unlim": {"total": data["unlim"]["total"],
+                  "counts": dict(data["unlim"]["counts"])},
+    }
 
 
 @app.get("/api/failed")
-def api_failed(limit: int = 200):
-    limit = max(0, min(int(limit or 0), 2000))
-    return _failed_data(limit or None)
+def api_failed():
+    """Только счётчики: сам список собирается по кнопке."""
+    return _failed_summary(_failed_data())
 
 
-@app.get("/api/failed/export")
-def api_failed_export(fmt: str = "txt", line: str = "all"):
-    """Готовит TXT или CSV и сразу отдаёт его браузеру на скачивание."""
-    fmt = "csv" if str(fmt).lower() == "csv" else "txt"
-    line = str(line).lower()
+@app.post("/api/failed/build")
+def api_failed_build():
+    """Собирает полный список в TXT, CSV, XLSX и HTML в папку отчётов."""
     data = _failed_data()
-    if line == "disk":
-        data["unlim"] = {"total": 0, "counts": {}, "items": []}
-    elif line == "unlim":
-        data["disk"] = {"total": 0, "counts": {}, "items": []}
-    text = failed_list.render_csv(data) if fmt == "csv" else failed_list.render_txt(data)
-    name = failed_list.export_filename(fmt)
+    files = []
     try:
         paths.REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        (paths.REPORT_DIR / name).write_text(text, encoding="utf-8")
-    except OSError:
-        # Не смогли сохранить копию — файл всё равно отдаём на скачивание.
-        pass
-    media = "text/csv; charset=utf-8" if fmt == "csv" else "text/plain; charset=utf-8"
-    return Response(
-        content=text.encode("utf-8"),
-        media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
-    )
-
-
-class OpenUrlPayload(BaseModel):
-    url: str = ""
-
-
-@app.post("/api/open_url")
-def api_open_url(payload: OpenUrlPayload):
-    """Открывает ссылку на файл в браузере. Только Яндекс.Диск."""
-    url = (payload.url or "").strip()
-    parts = urlsplit(url)
-    if parts.scheme != "https" or (parts.hostname or "").lower() not in {
-            "disk.yandex.ru", "yandex.ru"}:
+        for fmt in failed_list.FORMATS:
+            name = failed_list.export_filename(fmt)
+            payload = failed_list.render(data, fmt)
+            target = paths.REPORT_DIR / name
+            if isinstance(payload, bytes):
+                target.write_bytes(payload)
+            else:
+                target.write_text(payload, encoding="utf-8")
+            files.append(name)
+    except OSError as exc:
         return JSONResponse(
-            {"ok": False, "error": "Разрешены только ссылки на Яндекс.Диск"},
-            status_code=400)
-    import webbrowser
-    webbrowser.open(url)
-    return {"ok": True}
+            {"ok": False, "error": f"Не удалось сохранить отчёты: {exc}"},
+            status_code=500)
+    result = _failed_summary(data)
+    result.update({"ok": True, "files": files,
+                   "folder": str(paths.REPORT_DIR)})
+    return result
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

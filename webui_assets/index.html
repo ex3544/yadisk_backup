@@ -319,26 +319,6 @@
   .card-title{font-size:17px;font-weight:600;letter-spacing:-.02em;margin-bottom:2px}
   .card-sub{font-size:13px;color:var(--text-secondary);margin-bottom:8px}
 
-  /* ── «Что не скачалось» ── */
-  .failed-count{
-    display:inline-flex;align-items:center;justify-content:center;
-    min-width:20px;height:18px;padding:0 6px;margin-left:5px;border-radius:99px;
-    background:var(--surface2);color:var(--text-secondary);
-    font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;
-  }
-  .failed-list{
-    max-height:330px;overflow-y:auto;margin-top:8px;
-    border:1px solid var(--hairline);border-radius:10px;background:var(--surface2);
-  }
-  .failed-row{padding:8px 10px;border-bottom:1px solid var(--hairline)}
-  .failed-row:last-child{border-bottom:0}
-  .failed-name{font-size:12.5px;font-weight:600;word-break:break-all}
-  .failed-name.link{color:var(--accent);cursor:pointer;text-decoration:none}
-  .failed-name.link:hover{text-decoration:underline}
-  .failed-meta{font-size:11.5px;color:var(--text-tertiary);margin-top:2px;word-break:break-all}
-  .failed-err{font-size:11.5px;color:var(--red);margin-top:2px;word-break:break-word}
-  .failed-empty{padding:14px;text-align:center;color:var(--text-tertiary);font-size:12.5px}
-  .failed-more{padding:8px 10px;color:var(--text-tertiary);font-size:11.5px;text-align:center}
 
   .section-label{
     font-size:11px;font-weight:600;color:var(--text-tertiary);
@@ -486,6 +466,10 @@
     max-height:70vh;overflow:hidden;transform-origin:top left;
     box-shadow:0 14px 36px rgba(0,0,0,.3);
   }
+  /* В клоне карточки ручки не нужны: иначе во время переноса рядом видны
+     вторые ⠿ и вторая полоска растяжения. */
+  .card-drag-ghost .card-drag,
+  .card-drag-ghost .resize-grip{display:none}
   .card-drop-line{
     height:2px;border-radius:2px;margin:0 3px;flex:0 0 auto;
     background:var(--accent);box-shadow:0 0 8px rgba(10,132,255,.65);
@@ -515,7 +499,7 @@
     .tab-grid{grid-template-columns:1fr}
     .layout-hint{display:none}
   }
-  .launch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:0 2px}
+  .launch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:0 2px;margin-bottom:12px}
   .launch-card{padding:16px;margin-bottom:0}
   .launch-card.auto{
     border-color:rgba(10,132,255,.4);
@@ -563,10 +547,41 @@
     #pipeline-card #pipeline-console{height:min(52vh, 560px)}
   }
 
-  /* «Выполнение процесса» тянется за внешнюю карточку: журнал внутри
-     занимает всё освободившееся место и прокручивается сам. */
-  #pipeline-card{display:flex;flex-direction:column}
-  #pipeline-card #pipeline-console{flex:1 1 auto;min-height:140px;max-height:none}
+  /* «Выполнение процесса» — два отдельных окошка: состояние процесса и
+     журнал. Карточка тянется за ручку, журнал занимает освободившееся место
+     и прокручивается сам. */
+  #pipeline-card{display:flex;flex-direction:column;gap:12px}
+  .pipe-pane{
+    min-width:0;border:1px solid var(--card-line);border-radius:12px;
+    background:var(--surface2);padding:12px 14px;
+  }
+  .pipe-pane-head{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:10px;flex-wrap:wrap;
+  }
+  .pipe-log{
+    display:flex;flex-direction:column;min-height:0;flex:1 1 auto;
+    padding:0;overflow:hidden;background:var(--console-bg);
+  }
+  .pipe-log .pipe-pane-head{
+    margin:0;padding:9px 14px;background:var(--surface2);
+    border-bottom:0.5px solid var(--hairline);flex:0 0 auto;
+  }
+  .pipe-log-title{font-size:13px;margin-bottom:0}
+  .pipe-log-hint{font-size:11.5px;color:var(--text-tertiary)}
+  .pipe-log .console{
+    flex:1 1 auto;min-height:140px;max-height:none;height:320px;
+    border:0;border-radius:0;background:transparent;
+  }
+  /* Цвет строк по типу операции: ошибки — красные, ожидание серверов —
+     оранжевое, успехи — зелёные, ход работы — синий, заголовки — сиреневые. */
+  .console-line{white-space:pre-wrap;word-break:break-word;line-height:1.55;padding:0 2px;border-radius:3px}
+  .console-line.err{color:var(--red);background:rgba(255,69,58,.08)}
+  .console-line.warn{color:var(--orange);background:rgba(255,159,10,.07)}
+  .console-line.ok{color:var(--green)}
+  .console-line.run{color:var(--accent)}
+  .console-line.head{color:var(--purple);font-weight:600}
+  .console-line.dim{color:var(--text-tertiary)}
 
   .stat{
     background:var(--surface);border:1px solid var(--card-line);
@@ -577,6 +592,17 @@
   .stat-sub{font-size:13px;color:var(--text-secondary);margin-top:4px}
 
   /* ── Итоги линий на «Главной» (компактные плашки над журналом) ── */
+  /* Две плашки итогов стоят рядом, журнал под ними на всю ширину. */
+  .tab-col.home-stats{display:grid;grid-template-columns:1fr 1fr;align-content:start}
+  .tab-col.home-stats > .card{min-width:0}
+  .tab-col.home-stats > #pipeline-card{grid-column:1 / -1}
+  @media (max-width:680px){.tab-col.home-stats{grid-template-columns:1fr}}
+  /* Папки выгрузки — в одном окне рядом: слева Безлимит, справа Диск. */
+  .dirs-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .dir-block{min-width:0}
+  .dir-row{display:flex;gap:8px;margin-bottom:6px}
+  .dir-row input{flex:1;min-width:0}
+  @media (max-width:900px){.dirs-grid{grid-template-columns:1fr}}
   .home-stats.compact{margin-bottom:12px}
   .home-stats.compact .card,
   .home-stat-card{padding:10px 12px;border-radius:12px}
@@ -1567,6 +1593,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
         <button id="feedback-btn" class="ghost tipnode" onclick="openFeedback()"
           data-tip="Проблема или предложение? Напишите разработчику — сообщение придёт в Telegram, можно приложить диагностический отчёт."
           style="padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:99px;margin-left:4px;vertical-align:baseline">✉️ Написать</button>
+        <button id="updates-btn" class="ghost tipnode" onclick="openUpdateFromPill()"
+          data-tip="Проверить обновления и посмотреть, что нового. Если доступна новая версия, откроется окно с кнопкой обновления."
+          style="padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:99px;margin-left:4px;vertical-align:baseline">⬆ Обновления</button>
       </div>
     </div>
   </div>
@@ -1664,15 +1693,16 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </div>
   <div class="tab-grid" data-tab-grid="home">
   <div class="tab-col" data-col="left">
-    <div class="launch-head">
-      <div>
-        <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
-        <div class="card-sub" style="margin-bottom:0">Прямое скоростное скачивание оригиналов без прокси (Sergey Pukhir)</div>
-      </div>
-    </div>
-
     <!-- Быстрый запуск: всё сразу, без ручной настройки -->
     <div class="card launch-card auto" id="launch-all-card">
+      <!-- Заголовок живёт внутри карточки: раньше он стоял отдельным блоком
+           и оставался на месте, когда карточку перетаскивали в другую колонку. -->
+      <div class="launch-head">
+        <div>
+          <div class="card-title" style="font-size:18px;margin-bottom:4px">Панель управления выгрузкой</div>
+          <div class="card-sub" style="margin-bottom:0">Прямое скоростное скачивание оригиналов без прокси (Sergey Pukhir)</div>
+        </div>
+      </div>
       <div class="launch-title">🚀 Быстрый запуск: скачать всё <span class="launch-badge">1 клик</span></div>
       <div class="launch-desc">
         Обычный Диск (все файлы) + Безлимит (все фото и видео) одновременно.
@@ -1909,8 +1939,9 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
   </div><!-- /tab-col left -->
 
   <!-- Итоги по линиям — прямо над журналом: порядок как в шапке (Безлимит,
-       затем Диск), плашки компактные, чтобы не отнимать место у журнала. -->
-  <div class="tab-col" data-col="right">
+       затем Диск), плашки компактные и стоят рядом, чтобы не отнимать место
+       у журнала. -->
+  <div class="tab-col home-stats" data-col="right">
     <div class="card home-stat-card" id="home-unlim-card">
       <div class="card-title">Безлимит</div>
       <div class="stat-value num" id="home-unlim-done">—</div>
@@ -1931,19 +1962,28 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
 
   <div class="card" id="pipeline-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
-      <span class="badge" id="pipeline-state">ожидание</span>
+    <!-- Два самостоятельных окошка: сверху — что делает процесс сейчас,
+         снизу — журнал строк. Раньше всё было одной простынёй. -->
+    <div class="pipe-pane pipe-current" id="pipeline-status-pane">
+      <div class="pipe-pane-head">
+        <div class="card-title" style="margin-bottom:0">Выполнение процесса</div>
+        <span class="badge" id="pipeline-state">ожидание</span>
+      </div>
+      <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
+      <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
+      <div id="eta-box">
+        ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
+        <span class="eta-note">всего по заданию · оценка</span>
+      </div>
+      <div id="run-summary" role="status" aria-live="polite"></div>
     </div>
-    <div class="muted" id="pipeline-step" style="margin-bottom:6px">—</div>
-    <div class="muted" style="font-size:12px;color:var(--text-tertiary)">Время: <span id="pipeline-time">—</span></div>
-    <div id="eta-box">
-      ⏳ Осталось примерно: <span class="eta-value" id="eta-text">—</span>
-      <span class="eta-note">всего по заданию · оценка</span>
+    <div class="pipe-pane pipe-log">
+      <div class="pipe-pane-head">
+        <div class="card-title pipe-log-title">Журнал процесса</div>
+        <span class="pipe-log-hint">новые строки внизу · прокручивается колесом</span>
+      </div>
+      <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
     </div>
-    <div id="run-summary" role="status" aria-live="polite"></div>
-    <hr>
-    <div class="console" id="pipeline-console" tabindex="0" aria-label="Журнал выполнения процесса"><div class="console-empty">жду запуска…</div></div>
   </div>
   </div><!-- /tab-col right -->
   </div><!-- /tab-grid -->
@@ -2124,62 +2164,50 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     <div class="card-title">Папки выгрузки</div>
     <div class="card-sub">Куда складывать файлы из облака. Папка создастся автоматически.</div>
 
-    <div class="card-tabs" role="tablist" aria-label="Папки выгрузки">
-      <button class="ctab active" type="button" role="tab" aria-selected="true"
-              data-ctab="unlim" onclick="switchCardTab('export-dirs-card','unlim')">
-        <svg class="ico-sm"><use href="#i-cloud"/></svg>Безлимит
-      </button>
-      <button class="ctab" type="button" role="tab" aria-selected="false"
-              data-ctab="disk" onclick="switchCardTab('export-dirs-card','disk')">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
-      </button>
-    </div>
+    <div class="dirs-grid">
+      <div class="dir-block">
+        <label class="field-label">Путь к папке Безлимита</label>
+        <div class="dir-row">
+          <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('unlim')}"
+                 onblur="autoSaveDir('unlim')">
+          <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 10px">
+            <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+          </button>
+        </div>
+        <div id="unlim-dir-current" class="setup-hint dir-current">Сейчас: —</div>
+        <div class="setup-hint">
+          Полный путь с буквой диска, например <code>G:\Бэкап\Unlim</code>.
+        </div>
+        <div class="actions">
+          <button class="primary" onclick="checkAndSaveDir('unlim')">
+            <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
+          </button>
+        </div>
+        <div id="unlim-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
+      </div>
 
-    <div class="ctab-panel" data-ctab-panel="disk" role="tabpanel">
-      <label class="field-label">Путь к папке Диска</label>
-      <div style="display:flex;gap:8px;margin-bottom:6px">
-        <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk" style="flex:1"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('disk')}"
-               onblur="autoSaveDir('disk')">
-        <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 14px">
-          <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
-        </button>
+      <div class="dir-block">
+        <label class="field-label">Путь к папке Диска</label>
+        <div class="dir-row">
+          <input type="text" id="disk-dir-input" placeholder="например: G:\Бэкап\Disk"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('disk')}"
+                 onblur="autoSaveDir('disk')">
+          <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('disk')" style="white-space:nowrap;padding:8px 10px">
+            <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
+          </button>
+        </div>
+        <div id="disk-dir-current" class="setup-hint dir-current">Сейчас: —</div>
+        <div class="setup-hint">
+          Полный путь с буквой диска, например <code>G:\Бэкап\Disk</code>.
+        </div>
+        <div class="actions">
+          <button class="primary" onclick="checkAndSaveDir('disk')">
+            <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
+          </button>
+        </div>
+        <div id="disk-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
       </div>
-      <div id="disk-dir-current" class="setup-hint dir-current">Сейчас: —</div>
-      <div class="setup-hint" style="margin-bottom:10px">
-        Полный путь с буквой диска, например <code>G:\Бэкап\Disk</code>.
-        Относительный путь программа примет, но положит папку рядом с программой.
-      </div>
-      <div class="actions">
-        <button class="primary" onclick="checkAndSaveDir('disk')">
-          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
-        </button>
-      </div>
-      <div id="disk-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
-    </div>
-
-    <div class="ctab-panel active" data-ctab-panel="unlim" role="tabpanel">
-      <label class="field-label">Путь к папке Безлимита</label>
-      <div style="display:flex;gap:8px;margin-bottom:6px">
-        <input type="text" id="unlim-dir-input" placeholder="например: G:\Бэкап\Unlim" style="flex:1"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();checkAndSaveDir('unlim')}"
-               onblur="autoSaveDir('unlim')">
-        <button class="ghost tipnode" data-tip="Открыть проводник для выбора папки" onclick="browseFolder('unlim')" style="white-space:nowrap;padding:8px 14px">
-          <svg class="ico-sm"><use href="#i-folder"/></svg>Обзор…
-        </button>
-      </div>
-      <div id="unlim-dir-current" class="setup-hint dir-current">Сейчас: —</div>
-      <div class="setup-hint" style="margin-bottom:10px">
-        Полный путь с буквой диска, например <code>G:\Бэкап\Unlim</code>.
-        Относительный путь вида <code>backup\Unlim</code> программа примет, но
-        положит папку рядом с программой — так файлы легко потерять.
-      </div>
-      <div class="actions">
-        <button class="primary" onclick="checkAndSaveDir('unlim')">
-          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить и сохранить
-        </button>
-      </div>
-      <div id="unlim-dir-check" class="setup-hint" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -2271,17 +2299,19 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div><!-- /ctab token -->
 
     <div class="ctab-panel" data-ctab-panel="cookies" role="tabpanel">
-    <details class="info" id="cookies-details">
-      <summary>Что это и как получить куки<span class="info-hint"></span></summary>
-      <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
-      <ol>
-        <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
-        <li>Откройте <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и войдите в аккаунт</li>
-        <li>Нажмите на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
-        <li>Вставьте JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
-      </ol>
-      <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
-    </details>
+    <!-- Полуавтоматическое получение кук через Playwright. Расположение
+         и элементы — как у токена: сначала автоматически, потом вручную. -->
+    <div id="cookie-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Получить куки автоматически</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войдите в Яндекс, куки сохранятся сами.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="primary" id="btn-cookie-fetch" onclick="startCookieFetch()">
+          <svg class="ico-sm"><use href="#i-cookies"/></svg>Получить куки
+        </button>
+        <button id="btn-cookie-fetch-cancel" onclick="cancelCookieFetch()" style="display:none">Отмена</button>
+      </div>
+      <div id="cookie-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
+    </div>
 
     <!-- Текущие сохранённые -->
     <div id="saved-cookies-card" style="display:none;margin-bottom:14px;padding:12px 14px;background:rgba(48,209,88,.08);border:0.5px solid rgba(48,209,88,.3);border-radius:10px">
@@ -2292,35 +2322,33 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
       </div>
     </div>
 
-    <label class="field-label">JSON массив кук</label>
-    <textarea id="cookies-input" placeholder='[{"name":"Session_id","value":"…","domain":".yandex.ru", …}, …]'></textarea>
-    <div class="actions">
-      <button onclick="testCookies()">
-        <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
-      </button>
-      <button class="primary" id="btn-save-cookies" onclick="saveCookies()" disabled>
-        <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
-      </button>
-    </div>
+    <details class="info" id="cookies-details">
+      <summary>Дополнительно: вставить куки вручную<span class="info-hint"></span></summary>
+      <p style="margin:6px 0 8px">Яндекс прячет фото с телефона в скрытом хранилище — через REST API оно не отдаётся, нужны куки браузера.</p>
+      <ol>
+        <li>Установите <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank">расширение Cookie-Editor</a></li>
+        <li>Откройте <a href="https://disk.yandex.ru/client/disk" target="_blank">disk.yandex.ru</a> и войдите в аккаунт</li>
+        <li>Нажмите на иконку Cookie-Editor → <strong>Export → Export as JSON</strong></li>
+        <li>Вставьте JSON ниже → <strong>«Проверить»</strong> → потом <strong>«Сохранить»</strong></li>
+      </ol>
 
-    <!-- Полуавтоматическое обновление кук через Playwright -->
-    <div id="cookie-fetch-area" style="margin-bottom:10px;padding:8px 10px;background:rgba(10,132,255,.07);border:0.5px solid rgba(10,132,255,.28);border-radius:10px">
-      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Обновить куки автоматически</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Откроется окно браузера — войди в Яндекс, куки снимутся сами.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="primary" id="btn-cookie-fetch" onclick="startCookieFetch()">
-          <svg class="ico-sm"><use href="#i-cookies"/></svg>Обновить куки
+      <label class="field-label">JSON массив кук</label>
+      <textarea id="cookies-input" placeholder='[{"name":"Session_id","value":"…","domain":".yandex.ru", …}, …]'></textarea>
+      <div class="actions">
+        <button onclick="testCookies()">
+          <svg class="ico-sm"><use href="#i-check"/></svg>Проверить
         </button>
-        <button id="btn-cookie-fetch-cancel" onclick="cancelCookieFetch()" style="display:none">Отмена</button>
+        <button class="primary" id="btn-save-cookies" onclick="saveCookies()" disabled>
+          <svg class="ico-sm"><use href="#i-save"/></svg>Сохранить
+        </button>
       </div>
-      <div id="cookie-fetch-status" style="font-size:13px;margin-top:6px;color:var(--text-secondary)"></div>
-    </div>
-
-    <hr>
-    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-      <span class="muted">Статус сохранённых</span>
-      <span class="badge" id="check-cookies">проверяю…</span>
-    </div>
+      <span class="muted" style="font-size:12.5px">Куки сохраняются только локально, в git не попадают.</span>
+      <hr>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+        <span class="muted">Статус сохранённых</span>
+        <span class="badge" id="check-cookies">проверяю…</span>
+      </div>
+    </details>
     </div><!-- /ctab cookies -->
   </div><!-- /access-card -->
 
@@ -2482,32 +2510,14 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
 
   <div class="card" id="failed-card">
     <div class="card-title">Что не скачалось</div>
-    <div class="card-sub">Имена файлов, путь на диске и дата для Безлимита. Список можно сохранить в TXT или открыть CSV в Excel — удобно искать файлы вручную на сайте Яндекса.</div>
-
-    <div class="card-tabs" role="tablist" aria-label="Что не скачалось">
-      <button class="ctab active" type="button" role="tab" aria-selected="true"
-              data-ftab="disk" onclick="switchFailedTab('disk')">
-        <svg class="ico-sm"><use href="#i-folder"/></svg>Обычный Диск
-        <span class="failed-count" id="failed-disk-count">—</span>
-      </button>
-      <button class="ctab" type="button" role="tab" aria-selected="false"
-              data-ftab="unlim" onclick="switchFailedTab('unlim')">
-        <svg class="ico-sm"><use href="#i-cloud"/></svg>Безлимит
-        <span class="failed-count" id="failed-unlim-count">—</span>
-      </button>
-    </div>
-
-    <div id="failed-summary" class="setup-hint" style="margin-top:10px">Загружаю список…</div>
-    <div id="failed-list" class="failed-list" role="status" aria-live="polite">
-      <div class="failed-empty">Загружаю…</div>
-    </div>
+    <div class="card-sub">Полный список файлов, которые ещё не выгружены: в очереди, в работе, с ошибками и ожидающие серверы Яндекса. Собирается по кнопке в TXT, CSV, Excel с активными ссылками и HTML для браузера.</div>
 
     <div class="actions" style="margin-top:10px">
-      <button class="primary" onclick="exportFailed('txt')">Скачать TXT</button>
-      <button class="ghost" onclick="exportFailed('csv')">CSV для Excel</button>
-      <button class="ghost" onclick="loadFailedList(true)">Обновить</button>
+      <button class="primary" id="failed-build-btn" onclick="buildFailedList()">Собрать список</button>
       <button class="ghost" onclick="openReportsFolder()">Открыть папку отчётов</button>
     </div>
+
+    <div id="failed-summary" class="setup-hint" style="margin-top:8px" role="status" aria-live="polite">Пока не собирали.</div>
   </div>
 
   <div class="card" id="cloud-audit-card">
@@ -2749,25 +2759,6 @@ try{if(localStorage.getItem('yad.theme')==='light')document.documentElement.data
     </div>
   </div>
 
-  <div class="card" id="update-card">
-    <div class="card-title">Обновления</div>
-    <div class="card-sub">Проверка последнего релиза и обновление прямо из программы. Установщик скачивается с GitHub, сверяется SHA-256 и запускается после закрытия приложения.</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button id="update-check-btn" onclick="checkUpdates()">Проверить обновления</button>
-      <button id="update-install-btn" style="display:none" onclick="startUpdateDownload()">Обновить</button>
-      <button id="update-apply-btn" class="primary" style="display:none" onclick="applyUpdate()">Перезапустить и установить</button>
-      <button id="update-cancel-btn" class="ghost" style="display:none" onclick="cancelUpdateDownload()">Отменить</button>
-      <span id="update-status" class="setup-hint" style="margin:0">—</span>
-      <button id="update-open-btn" class="ghost" style="display:none" onclick="openUpdatePage()">Скачать вручную</button>
-    </div>
-    <div id="update-progress" style="display:none;margin-top:10px;height:6px;border-radius:3px;background:var(--surface2);overflow:hidden">
-      <div id="update-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
-    </div>
-    <div id="update-hint" class="setup-hint" style="margin-top:8px;display:none">
-      Программа закроется, установит новую версию и снова откроется. Права
-      администратора не нужны. Настройки и скачанные файлы не удаляются.
-    </div>
-  </div>
   </div><!-- /tab-col right -->
   </div><!-- /tab-grid -->
 </div><!-- /panel diagnostics -->
@@ -3088,7 +3079,6 @@ function showPanel(name){
   if(name === 'organize'){ toggleBackupsList(false); loadBackups(); }
   // Список не скачанных файлов читается при входе на вкладку, а не в общем
   // опросе статуса: базы большие, а список нужен только здесь.
-  if(name === 'diagnostics'){ loadFailedList(false); }
   return panel;
 }
 
@@ -3143,10 +3133,8 @@ const PILL_TARGETS = {
                         card:'access-card', tab:'cookies'},
   'pill-watchdog':     {panel:'setup', selector:'#watchdog-card'},
   'pill-speed':        {panel:'home',  selector:'#pipeline-console'},
-  'pill-session':      {panel:'setup', selector:'#unlim-dir-input',
-                        card:'export-dirs-card', tab:'unlim'},
-  'pill-disk-session': {panel:'setup', selector:'#disk-dir-input',
-                        card:'export-dirs-card', tab:'disk'},
+  'pill-session':      {panel:'setup', selector:'#unlim-dir-input'},
+  'pill-disk-session': {panel:'setup', selector:'#disk-dir-input'},
 };
 
 function bindPillNavigation(){
@@ -4153,14 +4141,14 @@ function updateSelectedSummary(kind, cats){
 
 // ────── Refresh ──────
 let _lastConsole = {};
-// Журнал перевёрнут: новые строки сверху. Автопрокрутка прилипает к верху,
-// только пока пользователь сам там находится. Иначе обновление раз в 1,5
-// секунды дёргало бы журнал в начало, стоило отвести взгляд или нажать PageUp.
+// Журнал как в терминале: старые строки сверху, новые внизу. Автопрокрутка
+// держится за низ, только пока человек сам у низа; если он поднялся читать
+// старые строки, обновление раз в 1,5 секунды больше не срывает прокрутку.
 const CONSOLE_STICK_PX = 24;
 const _consoleStick = {};
 
-function consoleNearTop(el){
-  return el.scrollTop <= CONSOLE_STICK_PX;
+function consoleAtBottom(el){
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= CONSOLE_STICK_PX;
 }
 
 function initConsoleStick(id, el){
@@ -4168,36 +4156,74 @@ function initConsoleStick(id, el){
   el.dataset.stickReady = '1';
   _consoleStick[id] = true;
   el.addEventListener('scroll', () => {
-    // Программная прокрутка наверх тоже вызывает событие — прилипание
-    // восстанавливается само, когда пользователь вернулся в начало.
-    _consoleStick[id] = consoleNearTop(el);
+    _consoleStick[id] = consoleAtBottom(el);
   }, {passive:true});
+}
+
+// Цвет строки по смыслу: ошибки — красным, ожидание серверов — оранжевым,
+// успехи — зелёным, ход работы — синим, заголовки разделов — сиреневым.
+function consoleLineClass(line){
+  const s = String(line).toLowerCase();
+  const noErrors = /ошибок\s*[:\-–]?\s*0\b/.test(s);
+  if(!noErrors && /(ошиб|сбой|не удалось|failed|\berror\b|❌|✗|403|404|410|500|503)/.test(s)){
+    return 'err';
+  }
+  if(/(жду|ждёт|ждет|повтор|отлож|не отвеча|не отдал|таймаут|429|позже|внимание|⏸|⚠)/.test(s)){
+    return 'warn';
+  }
+  if(/(✅|готово|скачан|успешн|заверш|✓)/.test(s)) return 'ok';
+  if(/(⏳|⬇|↻|скачива|сканир|подключ|проверя|обрабат|прогресс|\d+%|…|\.\.\.)/.test(s)){
+    return 'run';
+  }
+  if(/^[=\-─]{3,}|^>+\s*запуск|запуск|^#/.test(s)) return 'head';
+  return '';
 }
 
 function setConsole(id, text){
   const el = document.getElementById(id);
   if(!el) return;
-  if(_lastConsole[id] === text) return;
-  _lastConsole[id] = text;
+  if(_lastConsole[id] === (text || '')) return;
   initConsoleStick(id, el);
-  const stick = _consoleStick[id] !== false;
-  const prevTop = el.scrollTop;
-  const prevHeight = el.scrollHeight;
+  const prevText = _lastConsole[id] || '';
+  _lastConsole[id] = text || '';
   if(!text){
-    el.innerHTML = '<div class="console-empty">жду запуска…</div>';
+    el.replaceChildren();
+    const empty = document.createElement('div');
+    empty.className = 'console-empty';
+    empty.textContent = 'жду запуска…';
+    el.appendChild(empty);
     _consoleStick[id] = true;
     return;
   }
-  // Строки пишутся старыми-сначала, а показываются новыми-сверху.
-  el.textContent = text.split('\n').reverse().join('\n');
-  if(stick){
-    el.scrollTop = 0;
+  const lines = text.split('\n');
+  const prevLines = prevText ? prevText.split('\n') : [];
+  // Обычно журнал только дописывается: тогда создаём лишь новые строки,
+  // а старые DOM-узлы не трогаем — прокрутка и выделение не сбиваются.
+  const onlyAppended = prevLines.length > 0
+    && lines.length >= prevLines.length
+    && prevLines.every((line, i) => line === lines[i]);
+  const stick = _consoleStick[id] !== false;
+
+  const makeLine = (line) => {
+    const row = document.createElement('div');
+    row.className = ('console-line ' + consoleLineClass(line)).trim();
+    row.textContent = line || ' ';
+    return row;
+  };
+
+  if(onlyAppended){
+    const frag = document.createDocumentFragment();
+    for(const line of lines.slice(prevLines.length)) frag.appendChild(makeLine(line));
+    el.appendChild(frag);
   }else{
-    // Пользователь читает старые строки ниже. Новые строки добавились над
-    // его местом — сдвигаем прокрутку на ту же высоту, чтобы текст не прыгал.
-    const added = el.scrollHeight - prevHeight;
-    el.scrollTop = Math.max(0, prevTop + Math.max(0, added));
+    const prevTop = el.scrollTop;
+    const frag = document.createDocumentFragment();
+    for(const line of lines) frag.appendChild(makeLine(line));
+    el.replaceChildren(frag);
+    // Новые строки внизу, поэтому при чтении старых место не сдвигается.
+    if(!stick) el.scrollTop = prevTop;
   }
+  if(stick) el.scrollTop = el.scrollHeight;
 }
 
 // ── Бережные обновления текста ──
@@ -6271,56 +6297,6 @@ function setDiagBusy(busy, text){
   }
 }
 
-let lastUpdateUrl = '';
-
-async function checkUpdates(){
-  const btn = document.getElementById('update-check-btn');
-  const status = document.getElementById('update-status');
-  const open = document.getElementById('update-open-btn');
-  const notes = document.getElementById('update-notes');
-  const install = document.getElementById('update-install-btn');
-  if(!btn || !status || !open || !notes) return;
-  btn.disabled = true;
-  open.style.display = 'none';
-  notes.style.display = 'none';
-  if(install) install.style.display = 'none';
-  status.className = 'setup-hint';
-  status.textContent = 'Проверяю GitHub…';
-  try{
-    const r = await fetch('/api/updates/check', {cache:'no-store'});
-    const d = await r.json();
-    if(!d.ok){
-      status.className = 'setup-hint err';
-      status.textContent = d.error || 'Не удалось проверить обновления.';
-      return;
-    }
-    renderUpdatePill(d);
-    if(d.update_available){
-      lastUpdateUrl = d.url || '';
-      status.className = 'setup-hint ok';
-      status.textContent = `Доступна версия ${d.latest} (у вас ${d.current}).`;
-      open.style.display = '';
-      // Если обновление уже скачано, повторно предлагать «Обновить» не нужно:
-      // остаётся только «Перезапустить и установить».
-      const alreadyReady = _lastUpdate && _lastUpdate.state === 'ready';
-      if(install && (d.installer || d.portable) && !alreadyReady){
-        install.textContent = `Обновить до ${d.latest}`;
-        install.disabled = false;
-        install.style.display = '';
-      }
-      showUpdateModal(d);
-    }else{
-      status.className = 'setup-hint ok';
-      status.textContent = `У вас последняя версия (${d.current}).`;
-    }
-  }catch(e){
-    status.className = 'setup-hint err';
-    status.textContent = 'Не удалось связаться с GitHub.';
-  }finally{
-    btn.disabled = false;
-  }
-}
-
 let _lastUpdate = {};
 
 // Плашка «доступна новая версия» в шапке. Висит, пока пользователь не
@@ -6349,7 +6325,6 @@ async function openUpdateFromPill(){
     const d = await r.json();
     renderUpdatePill(d);
     if(d && d.ok && d.update_available){
-      lastUpdateUrl = d.url || '';
       showUpdateModal(d);
       return;
     }
@@ -6373,7 +6348,6 @@ async function startupUpdateCheck(){
     const r = await fetch('/api/updates/check', {cache:'no-store'});
     const d = await r.json();
     if(!d || !d.ok) return;
-    if(d.update_available) lastUpdateUrl = d.url || '';
     renderUpdatePill(d);
   }catch(e){ /* нет сети — молча */ }
 }
@@ -6659,6 +6633,9 @@ function setUpdateModalState(mode, u){
     if(status){
       status.className = 'setup-hint ok';
       status.textContent = `Версия ${u.version || ''} скачана и проверена по SHA-256.`;
+      if(u.can_install === false){
+        status.textContent += ' Установка из этой сборки недоступна — скачайте вручную.';
+      }
     }
     action.style.display = u.can_install === false ? 'none' : '';
     action.textContent = 'Закрыть и обновить';
@@ -6696,28 +6673,12 @@ function updateModalAction(){
 }
 
 async function startUpdateDownload(){
-  // Кнопка одноразовая: после скачивания остаётся только «Перезапустить и
-  // установить», поэтому дальше её видимостью управляет renderUpdate().
-  const btn = document.getElementById('update-install-btn');
-  if(btn){ btn.disabled = true; btn.style.display = 'none'; }
+  // Прогресс и кнопки живут в окне «Что нового»; renderUpdate() переключает
+  // его состояние по данным /api/status.
   try{
     const r = await fetch('/api/updates/download', {method:'POST'});
     const d = await r.json();
-    if(!d.ok){
-      toast(d.msg || 'Не удалось начать загрузку', 'err');
-      if(btn){ btn.disabled = false; btn.style.display = ''; }
-    }
-  }catch(e){
-    toast('Нет связи с программой: ' + e.message, 'err');
-    if(btn){ btn.disabled = false; btn.style.display = ''; }
-  }
-}
-
-async function cancelUpdateDownload(){
-  try{
-    const r = await fetch('/api/updates/cancel', {method:'POST'});
-    const d = await r.json();
-    if(!d.ok) toast(d.msg || 'Загрузка уже завершена', 'err');
+    if(!d.ok) toast(d.msg || 'Не удалось начать загрузку', 'err');
   }catch(e){
     toast('Нет связи с программой: ' + e.message, 'err');
   }
@@ -6743,72 +6704,14 @@ async function applyUpdate(){
   }
 }
 
+// Прогресс обновления теперь живёт только в окне «Что нового»: карточку
+// «Обновления» из «Диагностики» убрали, а кнопка проверки переехала в шапку.
+// Закрытое окно само не открывается — скачивание идёт, человек вернётся к
+// нему через шапку.
 function renderUpdate(u){
   u = u || {};
   _lastUpdate = u;
-  const install = document.getElementById('update-install-btn');
-  const apply = document.getElementById('update-apply-btn');
-  const cancel = document.getElementById('update-cancel-btn');
-  const status = document.getElementById('update-status');
-  const progress = document.getElementById('update-progress');
-  const bar = document.getElementById('update-progress-bar');
-  const hint = document.getElementById('update-hint');
-  if(!status || !progress || !bar) return;
   const state = u.state || 'idle';
-  if(state === 'checking' || state === 'downloading'){
-    progress.style.display = 'block';
-    bar.style.width = (u.percent || 0) + '%';
-    status.className = 'setup-hint';
-    status.textContent = state === 'checking'
-      ? 'Проверяю релиз…'
-      : `Скачиваю ${human(u.done_bytes || 0)} из ${human(u.total_bytes || 0)} · ${u.percent || 0}%`;
-    if(cancel) cancel.style.display = u.running ? '' : 'none';
-    if(apply) apply.style.display = 'none';
-    if(hint) hint.style.display = 'none';
-    // Скачивание уже идёт — кнопка «Обновить» больше не нужна.
-    if(install){ install.style.display = 'none'; install.disabled = true; }
-  }else if(state === 'ready'){
-    progress.style.display = 'block';
-    bar.style.width = '100%';
-    status.className = 'setup-hint ok';
-    status.textContent = `Версия ${u.version} скачана и проверена по SHA-256.`;
-    if(cancel) cancel.style.display = 'none';
-    if(apply) apply.style.display = u.can_install ? '' : 'none';
-    if(hint) hint.style.display = u.can_install ? 'block' : 'none';
-    // Скачано и проверено — предлагать «Обновить» повторно нельзя.
-    if(install){ install.style.display = 'none'; install.disabled = true; }
-    if(!u.can_install){
-      status.textContent += ' Установка из этой сборки недоступна — скачайте вручную.';
-    }
-  }else if(state === 'installing'){
-    progress.style.display = 'none';
-    status.className = 'setup-hint ok';
-    status.textContent = 'Устанавливаю обновление — программа сейчас закроется.';
-    if(apply) apply.style.display = 'none';
-    if(cancel) cancel.style.display = 'none';
-    if(hint) hint.style.display = 'none';
-    if(install){ install.style.display = 'none'; install.disabled = true; }
-  }else if(state === 'error'){
-    progress.style.display = 'none';
-    status.className = 'setup-hint err';
-    status.textContent = u.error || 'Не удалось скачать обновление.';
-    if(apply) apply.style.display = 'none';
-    if(cancel) cancel.style.display = 'none';
-    if(hint) hint.style.display = 'none';
-    // Ошибка — можно попробовать снова.
-    if(install && u.version){
-      install.textContent = `Обновить до ${u.version}`;
-      install.disabled = false;
-      install.style.display = '';
-    }
-  }else{
-    progress.style.display = 'none';
-    if(apply) apply.style.display = 'none';
-    if(cancel) cancel.style.display = 'none';
-    if(hint) hint.style.display = 'none';
-  }
-  // Открытое окно «Что нового» повторяет тот же прогресс. Закрытое окно само
-  // не открывается: скачивание идёт, а человек вернётся к нему в «Настройках».
   const modal = document.getElementById('update-modal');
   if(modal && modal.classList.contains('show')){
     if(state === 'downloading' || state === 'checking') setUpdateModalState('downloading', u);
@@ -6817,149 +6720,31 @@ function renderUpdate(u){
   }
 }
 
-async function openUpdatePage(){
-  if(!lastUpdateUrl) return;
-  try{
-    const r = await fetch('/api/updates/open', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({url: lastUpdateUrl})
-    });
-    const d = await r.json();
-    if(!d.ok) toast(d.error || 'Не удалось открыть ссылку', 'err');
-  }catch(e){
-    toast('Не удалось открыть ссылку', 'err');
-  }
-}
-
 // ── Проверка файлов (C1) ──
-// ── «Что не скачалось»: список для ручного поиска файлов ──────────────────
-let _failedData = null;
-let _failedTab = 'disk';
-
-function switchFailedTab(name){
-  _failedTab = name === 'unlim' ? 'unlim' : 'disk';
-  const card = document.getElementById('failed-card');
-  if(card){
-    card.querySelectorAll('.ctab').forEach(b=>{
-      const on = b.dataset.ftab === _failedTab;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-  }
-  renderFailedList();
-}
-
-async function loadFailedList(force){
-  const box = document.getElementById('failed-list');
-  if(!box) return;
-  if(!force && _failedData){ renderFailedList(); return; }
-  box.innerHTML = '<div class="failed-empty">Загружаю…</div>';
-  try{
-    const r = await fetch('/api/failed?limit=400');
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    _failedData = await r.json();
-    renderFailedList();
-  }catch(e){
-    box.innerHTML = '<div class="failed-empty">Не удалось получить список: '
-      + esc(e.message) + '</div>';
-  }
-}
-
-function _failedCountsText(section){
-  const labels = {
-    failed: 'ошибки', skipped: 'не скачались', lost: 'ждут Яндекса',
-    denied: 'нет доступа', deleted: 'нет в облаке'
-  };
-  const parts = Object.keys(section.counts || {})
-    .sort()
-    .map(k => (labels[k] || k) + ': ' + section.counts[k]);
-  return parts.length ? parts.join(' · ') : 'нет';
-}
-
-function renderFailedList(){
-  const box = document.getElementById('failed-list');
+// ── «Что не скачалось»: полный список по кнопке ────────────────────────────
+// В окне только кнопки: сам список может быть в десятки тысяч строк, поэтому
+// он не рисуется в интерфейсе, а сохраняется в файлы отчётов.
+async function buildFailedList(){
+  const btn = document.getElementById('failed-build-btn');
   const summary = document.getElementById('failed-summary');
-  const diskCount = document.getElementById('failed-disk-count');
-  const unlimCount = document.getElementById('failed-unlim-count');
-  if(!box || !_failedData) return;
-
-  const disk = _failedData.disk || {total: 0, counts: {}, items: []};
-  const unlim = _failedData.unlim || {total: 0, counts: {}, items: []};
-  if(diskCount) diskCount.textContent = disk.total;
-  if(unlimCount) unlimCount.textContent = unlim.total;
-
-  const section = _failedTab === 'unlim' ? unlim : disk;
-  if(summary){
-    summary.textContent = section.total
-      ? 'Всего: ' + section.total + ' — ' + _failedCountsText(section)
-      : 'Не скачанных файлов нет.';
-  }
-  if(!section.items.length){
-    box.innerHTML = '<div class="failed-empty">'
-      + (section.total ? 'Список пуст.' : 'Здесь пока пусто — всё скачано.')
-      + '</div>';
-    return;
-  }
-
-  const rows = section.items.map(it => {
-    const name = (_failedTab === 'disk' && it.url)
-      ? '<a class="failed-name link" href="#" data-url="' + esc(it.url)
-        + '" onclick="openFailedUrl(this.dataset.url);return false">'
-        + esc(it.name) + '</a>'
-      : '<div class="failed-name">' + esc(it.name) + '</div>';
-    const meta = [
-      it.date ? '📅 ' + esc(it.date) : '',
-      '📁 ' + esc(it.local_path),
-      it.size_text && it.size_text !== '—' ? esc(it.size_text) : '',
-      'попыток: ' + (it.attempts || 0)
-    ].filter(Boolean).join(' · ');
-    const err = '<div class="failed-err">' + esc(it.status_label)
-      + (it.error ? ': ' + esc(it.error) : '') + '</div>';
-    return '<div class="failed-row">' + name
-      + '<div class="failed-meta">' + meta + '</div>' + err + '</div>';
-  }).join('');
-
-  const more = section.total > section.items.length
-    ? '<div class="failed-more">Показаны первые ' + section.items.length
-      + ' из ' + section.total + '. Полный список — в TXT или CSV.</div>'
-    : '';
-  box.innerHTML = rows + more;
-}
-
-async function openFailedUrl(url){
+  if(btn) btn.disabled = true;
+  if(summary) summary.textContent = 'Собираю список… На большой базе это несколько секунд.';
   try{
-    const r = await fetch('/api/open_url', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url})
-    });
+    const r = await fetch('/api/failed/build', {method:'POST'});
     const d = await r.json();
-    if(!r.ok || !d.ok) toast(d.error || 'Не удалось открыть ссылку', 'err');
+    if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    const disk = (d.disk || {}).total || 0;
+    const unlim = (d.unlim || {}).total || 0;
+    if(summary){
+      summary.textContent = 'Готово: Обычный Диск — ' + disk + ', Безлимит — ' + unlim
+        + '. В папке отчётов лежат TXT, CSV, Excel и HTML.';
+    }
+    toast('Список собран: Диск — ' + disk + ', Безлимит — ' + unlim, 'ok');
   }catch(e){
-    toast('Нет связи с программой: ' + e.message, 'err');
-  }
-}
-
-async function exportFailed(fmt){
-  try{
-    toast('Готовлю список…', 'ok');
-    const r = await fetch('/api/failed/export?fmt=' + encodeURIComponent(fmt));
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    const blob = await r.blob();
-    const disposition = r.headers.get('Content-Disposition') || '';
-    const match = disposition.match(/filename="([^"]+)"/);
-    const name = match ? match[1] : (fmt === 'csv' ? 'failed.csv' : 'failed.txt');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    toast('Список сохранён: ' + name, 'ok');
-  }catch(e){
-    toast('Не удалось подготовить список: ' + e.message, 'err');
+    if(summary) summary.textContent = 'Не удалось собрать список: ' + e.message;
+    toast('Не удалось собрать список: ' + e.message, 'err');
+  }finally{
+    if(btn) btn.disabled = false;
   }
 }
 
@@ -8662,9 +8447,14 @@ function makeResizable(el, opts){
     const cs = getComputedStyle(el);
     const minH = parseFloat(cs.minHeight) || 120;
     const parent = wrap.parentElement || document.body;
+    // Журнал «Выполнение процесса» можно тянуть намного выше экрана:
+    // страница прокрутится, зато видно больше строк.
+    const maxH = el.id === 'pipeline-card'
+      ? Math.max(minH, 5000)
+      : Math.max(minH, Math.round(window.innerHeight * 0.85));
     return {
       minH: minH,
-      maxH: Math.max(minH, Math.round(window.innerHeight * 0.85)),
+      maxH: maxH,
       minW: Math.max(240, parseFloat(cs.minWidth) || 240),
       maxW: Math.max(320, parent.clientWidth - 8),
     };
@@ -8726,7 +8516,7 @@ makeResizable(document.getElementById('diag-output'), {axis: 'y'});
  'export-dirs-card', 'watchdog-card', 'access-card',
  'previews-card', 'picker-card', 'diag-report-card',
  'verify-card', 'failed-card', 'cloud-audit-card', 'reports-card',
- 'reset-queue-card', 'db-card', 'find-files-card', 'update-card'].forEach(id => {
+ 'reset-queue-card', 'db-card', 'find-files-card'].forEach(id => {
   makeResizable(document.getElementById(id), {axis: 'y', inline: true, key: id});
 });
 

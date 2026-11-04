@@ -268,7 +268,7 @@ def test_watchdog_is_a_compact_strip_between_the_folders_and_token():
 
 
 def test_settings_cards_are_merged_with_tabs():
-    """35.7.9: папки Диска/Безлимита и токен/куки — по одной карточке с вкладками."""
+    """35.9.2: токен/куки — одна карточка с вкладками; папки — рядом без вкладок."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     setup = _panel_html(html, "setup")
 
@@ -282,11 +282,12 @@ def test_settings_cards_are_merged_with_tabs():
     for field_id in ("disk-dir-input", "unlim-dir-input", "token-input", "cookies-input"):
         assert setup.count(f'id="{field_id}"') == 1, field_id
 
-    # Вкладки обеих карточек и переключение без путаницы с верхними .tab.
-    for tab in ('data-ctab="disk"', 'data-ctab="unlim"',
-                'data-ctab="token"', 'data-ctab="cookies"'):
+    # Вкладки остались только у карточки доступа; папки видны обе сразу.
+    for tab in ('data-ctab="token"', 'data-ctab="cookies"'):
         assert tab in setup
-    assert setup.count('role="tab"') >= 4
+    assert 'data-ctab="disk"' not in setup
+    assert 'data-ctab="unlim"' not in setup
+    assert setup.count('role="tab"') >= 2
     assert "function switchCardTab(cardId, name){" in html
     assert "card.querySelectorAll('.ctab-panel')" in html
     assert ".ctab-panel.active{display:block" in html
@@ -294,8 +295,7 @@ def test_settings_cards_are_merged_with_tabs():
     # Плашки ведут на нужную вкладку, иначе поле окажется в скрытой панели.
     assert "card:'access-card', tab:'token'" in html
     assert "card:'access-card', tab:'cookies'" in html
-    assert "card:'export-dirs-card', tab:'unlim'" in html
-    assert "card:'export-dirs-card', tab:'disk'" in html
+    assert "card:'export-dirs-card'" not in html
 
 
 def test_download_all_is_a_full_cycle_in_ui():
@@ -328,21 +328,32 @@ def test_exit_code_one_is_not_treated_as_user_stop():
     assert codes == [-15, -2, 143, 130, 15]
 
 
-def test_console_scroll_sticks_only_when_user_is_at_top():
-    """35.9.0: новые строки журнала сверху; журнал не прыгает при чтении старых."""
+def test_console_follows_bottom_without_jumping():
+    """35.9.2: новые строки внизу, автопрокрутка не срывает чтение старых."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     assert 'id="pipeline-console" tabindex="0"' in html
     assert "const CONSOLE_STICK_PX = 24;" in html
-    assert "_consoleStick[id] = consoleNearTop(el);" in html
+    assert "function consoleAtBottom(el)" in html
+    assert "_consoleStick[id] = consoleAtBottom(el);" in html
 
     marker = html.index("function setConsole(id, text){")
     body = html[marker : html.index("\n}\n", marker)]
     assert "const stick = _consoleStick[id] !== false;" in body
-    assert "text.split('\\n').reverse().join('\\n')" in body
-    assert "el.scrollTop = 0;" in body
-    # При чтении старых строк место сохраняется с поправкой на высоту.
-    assert "const added = el.scrollHeight - prevHeight;" in body
+    assert "const onlyAppended =" in body
+    assert "prevLines.every((line, i) => line === lines[i])" in body
+    assert "el.appendChild(frag)" in body
+    assert "el.replaceChildren(frag)" in body
+    assert "if(stick) el.scrollTop = el.scrollHeight;" in body
+    # Перевёрнутого журнала больше нет: старые строки сверху.
+    assert "reverse().join('\\n')" not in body
+    assert "el.scrollTop = 0;" not in body
+
+    # Строки раскрашиваются по типу операции.
+    for cls in ("function consoleLineClass(line)",
+                ".console-line.err{", ".console-line.warn{",
+                ".console-line.ok{", ".console-line.run{"):
+        assert cls in html, cls
 
 
 def test_backup_buttons_are_equal_and_lock_while_copying():
@@ -461,13 +472,26 @@ def test_cloud_sync_button_is_called_update_file_list():
     assert "Обходит облако и добавляет новые файлы. Ничего не скачивает." in html
 
 
-def test_update_card_can_install_from_the_app():
+def test_updates_open_from_the_header_button():
+    """35.9.2: «Обновления» — кнопка в шапке, прогресс — в окне «Что нового»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    for marker in ('id="update-install-btn"', 'id="update-apply-btn"',
-                   'id="update-progress-bar"', 'id="update-cancel-btn"'):
-        assert marker in html
+    # Карточки «Обновления» в «Диагностике» больше нет.
+    assert 'id="update-card"' not in html
+    assert 'id="update-check-btn"' not in html
+
+    # Кнопка стоит рядом с «Инструкцией» и «Написать» и открывает то же окно.
+    for marker in ('id="updates-btn"', 'onclick="openUpdateFromPill()"',
+                   'id="update-modal"', 'id="update-modal-progress"',
+                   'id="update-modal-bar"', 'id="update-modal-status"',
+                   'id="update-modal-action"', 'id="update-modal-close"'):
+        assert marker in html, marker
+
+    # Живой прогресс рисуется в окне, даже когда окно свернули (потом видно).
     assert "renderUpdate(s.update);" in html
+    assert "setUpdateModalState('downloading', u)" in html
+    assert "setUpdateModalState('ready', u)" in html
+    assert "setUpdateModalState('error', u)" in html
     assert "Установка из этой сборки недоступна" in html
 
 
@@ -708,11 +732,27 @@ def test_home_layout_has_no_empty_half():
 
     assert 'class="tab-grid" data-tab-grid="home"' in home
     assert ".tab-grid{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:start}" in html
-    left = home[home.index('class="tab-col" data-col="left"'):home.index('class="tab-col" data-col="right"')]
-    right = home[home.index('class="tab-col" data-col="right"'):]
+    left = home[home.index('class="tab-col" data-col="left"'):home.index('class="tab-col home-stats" data-col="right"')]
+    right = home[home.index('class="tab-col home-stats" data-col="right"'):]
     assert 'id="launch-all-card"' in left
     assert 'id="home-unlim-card"' in right
     assert 'id="pipeline-card"' in right
+    # Две плашки итогов снова стоят рядом, журнал — под ними во всю ширину.
+    assert ".tab-col.home-stats{display:grid;grid-template-columns:1fr 1fr;align-content:start}" in html
+    assert ".tab-col.home-stats > #pipeline-card{grid-column:1 / -1}" in html
+
+
+def test_home_title_lives_inside_the_quick_launch_card():
+    """35.9.2: заголовок переезжает вместе с карточкой быстрого запуска."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    home = _panel_html(html, "home")
+    card = home[home.index('id="launch-all-card"'):]
+    card = card[:card.index('id="launch-manual-card"')]
+
+    assert "Панель управления выгрузкой" in card
+    assert "Прямое скоростное скачивание оригиналов без прокси (Sergey Pukhir)" in card
+    # Отдельного заголовка над карточкой больше нет.
+    assert home.index('class="launch-head"') > home.index('id="launch-all-card"')
 
 
 def test_main_sets_utf8_stdout_before_scanning():
@@ -794,14 +834,17 @@ def test_pills_show_remaining_queue_and_report_is_collapsible():
     assert "showDiagnostics(d, true)" in html
 
 
-def test_update_download_button_is_one_shot():
-    """После скачивания остаётся только «Перезапустить и установить»."""
+def test_update_modal_button_is_one_shot():
+    """После скачивания окно предлагает только «Закрыть и обновить»."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert "install.style.display = 'none'; install.disabled = true;" in html
-    assert "const alreadyReady = _lastUpdate && _lastUpdate.state === 'ready';" in html
-    # В ошибке кнопку возвращаем — иначе обновление не повторить.
-    assert "if(install && u.version){" in html
+    assert "function setUpdateModalState(mode, u){" in html
+    # Во время скачивания кнопки «Скачать» нет, после — одна кнопка установки.
+    assert "action.style.display = 'none';" in html
+    assert "action.textContent = 'Закрыть и обновить';" in html
+    assert "action.style.display = u.can_install === false ? 'none' : '';" in html
+    # В ошибке кнопка возвращается — иначе обновление не повторить.
+    assert "action.textContent = 'Скачать ещё раз';" in html
 
 
 def test_waiting_files_banner_and_retry_now():
@@ -1113,12 +1156,14 @@ def test_console_follows_theme():
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     assert "--console-bg:#000000" in html
     assert "--console-bg:#fbfbfd" in html
-    start = html.index(".console{")
+    start = html.index("\n  .console{")
     chunk = html[start:start + 300]
     assert "background:var(--console-bg)" in chunk
     assert "color:var(--console-text)" in chunk
     # Литералов в самом блоке быть не должно — из-за них окно и чернело.
     assert "background:#000" not in chunk
+    # Рамка второго окошка журнала — тоже из переменной темы.
+    assert ".pipe-log{" in html and "background:var(--console-bg);" in html
 
 
 def test_start_button_text_is_visible_in_light_theme():
@@ -1138,7 +1183,7 @@ def test_home_stats_sit_above_the_log_in_header_order():
     """35.9.1: плашки итогов — в правой колонке, над журналом, Безлимит первым."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     home = _panel_html(html, "home")
-    right = home[home.index('class="tab-col" data-col="right"'):]
+    right = home[home.index('class="tab-col home-stats" data-col="right"'):]
 
     stats = right.index('id="home-unlim-card"')
     log = right.index('id="pipeline-card"')
@@ -1494,7 +1539,7 @@ def test_every_card_has_a_resize_grip_and_hover_line_is_thin():
         "profiles-card", "export-dirs-card", "watchdog-card", "access-card",
         "previews-card", "picker-card", "diag-report-card",
         "verify-card", "failed-card", "cloud-audit-card", "reports-card",
-        "reset-queue-card", "db-card", "find-files-card", "update-card",
+        "reset-queue-card", "db-card", "find-files-card",
     ]
     start = html.index("['home-unlim-card'")
     resize_list = html[start:html.index("].forEach", start)]
@@ -1724,7 +1769,9 @@ def test_cards_can_move_between_columns_in_all_four_tabs():
         chunk = _panel_html(html, panel)
         assert f'class="tab-grid" data-tab-grid="{panel}"' in chunk
         assert 'class="tab-col" data-col="left"' in chunk
-        assert 'class="tab-col" data-col="right"' in chunk
+        # На «Главной» правая колонка — сетка для двух плашек итогов.
+        right_cls = ("tab-col home-stats" if panel == "home" else "tab-col")
+        assert f'class="{right_cls}" data-col="right"' in chunk
         assert f"resetCardLayout('{panel}')" in chunk
 
     # Раскладка хранится по вкладке, тянется за ручку, а не за всё окно.
@@ -1783,25 +1830,70 @@ def test_find_files_offers_to_switch_download_folder():
     assert "saveDirSetting(" in html
 
 
-def test_export_folder_tabs_start_with_unlim():
-    """35.9.1: в «Папках выгрузки» сначала Безлимит, он же открыт по умолчанию."""
+def test_export_folders_are_side_by_side_without_tabs():
+    """35.9.2: Безлимит и Диск видны одновременно: слева Безлимит, справа Диск."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
     card = html[html.index('id="export-dirs-card"'):]
     card = card[:card.index('id="watchdog-card"')]
 
-    assert card.index('data-ctab="unlim"') < card.index('data-ctab="disk"')
-    assert 'class="ctab active" type="button" role="tab" aria-selected="true"' in card
-    assert 'class="ctab-panel active" data-ctab-panel="unlim"' in card
-    assert 'class="ctab-panel" data-ctab-panel="disk"' in card
+    # Вкладок больше нет — оба пути всегда на виду.
+    assert 'data-ctab="unlim"' not in card
+    assert 'data-ctab="disk"' not in card
+    assert 'class="dirs-grid"' in card
+    assert ".dirs-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}" in html
+    assert ".dir-row input{flex:1;min-width:0}" in html
+    assert "@media (max-width:900px){.dirs-grid{grid-template-columns:1fr}}" in html
+
+    # Слева — Безлимит, справа — Диск; у каждого своя кнопка сохранения.
+    assert card.index('id="unlim-dir-input"') < card.index('id="disk-dir-input"')
+    assert card.index("checkAndSaveDir('unlim')") < card.index("checkAndSaveDir('disk')")
+    assert card.count('Проверить и сохранить') == 2
+
+
+def test_drag_ghost_hides_its_own_handles():
+    """35.9.2: у клона карточки при переносе не видно вторых ⠿ и полоски."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+
+    assert ".card-drag-ghost .card-drag," in html
+    assert ".card-drag-ghost .resize-grip{display:none}" in html
+
+
+def test_cookies_pane_mirrors_token_pane():
+    """35.9.2: в куках тот же порядок, что у токена: авто → сохранённые → вручную."""
+    html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
+    setup = _panel_html(html, "setup")
+    token = setup[setup.index('id="token-details"'):]
+    cookies = setup[setup.index('id="cookie-fetch-area"'):]
+
+    # Автоматическое получение — сверху, ручное — в раскрывающемся блоке.
+    assert cookies.index('id="cookie-fetch-area"') < cookies.index('id="saved-cookies-card"')
+    assert cookies.index('id="saved-cookies-card"') < cookies.index('id="cookies-details"')
+    assert cookies.index('id="cookies-details"') < cookies.index('id="cookies-input"')
+    assert token.index('id="token-details"') < token.index('id="token-input"')
+
+    # Те же элементы управления, что у токена.
+    assert 'id="btn-cookie-fetch"' in cookies
+    assert 'onclick="testCookies()"' in cookies
+    assert 'onclick="saveCookies()"' in cookies
+    assert 'id="check-cookies"' in cookies
+    assert 'onclick="testToken()"' in token
+    assert 'id="check-token"' in token
 
 
 def test_pipeline_resizes_as_whole_card_and_grip_stops_at_corners():
     """35.9.1: тянется вся карточка журнала, полоска не выходит на скругления."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
-    assert "#pipeline-card{display:flex;flex-direction:column}" in html
-    assert "#pipeline-card #pipeline-console{flex:1 1 auto;" in html
-    assert "min-height:140px;max-height:none" in html
+    assert "#pipeline-card{display:flex;flex-direction:column;gap:12px}" in html
+    assert ".pipe-log .console{" in html
+    assert "flex:1 1 auto;min-height:140px;max-height:none;height:320px" in html
+    # Два отдельных окошка: состояние процесса и журнал.
+    assert 'class="pipe-pane pipe-current" id="pipeline-status-pane"' in html
+    assert 'class="pipe-pane pipe-log"' in html
+    assert "Журнал процесса" in html
+    # 35.9.2: журнал тянется вниз почти без ограничения (было 85% экрана).
+    assert "el.id === 'pipeline-card'" in html
+    assert "? Math.max(minH, 5000)" in html
     # Внутренний журнал отдельной ручкой больше не растягивается.
     assert "makeResizable(document.getElementById('pipeline-console')" not in html
     assert "[['home-unlim-card'" not in html
@@ -1822,21 +1914,24 @@ def test_card_borders_are_thicker_and_have_shadow():
     assert ".card:hover{border-color:var(--card-line-hover)}" in html
 
 
-def test_failed_files_card_lists_names_with_export_and_links():
-    """35.9.1: «Не скачалось» — имена, пути, дата и ссылка на Яндекс.Диск."""
+def test_failed_files_card_is_button_only_and_builds_reports():
+    """35.9.2: «Что не скачалось» — только кнопки, список уходит в файлы."""
     html = (PROJECT_DIR / "webui_assets" / "index.html").read_text(encoding="utf-8")
 
     assert 'id="failed-card"' in html
-    assert 'data-ftab="disk"' in html and 'data-ftab="unlim"' in html
-    assert 'id="failed-list"' in html and 'id="failed-summary"' in html
-    assert "onclick=\"exportFailed('txt')\"" in html
-    assert "onclick=\"exportFailed('csv')\"" in html
-    assert "function switchFailedTab(" in html
-    assert "async function loadFailedList(" in html
-    assert "function renderFailedList(" in html
-    assert "async function openFailedUrl(" in html
-    assert "async function exportFailed(" in html
-    # Ссылки открываются только после проверки адреса на сервере.
-    assert "fetch('/api/open_url'" in html
-    # Читаем список при входе на «Диагностику», без фонового опроса.
-    assert "if(name === 'diagnostics'){ loadFailedList(false); }" in html
+    assert 'id="failed-build-btn"' in html
+    assert "onclick=\"buildFailedList()\"" in html
+    assert 'id="failed-summary"' in html
+    assert "Открыть папку отчётов" in html
+
+    # Встроенного окна со списком и старых вкладок больше нет.
+    for old in ('id="failed-list"', 'data-ftab="disk"', 'data-ftab="unlim"'):
+        assert old not in html, old
+    for old_fn in ("function switchFailedTab(", "async function loadFailedList(",
+                   "function renderFailedList(", "async function openFailedUrl(",
+                   "async function exportFailed("):
+        assert old_fn not in html, old_fn
+
+    # Один запрос собирает TXT, CSV, XLSX и HTML разом.
+    assert "fetch('/api/failed/build'" in html
+    assert "function buildFailedList()" in html
